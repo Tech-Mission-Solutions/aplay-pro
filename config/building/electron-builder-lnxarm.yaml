@@ -1,6 +1,6 @@
-appId: app.freeshow
-productName: FreeShow
-artifactName: FreeShow-${version}-${arch}.${ext}
+appId: com.joinamazing.aplay-pro
+productName: AplayPro
+artifactName: APlayPro-${version}-${arch}.${ext}
 
 files:
     - build/electron/**
