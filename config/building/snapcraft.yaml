@@ -1,8 +1,8 @@
-name: freeshow
+name: aplaypro
 version: 1.4.9
-title: FreeShow
-summary: FreeShow
-description: Show song lyrics and more for free!
+title: AplayPro
+summary: AplayPro
+description: AplayPro song lyrics and more for free!
 platforms:
     amd64:
         build-on: amd64
