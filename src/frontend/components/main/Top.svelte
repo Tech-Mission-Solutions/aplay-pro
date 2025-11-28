@@ -92,7 +92,7 @@
     <div class="logo">
       <img
         style="height: 35px;"
-        src="/assets/aplay-pro-logo-large.svg"
+        src="/assets/aplay-pro-logo.png"
         alt="APlay Pro-logo"
         draggable={false}
       />
