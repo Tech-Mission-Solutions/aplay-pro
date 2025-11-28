@@ -75,6 +75,12 @@
   let settingsDisabled = false
   $: profile = $profiles[$activeProfile || ""]
   $: settingsDisabled = Object.keys(profile?.access.settings || {}).length > 7
+
+  // logo image loading state
+  let logoImageAvailable = true
+  function handleImageError() {
+    logoImageAvailable = false
+  }
 </script>
 
 <div class="top" class:drag={!isWindows}>
@@ -90,13 +96,17 @@
     <!-- logo -->
     <!-- <h1 style="align-self: center;width: 100%;padding: 0px 10px;text-align: center;font-size: 1.8em;">APlay Pro</h1> -->
     <div class="logo">
-      <img
-        style="height: 35px;"
-        src="/assets/aplay-pro-logo.png"
-        alt="APlay Pro-logo"
-        draggable={false}
-      />
-      <!-- <h1 style="color: var(--text);font-size: 1.7em;">APlay Pro</h1> -->
+      {#if logoImageAvailable}
+        <img
+          style="height: 35px;"
+          src="./import-logos/aplay-pro-logo.webp"
+          alt="APlay Pro-logo"
+          draggable={false}
+          on:error={handleImageError}
+        />
+      {:else}
+        <h1 style="color: var(--secondary);font-size: 1.7em;">APlay Pro</h1>
+      {/if}
     </div>
   </span>
   <span>
@@ -202,14 +212,14 @@
     background-color: var(--red);
   }
 
-  /* .logo {
+  .logo {
         display: flex;
         align-items: center;
-        justify-content: center;
-        padding: 0px 10px;
+        /* justify-content:  */
+        /* padding: 0px 10px; */
         width: 100%;
-        gap: 10px;
-    } */
+        /* gap: 10px; */
+    }
 
   @media screen and (max-width: 580px) {
     .top span:first-child {
