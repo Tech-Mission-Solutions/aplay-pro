@@ -2,7 +2,7 @@ name: Release
 on:
   push:
     branches:
-      - "aplay2"
+      - "aplay2-backup"
     tags:
       - "v*"
   workflow_dispatch:

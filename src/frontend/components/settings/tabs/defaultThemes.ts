@@ -18,8 +18,8 @@ export const defaultThemes: { [key: string]: Themes } = {
             "secondary-text": "#f0f0ff",
             secondary: "#54EB77",
             "secondary-opacity": "#54EB77",
-            hover: "#54EB77",
-            focus: "#54EB77",
+            hover: "rgb(255 255 255 / 0.15)",
+            focus: "rgb(255 255 255 / 0.2)",
         },
     },
     // dark: {
