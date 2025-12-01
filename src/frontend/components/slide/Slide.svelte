@@ -210,6 +210,13 @@
         if (newPath) thumbnailPath = newPath
     }
     async function download() {
+        // Check if this is content provider media with a thumbnail
+        const mediaData = $media[bgPath]
+        if (mediaData?.contentFile?.thumbnail) {
+            thumbnailPath = mediaData.contentFile.thumbnail
+            return
+        }
+        
         thumbnailPath = await downloadOnlineMedia(bgPath)
     }
 

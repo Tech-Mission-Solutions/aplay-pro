@@ -9,10 +9,17 @@
     import VideoShow from "../VideoShow.svelte"
 
     $: show = $activeShow
-
+    
+    let displayPath = ""
     $: if (show?.id.includes("http")) download()
     async function download() {
-        show!.id = await downloadOnlineMedia(show!.id)
+        // Check if this is content provider media with a thumbnail
+        const mediaData = $media[show!.id]
+        if (mediaData?.contentFile?.thumbnail) {
+            displayPath = mediaData.contentFile.thumbnail
+        } else {
+            displayPath = await downloadOnlineMedia(show!.id)
+        }
     }
 
     $: outputId = getActiveOutputs($outputs)[0]
@@ -47,9 +54,9 @@
                     }}
                 >
                     {#if mediaStyle.fit === "blur"}
-                        <Image style={mediaStyleBlurString} src={show.id} alt="" />
+                        <Image style={mediaStyleBlurString} src={displayPath || show.id} alt="" />
                     {/if}
-                    <Image style={mediaStyleString} src={show.id} alt={show.name || ""} />
+                    <Image style={mediaStyleString} src={displayPath || show.id} alt={show.name || ""} />
                 </HoverButton>
             </div>
         {/if}
