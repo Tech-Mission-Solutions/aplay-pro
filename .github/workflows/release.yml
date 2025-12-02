@@ -2,38 +2,35 @@ name: Release
 on:
   push:
     branches:
-      - "aplay2-backup"
+      - "aplay2-portable-builds"
     tags:
       - "v*"
   workflow_dispatch:
 
 jobs:
-  # publish_windows:
-  #   name: "Publish Windows"
-  #   runs-on: windows-latest
+  publish_windows:
+    name: "Publish Windows"
+    runs-on: windows-latest
 
-  #   steps:
-  #     - name: Check out Git repository
-  #       uses: actions/checkout@v4
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
 
-  #     - name: Install Node.js and NPM
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
+      - name: Install Node.js and NPM
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-  #     - name: Install dependencies
-  #       # npm ci is better, but requires package-lock.json file
-  #       run: npm install
+      - name: Install dependencies
+        # npm ci is better, but requires package-lock.json file
+        run: npm install
 
-  #     - name: Build and release app
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #         AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  #         AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  #         AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-  #       run: npm run release
+      - name: Build and release app
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release
 
-  # publish_linux:
+  publish_linux:
   #   name: "Publish Linux x64"
   #   runs-on: ubuntu-latest
 

@@ -8,27 +8,34 @@ artifactName: APlay-Pro-${version}-${arch}.${ext}
 #     mirror: https://github.com/castlabs/electron-releases/releases/download/
 
 files:
-    - build/electron/**
-    - build/types/**
-    - public/**
-    - "!node_modules/@napi-rs"
+  - build/electron/**
+  - build/types/**
+  - public/**
+  - "!node_modules/@napi-rs"
 
 extraResources:
-    - from: node_modules/slideshow/
-      to: slideshow
-      filter:
-          - connector-*
+  - from: node_modules/slideshow/
+    to: slideshow
+    filter:
+      - connector-*
 
 # windows
 
-# win:
-#     target: NSIS
-#     icon: build/public/icon.png
-#     azureSignOptions:
-#         publisherName: Live Church Solutions
-#         endpoint: https://wus2.codesigning.azure.net/
-#         certificateProfileName: FreeShow
-#         codeSigningAccountName: FreeShow
+win:
+  target:
+    - portable
+    - nsis
+  icon: build/public/icon.png
+  # Code signing certificate (optional - app works without it)
+  # certificateFile: ${CERT_FILE}
+  # certificatePassword: ${CERT_PASSWORD}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: APlayPro
 
 # linux
 
@@ -45,44 +52,44 @@ extraResources:
 # macos
 
 mac:
-    icon: build/public/icon.icns
-    target:
-        - target: dmg
-          arch:
-              - x64
-              - arm64
-        - target: zip
-          arch:
-              - x64
-              - arm64
-    category: public.app-category.utilities
-    hardenedRuntime: true
-    gatekeeperAssess: false
-    notarize: false
-    entitlements: scripts/macos/entitlements.mac.plist
-    entitlementsInherit: scripts/macos/entitlements.mac.plist
-    extendInfo:
-        NSMicrophoneUsageDescription: Please give access to your microphone if you want to use it for input.
-        NSCameraUsageDescription: Please give access to your camera if you want to use it for input.
-        com.apple.security.device.audio-input: true
-        com.apple.security.device.camera: true
+  icon: build/public/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.utilities
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: false
+  entitlements: scripts/macos/entitlements.mac.plist
+  entitlementsInherit: scripts/macos/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Please give access to your microphone if you want to use it for input.
+    NSCameraUsageDescription: Please give access to your camera if you want to use it for input.
+    com.apple.security.device.audio-input: true
+    com.apple.security.device.camera: true
 
 afterSign: scripts/macos/notarize.js
 
 dmg:
-    background: build/public/dmg.png
-    icon: build/public/icon.icns
-    iconSize: 80
-    window:
-      x: 100
-      y: 100
-      width: 512
-      height: 384
-    sign: false
-    contents:
-        - x: 140
-          y: 150
-        - x: 400
-          y: 150
-          type: link
-          path: /Applications
+  background: build/public/dmg.png
+  icon: build/public/icon.icns
+  iconSize: 80
+  window:
+    x: 100
+    y: 100
+    width: 512
+    height: 384
+  sign: false
+  contents:
+    - x: 140
+      y: 150
+    - x: 400
+      y: 150
+      type: link
+      path: /Applications
