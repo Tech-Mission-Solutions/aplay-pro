@@ -11,6 +11,8 @@ jobs:
   publish_windows:
     name: "Publish Windows"
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Check out Git repository
@@ -102,6 +104,8 @@ jobs:
   publish_mac:
     name: "Publish MacOS"
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Check out Git repository
