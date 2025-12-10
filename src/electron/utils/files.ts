@@ -219,7 +219,7 @@ export const dataFolderNames = {
 // Documents/FreeShow
 export function getDefaultDataFolderRoot() {
     const documentsPath = app.getPath("documents")
-    const appFolderName = "FreeShow"
+    const appFolderName = "APlayPro"
     return createFolder(path.join(documentsPath, appFolderName))
 }
 export function getDataFolderRoot() {
