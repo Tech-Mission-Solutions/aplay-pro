@@ -23,8 +23,8 @@
     export let index: number
     export let style: string
 
-    $: videoDuration = duration ? joinTime(secondsToTime(duration)) : null
     $: isVideo = background?.path ? videoExtensions.includes(getExtension(background.path)) : false
+    $: videoDuration = isVideo && duration ? joinTime(secondsToTime(duration)) : null
     $: muted = background?.muted !== false
     $: looping = background?.loop !== false
 

@@ -39,12 +39,12 @@
     --secondary-text: #f0f0ff;
     --transparent: #232530;
 
-    --accent: #90caf9;
+    --accent: #DCFF64;
 
     --connected: #54EB77;
-    --disconnected: #a82727;
+    --disconnected: #D80A14;
 
-    --red: rgb(255 0 0 / 0.25);
+    --red: #D80A14;;
 
     --hover: rgb(255 255 255 / 0.05);
     --focus: rgb(255 255 255 / 0.1);

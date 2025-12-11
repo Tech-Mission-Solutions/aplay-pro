@@ -240,9 +240,10 @@
         <MaterialButton on:click={() => contentProviderConnect("churchApps")} style="flex: 1;border-bottom: 2px solid var(--connected) !important;" icon="logout">
             <T id="settings.disconnect_from" replace={["ChurchApps"]} />
         </MaterialButton>
-        <MaterialButton icon="cloud_sync" on:click={syncContentProvider}>
+        <!-- Nothing to sync yet -->
+        <!-- <MaterialButton icon="cloud_sync" on:click={syncContentProvider}>
             <T id="cloud.sync" />
-        </MaterialButton>
+        </MaterialButton> -->
         <MaterialButton title="settings.sync_categories_tip" icon="options" on:click={() => activePopup.set("sync_categories")}>
             <T id="popup.sync_categories" />
         </MaterialButton>
