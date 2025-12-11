@@ -1,13 +1,30 @@
 name: Release
 on:
   push:
-    branches:
-      - "aplay2-backup"
     tags:
       - "v*"
   workflow_dispatch:
 
 jobs:
+  check_branch:
+    name: "Check if tag is on aplay2-backup branch"
+    runs-on: ubuntu-latest
+    outputs:
+      is_correct_branch: ${{ steps.check.outputs.result }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag is on aplay2-backup branch
+        id: check
+        run: |
+          if git branch -r --contains ${{ github.ref }} | grep -q "origin/aplay2-backup"; then
+            echo "result=true" >> $GITHUB_OUTPUT
+          else
+            echo "result=false" >> $GITHUB_OUTPUT
+          fi
   # publish_windows:
   #   name: "Publish Windows"
   #   runs-on: windows-latest
@@ -104,6 +121,8 @@ jobs:
 
   publish_mac:
     name: "Publish MacOS"
+    needs: check_branch
+    if: needs.check_branch.outputs.is_correct_branch == 'true'
     runs-on: macos-latest
 
     steps:
