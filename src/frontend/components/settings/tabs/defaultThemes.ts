@@ -6,7 +6,7 @@ export const defaultThemes: { [key: string]: Themes } = {
         default: true,
         font: {
             family: "",
-            size: "1em",
+            size: "1em"
         },
         colors: {
             primary: "#001E17",

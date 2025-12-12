@@ -3,6 +3,9 @@ version: 1.4.9
 title: APlay Pro
 summary: APlay Pro
 description: APlay Pro is a user-friendly presenter software customized for Amazing Life.
+license: GPL-3.0-or-later
+website:
+    - https://joinamazing.com
 platforms:
     amd64:
         build-on: amd64
@@ -48,6 +51,7 @@ apps:
         plugs:
             - alsa
             - audio-playback
+            - avahi-control
             - browser-support
             - camera
             - desktop

@@ -146,16 +146,7 @@
                     {#if mediaStyle.fit === "blur"}
                         <img src={type !== "video" && useOriginal ? (croppingActive ? croppedImage : encodeFilePath(path)) : thumbnailPath} alt={name} style={mediaStyleBlurString} loading="lazy" class:loading={!loaded} class="hideError" />
                     {/if}
-                    <img
-                        src={type !== "video" && useOriginal ? (croppingActive ? croppedImage : encodeFilePath(path)) : thumbnailPath}
-                        alt={name}
-                        style={mediaStyleString}
-                        loading="lazy"
-                        class:loading={!loaded}
-                        class:hideError={ghost}
-                        on:error={reload}
-                        on:load={() => (loaded = true)}
-                    />
+                    <img src={type !== "video" && useOriginal ? (croppingActive ? croppedImage : encodeFilePath(path)) : thumbnailPath} alt={name} style={mediaStyleString} loading="lazy" class:loading={!loaded} class:hideError={ghost} on:error={reload} on:load={() => (loaded = true)} />
                 {/key}
             {/if}
             {#if type === "video" && useOriginal && !ghost}

@@ -154,23 +154,7 @@
     <div class="background" />
 
     <div class="input-wrapper">
-        <input
-            bind:value={numberValue}
-            type="number"
-            {id}
-            {placeholder}
-            {disabled}
-            {autofocus}
-            {step}
-            min="0"
-            max="360"
-            class="input edit"
-            class:noValue={!numberValue}
-            on:keydown={handleKeyDown}
-            on:input={handleInput}
-            on:focus={togglePopup}
-            on:wheel={handleWheel}
-        />
+        <input bind:value={numberValue} type="number" {id} {placeholder} {disabled} {autofocus} {step} min="0" max="360" class="input edit" class:noValue={!numberValue} on:keydown={handleKeyDown} on:input={handleInput} on:focus={togglePopup} on:wheel={handleWheel} />
 
         <svg class="mini-indicator" viewBox="-8 -8 16 16">
             <circle r={miniRadius} stroke="var(--primary-lighter)" stroke-width="1" fill="none" />

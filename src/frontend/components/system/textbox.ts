@@ -37,8 +37,8 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
         const xItems = isResizing ? [directionId.includes("e") ? itemElem.offsetWidth : 0] : [0, itemElem.offsetWidth / 2, itemElem.offsetWidth]
         const yItems = isResizing ? [directionId.includes("s") ? itemElem.offsetHeight : 0] : [0, itemElem.offsetHeight / 2, itemElem.offsetHeight]
 
-            // get other items pos
-            ;[...(itemElem.closest(".slide").querySelectorAll(".item") || [])].filter((a) => !a.closest(".preview")).forEach(getItemLines)
+        // get other items pos
+        ;[...(itemElem.closest(".slide").querySelectorAll(".item") || [])].filter((a) => !a.closest(".preview")).forEach(getItemLines)
 
         function getItemLines(item: HTMLElement, i: number) {
             let id: number | string = i
@@ -65,10 +65,7 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
     function checkMatch(allLines: number[], items: number[], id: string, margin: number, isCenter = false) {
         const side = id.includes("x") ? "left" : "top"
 
-        const mousePos =
-            side === "left"
-                ? (e.clientX - itemElem.closest(".slide")?.offsetLeft - (itemElem.closest(".editArea") || itemElem.closest(".stageArea"))?.closest(".center")?.offsetLeft) / ratio
-                : (e.clientY - itemElem.closest(".slide")?.offsetTop - (itemElem.closest(".editArea") || itemElem.closest(".stageArea"))?.closest(".center")?.offsetTop) / ratio
+        const mousePos = side === "left" ? (e.clientX - itemElem.closest(".slide")?.offsetLeft - (itemElem.closest(".editArea") || itemElem.closest(".stageArea"))?.closest(".center")?.offsetLeft) / ratio : (e.clientY - itemElem.closest(".slide")?.offsetTop - (itemElem.closest(".editArea") || itemElem.closest(".stageArea"))?.closest(".center")?.offsetTop) / ratio
 
         const getNumber = (pos: any) => Number(pos?.toString().replace(/[^-0-9\.]+/g, ""))
         const boxPos = getNumber(styles[side])

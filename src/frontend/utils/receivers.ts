@@ -108,18 +108,17 @@ const receiveOUTPUTasMAIN: any = {
     RESTART: ({ id }) => restartOutputs(id),
     // DISPLAY: (a: any) => outputDisplay.set(a.enabled),
     OUTPUT_STATE: (newStates: { id: string; active: boolean | "invisible" }[]) => {
-
-        outputState.update(a => {
-            newStates.forEach(newState => {
-                const stateIndex = a.findIndex(state => state.id === newState.id)
+        outputState.update((a) => {
+            newStates.forEach((newState) => {
+                const stateIndex = a.findIndex((state) => state.id === newState.id)
                 if (stateIndex < 0) a.push(newState)
                 else a[stateIndex] = newState
             })
 
             // only enabled ones & not invisible
-            a = a.filter(state => get(outputs)[state.id]?.enabled && !get(outputs)[state.id]?.invisible)
+            a = a.filter((state) => get(outputs)[state.id]?.enabled && !get(outputs)[state.id]?.invisible)
 
-            const getVisibleState = [...new Set((a.filter(state => typeof state.active === "boolean").map((state) => state.active) as boolean[]))]
+            const getVisibleState = [...new Set(a.filter((state) => typeof state.active === "boolean").map((state) => state.active) as boolean[])]
             if (getVisibleState.length === 1) outputDisplay.set(getVisibleState[0])
 
             return a
@@ -220,7 +219,7 @@ const receiveOUTPUTasMAIN: any = {
     },
     MAIN_SHOWS_DATA: () => send(OUTPUT, ["SHOWS_DATA"], get(shows)),
     MAIN_SLIDE_VIDEO: (data: { id: string; path: string; data: any }) => {
-        slideVideoData.update(a => {
+        slideVideoData.update((a) => {
             if (!a[data.id]) a = { [data.id]: {} }
             a[data.id][data.path] = data.data
             return a

@@ -41,18 +41,7 @@
     $: isDefault = ["all", "favourites", "effects_library", "microphones", "audio_streams", "metronome"].includes(active || "")
     $: rootPath = isDefault || playlist ? "" : active !== null ? $audioFolders[active]?.path || "" : ""
     $: path = isDefault || playlist ? "" : rootPath
-    $: name =
-        active === "all"
-            ? "category.all"
-            : active === "favourites"
-              ? "category.favourites"
-              : active === "effects_library"
-                ? "category.sound_effects"
-                : rootPath === path
-                  ? active !== "microphones" && active !== "audio_streams" && active !== "metronome" && active !== null
-                      ? $audioFolders[active]?.name || ""
-                      : ""
-                  : splitPath(path).name
+    $: name = active === "all" ? "category.all" : active === "favourites" ? "category.favourites" : active === "effects_library" ? "category.sound_effects" : rootPath === path ? (active !== "microphones" && active !== "audio_streams" && active !== "metronome" && active !== null ? $audioFolders[active]?.name || "" : "") : splitPath(path).name
 
     // get list of files & folders
     let prevActive: null | string = null
@@ -211,7 +200,13 @@
     $: pathString = path.replace(rootPath, "").replace(name, "").replaceAll("\\", "/").split("/").filter(Boolean).join("/")
 
     let updater = 1
-    $: if (active) setTimeout(() => updater++, 500)
+    $: if (active) {
+        setTimeout(update, 500)
+        setTimeout(update, 2000) // double check
+    }
+    function update() {
+        updater++
+    }
 </script>
 
 <svelte:window on:keydown={keydown} />

@@ -94,7 +94,7 @@ export function convertText({ name = "", origin = "", category = null, text, noF
 
     // get ccli
     let ccli = ""
-    if (!Object.keys(plainTextMetadata).length && sections[sections.length - 1].includes("www.ccli.com")) {
+    if (!Object.keys(plainTextMetadata).length && sections[sections.length - 1]?.includes("www.ccli.com")) {
         ccli = sections.pop()!
     }
 
@@ -103,10 +103,10 @@ export function convertText({ name = "", origin = "", category = null, text, noF
     // find chorus phrase
     const patterns = findPatterns(sections)
     sections = patterns.sections
-    labeled = patterns.indexes.map((a, i) => ({ type: a, text: sections[i] }))
+    labeled = patterns.indexes.map((a, i) => ({ type: a, text: sections[i] || "" }))
     labeled = checkRepeats(labeled)
 
-    if (!name) name = plainTextMetadata.title || trimNameFromString(labeled[0].text)
+    if (!name) name = plainTextMetadata.title || trimNameFromString(labeled[0]?.text)
 
     const layoutID: string = uid()
     const show: Show = new ShowObj(false, category, layoutID)
@@ -341,6 +341,7 @@ function createSlides(labeled: { type: string; text: string }[], noFormatting) {
 
         // split slide notes from text ("---")
         const slideTextAndNotes = slideText.split("---")
+        if (!slideTextAndNotes[0]) return
 
         while (new Set(slideTextAndNotes[0].split("")).size === 1 && slideTextAndNotes[0][0] === "-") slideTextAndNotes.shift()
         let allLines: string[] = [slideTextAndNotes.shift() || ""]
@@ -367,6 +368,7 @@ function createSlides(labeled: { type: string; text: string }[], noFormatting) {
             if (!addedChildren[activeGroup.id]) addedChildren[activeGroup.id] = []
             addedChildren[activeGroup.id].push(...[id, ...children])
         } else {
+            if (!slides[id]) return
             if (children.length) slides[id].children = children
 
             layouts.push({ id })
@@ -495,9 +497,9 @@ function checkRepeats(labeled: { type: string; text: string }[]) {
             const repeatNumber = a.text.slice(match.index + 2, match.index + 4).replace(/[A-Z]/gi, "")
             // remove
             a.text = a.text.slice(0, match.index + 1) + a.text.slice(match.index + match[0].length + 1, a.text.length)
-                ;[...Array(Number(repeatNumber))].map(() => {
-                    newLabels.push(a)
-                })
+            ;[...Array(Number(repeatNumber))].map(() => {
+                newLabels.push(a)
+            })
         } else newLabels.push(a)
     })
     return newLabels

@@ -135,14 +135,14 @@ export class AudioAnalyser {
 
         const MERGER = AudioMultichannel.createChannelMerger(this.ac, this.channels)
 
-            // analyse left/right channels individually
-            ;[...Array(this.channels)].forEach((_, channel) => {
-                const analyser = (this.analysers[channel] = this.ac.createAnalyser())
-                analyser.smoothingTimeConstant = 0.85
-                analyser.fftSize = 256
-                this.splitter!.connect(analyser, channel)
-                this.splitter!.connect(MERGER, channel, channel)
-            })
+        // analyse left/right channels individually
+        ;[...Array(this.channels)].forEach((_, channel) => {
+            const analyser = (this.analysers[channel] = this.ac.createAnalyser())
+            analyser.smoothingTimeConstant = 0.85
+            analyser.fftSize = 256
+            this.splitter!.connect(analyser, channel)
+            this.splitter!.connect(MERGER, channel, channel)
+        })
 
         AudioAnalyserMerger.init()
     }
@@ -284,7 +284,7 @@ export class AudioAnalyser {
         // might only work in "main" for OutputShow
 
         this.recorder = new MediaRecorder(this.destNode!.stream, {
-            mimeType: 'audio/webm; codecs="opus"',
+            mimeType: 'audio/webm; codecs="opus"'
         })
         this.recorder.addEventListener("dataavailable", async (ev) => {
             const arrayBuffer = await ev.data.arrayBuffer()

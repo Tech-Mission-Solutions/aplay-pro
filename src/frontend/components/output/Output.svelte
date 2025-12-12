@@ -253,16 +253,12 @@
     $: cropping = currentOutput.cropping || currentStyle.cropping
 
     // values
-    $: backgroundColor = currentOutput.transparent ? "transparent" : styleTemplate?.settings?.backgroundColor || currentSlide?.settings?.color || currentStyle.background || "black"
+    $: backgroundColor = currentOutput.transparent ? "transparent" : styleTemplate?.settings?.backgroundColor || currentSlide?.settings?.color || currentStyle.background || slide?.settings?.backgroundColor || "black"
     $: messageText = $showsCache[slide?.id || ""]?.message?.text?.replaceAll("\n", "<br>") || ""
     // metadata display
     $: firstActiveSlideIndex = currentLayout.findIndex((a) => !a.data.disabled)
     $: lastActiveSlideIndex = currentLayout.length - 1 - [...currentLayout].reverse().findIndex((a) => !a.data.disabled)
-    $: displayMetadata =
-        metadata.value?.length &&
-        (metadata.display === "always" ||
-            (metadata.display?.includes("first") && (slide?.index === firstActiveSlideIndex || slide?.index === 0)) ||
-            (metadata.display?.includes("last") && (slide?.index === lastActiveSlideIndex || slide?.index === currentLayout.length - 1)))
+    $: displayMetadata = metadata.value?.length && (metadata.display === "always" || (metadata.display?.includes("first") && (slide?.index === firstActiveSlideIndex || slide?.index === 0)) || (metadata.display?.includes("last") && (slide?.index === lastActiveSlideIndex || slide?.index === currentLayout.length - 1)))
     // background image
     $: styleBackground = currentStyle?.clearStyleBackgroundOnText && (slide || background) ? "" : currentStyle?.backgroundImage || ""
     $: styleBackgroundData = { path: styleBackground, ...($media[styleBackground] || {}), loop: true }
@@ -303,20 +299,7 @@
     onDestroy(() => clearInterval(dynamicInterval))
 </script>
 
-<Zoomed
-    id={outputId}
-    background={backgroundColor}
-    checkered={(preview || mirror) && backgroundColor === "transparent"}
-    backgroundDuration={transitions.media?.type === "none" ? 0 : (transitions.media?.duration ?? 800)}
-    align={alignPosition}
-    center
-    {style}
-    {resolution}
-    {mirror}
-    {drawZoom}
-    {cropping}
-    bind:ratio
->
+<Zoomed id={outputId} background={backgroundColor} checkered={(preview || mirror) && backgroundColor === "transparent"} backgroundDuration={transitions.media?.type === "none" ? 0 : (transitions.media?.duration ?? 800)} align={alignPosition} center {style} {resolution} {mirror} {drawZoom} {cropping} bind:ratio>
     <!-- always show style background (behind other backgrounds) -->
     {#if styleBackground && actualSlide?.type !== "pdf"}
         <Background data={styleBackgroundData} {outputId} transition={transitions.media} {currentStyle} {slideFilter} {ratio} animationStyle={animationData.style?.background || ""} mirror styleBackground />
@@ -355,33 +338,13 @@
             {/if}
         </span>
     {:else if actualSlide && actualSlide?.type !== "pdf"}
-        <SlideContent
-            {outputId}
-            outSlide={actualSlide}
-            isClearing={isSlideClearing}
-            slideData={actualSlideData}
-            currentSlide={actualCurrentSlide}
-            {currentStyle}
-            {animationData}
-            currentLineId={actualCurrentLineId}
-            {lines}
-            {ratio}
-            {mirror}
-            {preview}
-            transition={transitions.text}
-            transitionEnabled={!mirror || preview}
-            {styleIdOverride}
-        />
+        <SlideContent {outputId} outSlide={actualSlide} isClearing={isSlideClearing} slideData={actualSlideData} currentSlide={actualCurrentSlide} {currentStyle} {animationData} currentLineId={actualCurrentLineId} {lines} {ratio} {mirror} {preview} transition={transitions.text} transitionEnabled={!mirror || preview} {styleIdOverride} />
     {/if}
 
     {#if layers.includes("overlays")}
         <!-- message -->
         {#if messageText}
-            <Metadata
-                value={messageText.includes("{") ? replaceDynamicValues(messageText, { showId: actualSlide?.id, layoutId: actualSlide?.layout, slideIndex: actualSlide?.index }, updateDynamic) : messageText}
-                style={metadata.messageStyle || ""}
-                transition={metadata.messageTransition || transitions.overlay}
-            />
+            <Metadata value={messageText.includes("{") ? replaceDynamicValues(messageText, { showId: actualSlide?.id, layoutId: actualSlide?.layout, slideIndex: actualSlide?.index }, updateDynamic) : messageText} style={metadata.messageStyle || ""} transition={metadata.messageTransition || transitions.overlay} />
         {/if}
 
         <!-- metadata -->

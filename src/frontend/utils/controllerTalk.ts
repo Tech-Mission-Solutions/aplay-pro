@@ -22,7 +22,7 @@ export const receiveCONTROLLER = {
                 clearSlide()
                 justCleared = setTimeout(() => (justCleared = null), 2000)
             },
-            clear_painting: () => clearPainting(),
+            clear_painting: () => clearPainting()
         }
 
         if (actions[data.id]) actions[data.id]()
@@ -58,7 +58,7 @@ export const receiveCONTROLLER = {
     },
     GET_OUTPUT_ID: () => {
         return { channel: "GET_OUTPUT_ID", data: get(serverData)?.output_stream?.outputId || getFirstOutput()?.id }
-    },
+    }
 }
 
 function clearPainting() {

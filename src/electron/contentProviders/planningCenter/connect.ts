@@ -34,7 +34,7 @@ export const DEFAULT_PCO_DATA: PCOAuthData = {
     token_type: "Bearer",
     created_at: 0,
     expires_in: 0,
-    scope: "services",
+    scope: "services"
 }
 
 const app = express()

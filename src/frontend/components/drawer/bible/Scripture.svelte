@@ -4,30 +4,16 @@
     import type { Verse } from "json-bible/lib/Bible"
     import type { VerseReference } from "json-bible/lib/reference"
     import { onMount } from "svelte"
+    import { sanitizeVerseText } from "../../../../common/scripture/sanitizeVerseText"
     import { defaultBibleBookNames } from "../../../converters/bebliaBible"
-    import {
-        activeEdit,
-        activeScripture,
-        activeTriggerFunction,
-        customScriptureBooks,
-        notFound,
-        openScripture,
-        outLocked,
-        outputs,
-        resized,
-        scriptureHistory,
-        scriptureHistoryUsed,
-        scriptureMode,
-        scriptures,
-        scriptureSettings,
-        selected
-    } from "../../../stores"
+    import { activeEdit, activeScripture, activeTriggerFunction, customScriptureBooks, notFound, openScripture, outLocked, outputs, resized, scriptureHistory, scriptureHistoryUsed, scriptureMode, scriptures, scriptureSettings, selected } from "../../../stores"
     import { translateText } from "../../../utils/language"
     import { clone } from "../../helpers/array"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
     import FloatingInputs from "../../input/FloatingInputs.svelte"
     import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import MaterialCheckbox from "../../inputs/MaterialCheckbox.svelte"
     import TextInput from "../../inputs/TextInput.svelte"
     import Loader from "../../main/Loader.svelte"
     import Center from "../../system/Center.svelte"
@@ -54,6 +40,101 @@
     // auto load scriptures when changed
     // timeout is to load drawer tab "instantly", before loading scripture
     $: setTimeout(() => loadScripture(previewBibleId), 10)
+
+    // Load all scriptures in collection for multi-version display
+    $: if (isCollection) {
+        activeScriptures.forEach((id) => {
+            if (id && !data[id]) {
+                loadScriptureForCollection(id)
+            }
+        })
+    }
+
+    async function loadScriptureForCollection(id: string) {
+        if (!id || data[id]) return
+        try {
+            const jsonBible = await loadJsonBible(id)
+            if (!jsonBible) return
+
+            data[id] = { bibleData: jsonBible }
+            data = data // trigger reactivity
+        } catch (err) {
+            console.error("Error loading collection scripture:", id, err)
+        }
+    }
+
+    async function loadCollectionBookChapter() {
+        if (!isCollection || !activeReference.book || !activeReference.chapters.length) return
+
+        for (const scriptureId of activeScriptures) {
+            if (scriptureId === previewBibleId) continue
+            const scriptureData = data[scriptureId]
+            if (!scriptureData?.bibleData) continue
+
+            try {
+                if (!scriptureData.bookData) {
+                    scriptureData.bookData = await scriptureData.bibleData.getBook(activeReference.book)
+                }
+                if (!scriptureData.chapterData && scriptureData.bookData) {
+                    scriptureData.chapterData = await scriptureData.bookData.getChapter(Number(activeReference.chapters[0]))
+                }
+                data = data
+            } catch (err) {
+                console.error("Error loading collection book/chapter:", scriptureId, err)
+            }
+        }
+    }
+
+    // Trigger loading book/chapter for all collection scriptures when reference changes
+    $: if (isCollection && activeReference.book && activeReference.chapters.length) loadCollectionBookChapter()
+
+    const GOLDEN_ANGLE = 137.508
+    const BASE_HUE = 330
+    function getVersionColor(index: number): string {
+        const hue = (BASE_HUE + index * GOLDEN_ANGLE) % 360
+        return `hsl(${hue}, 75%, 65%)`
+    }
+    function getVersionBgColor(index: number): string {
+        const hue = (BASE_HUE + index * GOLDEN_ANGLE) % 360
+        return `hsla(${hue}, 70%, 50%, 0.12)`
+    }
+
+    // Get verses for all scriptures in a collection
+    function getCollectionVerses(verseId: string | number): { id: string; name: string; text: string; isSplit: boolean }[] {
+        if (!isCollection) return []
+
+        const { id, subverse } = getVerseIdParts(verseId)
+        const isSplit = subverse > 0
+        const chars = Number($scriptureSettings.longVersesChars || 100)
+
+        return activeScriptures
+            .map((scriptureId) => {
+                const scriptureData = data[scriptureId]
+                const scriptureMeta = $scriptures[scriptureId]
+                const name = scriptureMeta?.customName || scriptureMeta?.name || scriptureId
+
+                if (!scriptureData?.chapterData) {
+                    return { id: scriptureId, name, text: "", isSplit: false }
+                }
+
+                try {
+                    const verse = scriptureData.chapterData.getVerse(id)
+                    const fullText = verse.getHTML() || verse?.data?.text || ""
+
+                    if (isSplit && fullText) {
+                        const splitParts = splitText(fullText, chars)
+                        if (splitParts.length > 1) {
+                            return { id: scriptureId, name, text: splitParts[subverse - 1] || "", isSplit: true }
+                        }
+                    }
+
+                    return { id: scriptureId, name, text: fullText, isSplit: false }
+                } catch {
+                    return { id: scriptureId, name, text: "", isSplit: false }
+                }
+            })
+            .filter((v) => v.text)
+    }
 
     $: isActiveInOutput = outputIsScripture($outputs)
 
@@ -92,8 +173,38 @@
     // category color / abbreviation data
     $: booksData = currentBibleData?.bibleData?.getBooksData() || []
 
+    // Check if any translation in collection supports splitting for verses
+    function checkCollectionSplitSupport(): { [verseNumber: number]: number } {
+        if (!isCollection || !$scriptureSettings.splitLongVerses || !verses) return {}
+
+        const chars = Number($scriptureSettings.longVersesChars || 100)
+        const splitCounts: { [verseNumber: number]: number } = {}
+
+        activeScriptures.forEach((scriptureId) => {
+            const chapterData = data[scriptureId]?.chapterData
+            if (!chapterData) return
+
+            verses.forEach((verse) => {
+                try {
+                    const verseObj = chapterData.getVerse(verse.number)
+                    const fullText = verseObj.getHTML() || verseObj?.data?.text || ""
+                    if (!fullText) return
+
+                    const splitParts = splitText(fullText, chars)
+                    if (splitParts.length > 1) {
+                        splitCounts[verse.number] = Math.max(splitCounts[verse.number] || 0, splitParts.length)
+                    }
+                } catch {}
+            })
+        })
+
+        return splitCounts
+    }
+
+    $: collectionSplitCounts = isCollection && $scriptureSettings.splitLongVerses ? checkCollectionSplitSupport() : {}
+
     let splittedVerses: (Verse & { id: string })[] = []
-    $: splittedVerses = updateSplitted(verses, $scriptureSettings)
+    $: splittedVerses = updateSplitted(verses, $scriptureSettings, collectionSplitCounts)
 
     let apiError = false
 
@@ -108,6 +219,8 @@
 
         try {
             const jsonBible = await loadJsonBible(id)
+            if (!jsonBible) return
+
             data[id] = { bibleData: jsonBible }
         } catch (err) {
             console.error(err)
@@ -118,19 +231,26 @@
         openBook()
     }
 
-    function updateSplitted(verses: Verse[] | null, _updater: any) {
+    // WIP similar to getSplittedVerses in scripture.ts
+    function updateSplitted(verses: Verse[] | null, _updater: any, collectionSplitCounts: { [verseNumber: number]: number } = {}) {
         if (!verses) return []
-        if (!$scriptureSettings.splitLongVerses) return verses.map((verse) => ({ ...verse, id: verse.number.toString() + (verse.endNumber ? "-" + verse.endNumber : "") }))
+        if (!$scriptureSettings.splitLongVerses) return verses.map((verse) => ({ ...verse, id: (verse.number || "").toString() + (verse.endNumber ? "-" + verse.endNumber : "") }))
 
         const chars = Number($scriptureSettings.longVersesChars || 100)
         const newVerses: (Verse & { id: string })[] = []
         verses.forEach((verse) => {
-            const newVerseStrings = splitText(verse.text, chars)
+            const sanitizedVerse = sanitizeVerseText(verse.text)
+            const newVerseStrings = splitText(sanitizedVerse, chars)
             const end = verse.endNumber ? `-${verse.endNumber}` : ""
+            const numParts = Math.max(newVerseStrings.length, collectionSplitCounts[verse.number] || 0)
 
-            for (let i = 0; i < newVerseStrings.length; i++) {
-                const key = newVerseStrings.length === 1 ? "" : `_${i + 1}`
-                newVerses.push({ ...verse, id: verse.number + key + end, text: newVerseStrings[i] })
+            if (numParts > 1) {
+                for (let i = 0; i < numParts; i++) {
+                    const text = newVerseStrings[i] || (i === 0 ? newVerseStrings[0] || verse.text : "")
+                    newVerses.push({ ...verse, id: `${verse.number}_${i + 1}${end}`, text })
+                }
+            } else {
+                newVerses.push({ ...verse, id: `${verse.number}${end}`, text: newVerseStrings[0] || verse.text })
             }
         })
 
@@ -146,7 +266,7 @@
 
     function toggleChapter(e: any, id: string) {
         if (e.ctrlKey || e.metaKey) {
-            if (activeReference.chapters.find((cid) => cid.toString() === id)) {
+            if (activeReference.chapters.find((cid) => cid?.toString() === id)) {
                 // remove chapter
                 const newChapters = activeReference.chapters.filter((cid) => cid.toString() !== id)
                 const newVerses = activeReference.verses.filter((_, i) => i < newChapters.length)
@@ -301,11 +421,16 @@
         previousSelection = clone(selectedVerses[selectedVerses.length - 1])
 
         isSelected = true
-        setTimeout(() => (isSelected = false), 20)
+        setTimeout(() => (isSelected = false), 100)
 
         const keys = e.ctrlKey || e.metaKey || e.shiftKey
-        if (keys || !selectedVerses[selectedVerses.length - 1]?.find((a) => a.toString() === verseNumber || a === getVerseId(verseNumber))) {
+        if (keys || !selectedVerses[selectedVerses.length - 1]?.find((a) => a && (a.toString() === verseNumber || a === getVerseId(verseNumber)))) {
             selectedVerses[selectedVerses.length - 1] = scriptureRangeSelect(e, selectedVerses[selectedVerses.length - 1], verseNumber, splittedVerses)
+
+            // deselecting a verse
+            if (!selectedVerses[selectedVerses.length - 1]?.find((id) => id.toString() === verseNumber)) {
+                previousSelection = clone(selectedVerses[selectedVerses.length - 1])
+            }
         }
 
         // drop action (create slide/show from drag&drop)
@@ -314,6 +439,7 @@
         return selectedVerses
 
         function getVerseId(verseRef: number | string) {
+            if (!verseRef) return 1
             return Number(verseRef.toString().split("_")[0])
         }
     }
@@ -586,6 +712,8 @@
 
         if (!e.ctrlKey && !e.metaKey) return
 
+        // Ctrl+N Converts to show (shortcuts.ts)
+
         // Refresh
         if (e.key === "r") {
             if (!isActiveInOutput) return
@@ -760,14 +888,7 @@
                                 {@const name = $scriptureMode === "grid" ? booksData[i]?.abbreviation : $customScriptureBooks[previewBibleId]?.[i] || book.name}
                                 {@const isActive = activeReference.book?.toString() === id}
 
-                                <span
-                                    {id}
-                                    class={isApi || isCollection || !Object.values(defaultBibleBookNames).includes(book.name) ? "" : "context #bible_book_local"}
-                                    class:isActive
-                                    style="{color ? `border-${$scriptureMode === 'grid' ? 'bottom' : 'left'}: 2px solid ${color};` : ''}{$scriptureMode === 'grid' ? 'border-radius: 2px;' : ''}"
-                                    on:click={() => openBook(id)}
-                                    role="none"
-                                >
+                                <span {id} class={isApi || isCollection || !Object.values(defaultBibleBookNames).includes(book.name) ? "" : "context #bible_book_local"} class:isActive style="{color ? `border-${$scriptureMode === 'grid' ? 'bottom' : 'left'}: 2px solid ${color};` : ''}{$scriptureMode === 'grid' ? 'border-radius: 2px;' : ''}" on:click={() => openBook(id)} role="none">
                                     {name}
                                 </span>
                             {/each}
@@ -805,9 +926,11 @@
                             {#each splittedVerses as content}
                                 {@const { id, subverse, endNumber } = getVerseIdParts(content.id)}
                                 {@const showSplitSuffix = $scriptureSettings.splitLongVersesSuffix}
-                                {@const verseLabel = buildVerseLabel(id, subverse, endNumber, showSplitSuffix)}
+                                {@const showSuffixInPicker = $scriptureMode === "grid" || (isCollection && $scriptureSettings.showAllVersions) ? true : showSplitSuffix}
+                                {@const verseLabel = buildVerseLabel(id, subverse, endNumber, showSuffixInPicker)}
                                 {@const isActive = activeReference.verses[activeReference.verses.length - 1]?.find((vid) => vid.toString() === content.id || vid.toString() === id.toString())}
-                                {@const text = formatBibleText(content.text, true)}
+                                {@const text = formatBibleText(content.text, true) || (isCollection ? '<span style="opacity: 0.6; font-size: 0.85em; margin: 0; padding: 0;">~</span>' : "")}
+                                {@const collectionVerses = $scriptureSettings.showAllVersions && isCollection && $scriptureMode !== "grid" ? getCollectionVerses(content.id) : []}
 
                                 <!-- custom drag -->
                                 <span
@@ -815,6 +938,7 @@
                                     class="verse"
                                     class:showAllText={$resized.rightPanelDrawer <= 5}
                                     class:isActive
+                                    class:collection-verse={isCollection && $scriptureMode !== "grid"}
                                     data-title="{text}<br><br>{translateText('tooltip.scripture')}"
                                     draggable="true"
                                     on:mousedown={(e) => openVerse(updateVersesSelection(e, content.id))}
@@ -823,14 +947,29 @@
                                     on:dblclick={(e) => (isActiveInOutput && !e.ctrlKey && !e.metaKey ? false : playScripture())}
                                     role="none"
                                 >
-                                    <span class="v" style={endNumber && subverse && showSplitSuffix ? "width: 60px;" : ""}>
-                                        {verseLabel.base}
-                                        <!-- WIP style position not very good -->
-                                        {#if verseLabel.suffix}<span style="padding: 0;color: var(--text);opacity: 0.5;font-size: 0.8em;">{verseLabel.suffix}</span>{/if}
-                                    </span>
+                                    <span class="v" style={endNumber && subverse && showSuffixInPicker ? "width: 60px;" : ""}
+                                        >{verseLabel.base}{#if verseLabel.suffix}<span style="padding: 0;color: var(--text);opacity: 0.5;font-size: 0.8em;">{verseLabel.suffix}</span>{/if}</span
+                                    >
 
                                     {#if $scriptureMode !== "grid"}
-                                        {@html text}
+                                        {#if isCollection && $scriptureSettings.showAllVersions}
+                                            <!-- Show all versions for collections -->
+                                            <div class="collection-versions">
+                                                {#each collectionVerses as cv, cvIndex}
+                                                    <div class="version-item" style="--version-color: {getVersionColor(cvIndex)}; --version-bg: {getVersionBgColor(cvIndex)}">
+                                                        <span class="version-text">
+                                                            <!-- && cv.text !== collectionVerses.reduce((acc, v) => acc + v.text, "") -->
+                                                            {#if cv.isSplit}
+                                                                <span style="opacity: 0.6; font-size: 0.85em; margin: 0; padding: 0;">~</span>
+                                                            {/if}
+                                                            {@html formatBibleText(cv.text, true)}
+                                                        </span>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                        {:else}
+                                            {@html text}
+                                        {/if}
                                     {/if}
                                 </span>
                             {/each}
@@ -852,16 +991,13 @@
 
 {#if $scriptureMode !== "grid"}
     <FloatingInputs side="left">
-        <span style="flex: 1;padding: 0 10px;display: flex;gap: 5px;align-items: center;{isCollection ? 'padding-left: 0;' : ''}">
+        <span class="version" style={isCollection && $scriptureSettings.showAllVersions === false ? "padding-left: 0;" : ""}>
             {#if previewBibleData?.name}
                 <!-- swap translation preview in collections -->
-                {#if isCollection}
-                    <MaterialButton
-                        icon="refresh"
-                        on:click={() => swapPreviewBible(activeScriptureId)}
-                        title={$scriptures[activeScriptures[(previewBibleIndex + 1) % activeScriptures.length]]?.name || ""}
-                        style="padding-right: 0.2em;font-weight: normal;"
-                    >
+                {#if isCollection && $scriptureSettings.showAllVersions}
+                    <!--  -->
+                {:else if isCollection}
+                    <MaterialButton icon="refresh" on:click={() => swapPreviewBible(activeScriptureId)} title={$scriptures[activeScriptures[(previewBibleIndex + 1) % activeScriptures.length]]?.name || ""} style="padding-right: 0.2em;font-weight: normal;">
                         {#if isApi}<Icon id="web" style="margin: 0 5px;" size={0.8} white />{/if}
                         {previewBibleData.name}:
                     </MaterialButton>
@@ -872,6 +1008,17 @@
 
                 {#key data}
                     {reference}
+
+                    {#if isCollection}
+                        <MaterialCheckbox
+                            label="scripture.show_all"
+                            checked={$scriptureSettings.showAllVersions}
+                            on:change={(e) => {
+                                scriptureSettings.update((s) => ({ ...s, showAllVersions: e.detail }))
+                            }}
+                            small
+                        />
+                    {/if}
 
                     <!-- WIP had some issues with selecting multiple verses -->
                     <!-- !NaN = temp solution to split long verses -->
@@ -891,18 +1038,10 @@
 {:else if $scriptureMode !== "grid" || $resized.rightPanelDrawer > 5}
     <FloatingInputs arrow let:open>
         {#if open || isActiveInOutput}
-            <MaterialButton
-                disabled={activeReference.book?.toString() === "1" && !!activeReference.chapters.find((a) => a.toString() === "1") && !!activeReference.verses[0]?.find((a) => a.toString() === "1")}
-                title="{translateText('preview._previous_slide')} [Ctrl+Arrow Left]"
-                on:click={() => _moveSelection(true)}
-            >
+            <MaterialButton disabled={activeReference.book?.toString() === "1" && !!activeReference.chapters.find((a) => a.toString() === "1") && !!activeReference.verses[0]?.find((a) => a.toString() === "1")} title="{translateText('preview._previous_slide')} [Ctrl+Arrow Left]" on:click={() => _moveSelection(true)}>
                 <Icon size={1.3} id="previous" white={!isActiveInOutput} />
             </MaterialButton>
-            <MaterialButton
-                disabled={activeReference.book?.toString() === books?.length.toString() && activeReference.chapters.includes(chapters ? chapters.length : 1) && activeReference.verses[0]?.includes(verses ? verses.length : 1)}
-                title="{translateText('preview._next_slide')} [Ctrl+Arrow Right]"
-                on:click={() => _moveSelection(false)}
-            >
+            <MaterialButton disabled={activeReference.book?.toString() === books?.length.toString() && activeReference.chapters.includes(chapters ? chapters.length : 1) && activeReference.verses[0]?.includes(verses ? verses.length : 1)} title="{translateText('preview._next_slide')} [Ctrl+Arrow Right]" on:click={() => _moveSelection(false)}>
                 <Icon size={1.3} id="next" white={!isActiveInOutput} />
             </MaterialButton>
         {/if}
@@ -1101,6 +1240,11 @@
 
         font-weight: 600;
     }
+    .grid .verses .v span {
+        display: inline;
+        flex: none;
+        min-width: 0;
+    }
     .grid .books span {
         min-width: 52px;
     }
@@ -1108,5 +1252,58 @@
     .grid .verses {
         color: var(--secondary);
         font-weight: bold;
+    }
+
+    /* Version */
+
+    .version {
+        flex: 1;
+        padding: 0 10px;
+        display: flex;
+        gap: 5px;
+        align-items: center;
+    }
+
+    /* Collection multi-version display */
+    .verse.collection-verse {
+        display: block !important;
+        flex: none !important;
+        height: auto !important;
+        min-height: 0 !important;
+        padding: 2px 10px 2px 0 !important;
+        margin: 0 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+    }
+
+    .collection-versions {
+        display: block !important;
+        width: 100%;
+        padding: 0 !important;
+        margin: 2px 0 0 0 !important;
+    }
+
+    .version-item {
+        display: block !important;
+        padding: 3px 6px 3px 8px !important;
+        margin: 0 0 2px 0 !important;
+        border-left: 4px solid var(--version-color, var(--secondary));
+        background: var(--version-bg, transparent);
+        border-radius: 0 4px 4px 0;
+        line-height: 1.2;
+    }
+
+    .version-item:last-child {
+        margin-bottom: 0 !important;
+    }
+
+    .version-text {
+        display: inline !important;
+        font-size: 0.9em;
+        line-height: 1.2;
+        font-weight: normal;
+        padding: 0 !important;
+        margin: 0 !important;
     }
 </style>

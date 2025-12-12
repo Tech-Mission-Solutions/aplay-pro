@@ -35,7 +35,7 @@ export function createRepeatedEvents(event: Event, onlyMissing = false) {
             }
             return newMonth
         },
-        year: () => [currentFromDate.getFullYear() + Number(data.count), currentToDate.getFullYear() + Number(data.count)],
+        year: () => [currentFromDate.getFullYear() + Number(data.count), currentToDate.getFullYear() + Number(data.count)]
     }
 
     // get dates array

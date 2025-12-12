@@ -13,7 +13,7 @@ import { ToMain } from "../../types/IPC/ToMain"
 import type { FileData, MainFilePaths, Subtitle } from "../../types/Main"
 import type { Show, TrimmedShows } from "../../types/Show"
 import { imageExtensions, mimeTypes, videoExtensions } from "../data/media"
-import { _store, config, getStore } from "../data/store"
+import { _store, appDataPath, config, getStore } from "../data/store"
 import { createThumbnail } from "../data/thumbnails"
 import { sendMain, sendToMain } from "../IPC/main"
 import { OutputHelper } from "../output/OutputHelper"
@@ -27,6 +27,8 @@ function actionComplete(err: Error | null, actionFailedMessage: string) {
 // GENERAL
 
 export function doesPathExist(filePath: string): boolean {
+    if (!filePath) return false
+
     try {
         return fs.existsSync(filePath)
     } catch (err) {
@@ -165,7 +167,10 @@ export function makeDir(folderPath: string) {
 }
 
 export function getValidFileName(filePath: string) {
-    return filePath.replace(/[/\\?%*:|"<>]/g, "").replace(/\s+/g, " ").trim()
+    return filePath
+        .replace(/[/\\?%*:|"<>]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
 }
 
 // SELECT DIALOGS
@@ -218,7 +223,9 @@ export const dataFolderNames = {
 
 // Documents/FreeShow
 export function getDefaultDataFolderRoot() {
-    const documentsPath = app.getPath("documents")
+    const documentsPath = getMediaFolderPath("documents")
+    if (!documentsPath) return appDataPath
+
     const appFolderName = "APlayPro"
     return createFolder(path.join(documentsPath, appFolderName))
 }
@@ -280,23 +287,21 @@ export function loadFile(filePath: string, contentId = "") {
 
 export function getPaths() {
     const paths: MainFilePaths = {
-        // documents: app.getPath("documents"),
-        pictures: app.getPath("pictures"),
-        videos: app.getPath("videos"),
-        music: app.getPath("music")
+        // documents: getMediaFolderPath("documents"),
+        pictures: getMediaFolderPath("pictures"),
+        videos: getMediaFolderPath("videos"),
+        music: getMediaFolderPath("music")
     }
 
     return paths
 }
-
-const tempPaths = ["temp"]
-export function getTempPaths() {
-    const paths: { [key: string]: string } = {}
-    tempPaths.forEach((pathId: string) => {
-        paths[pathId] = app.getPath(pathId as "temp")
-    })
-
-    return paths
+function getMediaFolderPath(name: Parameters<typeof app.getPath>[0]): string {
+    try {
+        return app.getPath(name)
+    } catch (err) {
+        console.warn(`Failed to get '${name}' path:`, err)
+        return ""
+    }
 }
 
 // READ_FOLDER
@@ -488,20 +493,21 @@ async function extractCodecInfo(data: { path: string }): Promise<{ path: string;
     return new Promise((resolve) => {
         try {
             const buffer = fs.readFileSync(data.path)
-            const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+            const uint8Array = new Uint8Array(buffer)
+            const arrayBuffer: any = uint8Array.buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength)
+            if (!arrayBuffer) return resolve({ ...data, codecs: [], mimeType: getMimeType(data.path), mimeCodec: "" })
 
             const mp4boxfile = MP4Box.createFile()
             mp4boxfile.onError = (err: Error) => console.error("MP4Box error:", err)
-            mp4boxfile.onReady = (info: { tracks: { codec: string }[];[key: string]: any }) => {
+            mp4boxfile.onReady = (info: { tracks: { codec: string }[]; [key: string]: any }) => {
                 const codecs = info.tracks.map((track: { codec: string }) => track.codec)
                 const mimeType = getMimeType(data.path)
                 const mimeCodec = `${mimeType}; codecs="${codecs.join(", ")}"`
                 resolve({ ...data, codecs, mimeType, mimeCodec })
             }
 
-            const ab: any = arrayBuffer
-            ab.fileStart = 0
-            mp4boxfile.appendBuffer(ab)
+            arrayBuffer.fileStart = 0
+            mp4boxfile.appendBuffer(arrayBuffer)
             mp4boxfile.flush()
         } catch (err) {
             console.error("MP4Box error catch:", err)
@@ -527,13 +533,17 @@ export function getMediaTracks(data: { path: string }) {
 async function extractSubtitles(data: { path: string }): Promise<{ path: string; tracks: Subtitle[] }> {
     const MP4Box = require("mp4box")
 
-    let arrayBuffer: ArrayBuffer
+    let arrayBuffer: any
     try {
-        arrayBuffer = new Uint8Array(fs.readFileSync(data.path)).buffer
+        const buffer = fs.readFileSync(data.path)
+        const uint8Array = new Uint8Array(buffer)
+        arrayBuffer = uint8Array.buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength)
     } catch (err) {
         console.error(err)
         return { ...data, tracks: [] }
     }
+
+    if (!arrayBuffer) return { ...data, tracks: [] }
 
     return new Promise((resolve) => {
         const mp4boxfile = MP4Box.createFile()
@@ -585,7 +595,8 @@ async function extractSubtitles(data: { path: string }): Promise<{ path: string;
             })
         }
 
-        mp4boxfile.appendBuffer({ ...arrayBuffer, fileStart: 0 })
+        arrayBuffer.fileStart = 0
+        mp4boxfile.appendBuffer(arrayBuffer)
         mp4boxfile.flush()
     })
 }
@@ -708,7 +719,7 @@ export function bundleMediaFiles() {
         if (!show) return
 
         // media backgrounds & audio
-        Object.values(show.media).forEach((media) => {
+        Object.values(show.media || {}).forEach((media) => {
             const mediaPath = media.path || media.id
             if (mediaPath) allMediaFiles.push(mediaPath)
         })
@@ -756,6 +767,7 @@ export function loadShows(returnShows = false) {
 
     const cachedShows = getStore("SHOWS") || {}
     const newCachedShows: TrimmedShows = {}
+    const textCache: { [key: string]: string } = {}
 
     // create a map for quick lookup of cached shows by name
     const cachedShowNames = new Map<string, string>()
@@ -788,15 +800,43 @@ export function loadShows(returnShows = false) {
 
         const trimmedShow = trimShow({ ...show[1], name })
         if (trimmedShow) newCachedShows[id] = trimmedShow
+
+        // cache text content
+        const txt = getTextCacheString(show[1])
+        if (txt) textCache[id] = txt
+    }
+
+    // send updated text cache
+    if (Object.keys(textCache).length) {
+        const cache = getStore("CACHE")
+        cache.text = { ...cache.text, ...textCache }
+        sendMain(Main.CACHE, cache)
     }
 
     if (returnShows) return newCachedShows
 
     // save this (for cloud sync)
-    _store.SHOWS?.clear()
-    _store.SHOWS?.set(newCachedShows)
+    try {
+        _store.SHOWS?.clear()
+        _store.SHOWS?.set(newCachedShows)
+    } catch (err) {
+        console.warn("Failed to save shows cache:", err)
+    }
 
     return newCachedShows
+}
+
+// same as frontend setShow.ts
+function getTextCacheString(show: Show) {
+    if (!show?.slides || show?.reference?.type) return ""
+
+    return Object.values(show.slides)
+        .flatMap((slide) => slide?.items)
+        .flatMap((item) => item?.lines || [])
+        .flatMap((line) => line?.text || [])
+        .map((text) => text?.value || "")
+        .join(" ")
+        .toLowerCase()
 }
 
 export function parseShow(jsonData: string) {

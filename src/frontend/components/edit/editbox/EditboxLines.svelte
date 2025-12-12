@@ -12,7 +12,7 @@
     import { _show } from "../../helpers/shows"
     import { getStyles } from "../../helpers/style"
     import autosize from "../scripts/autosize"
-    import { getLineText, getSelectionRange, setCaret } from "../scripts/textStyle"
+    import { getItemText, getLineText, getSelectionRange, setCaret } from "../scripts/textStyle"
     import EditboxChords from "./EditboxChords.svelte"
     import { EditboxHelper } from "./EditboxHelper"
 
@@ -243,10 +243,9 @@
                 if (historyText === linesText) return
             }
 
+            // only reset caret when lines are added/removed, not when line content changes
             let lastChangedLine = EditboxHelper.determineCaretLine(item?.lines || [], newLines)
-            if (lastChangedLine > -1) setCaretDelayed(lastChangedLine, 0)
-
-            // create new history store, when passing 15 steps
+            if (lastChangedLine > -1 && (item?.lines || []).length !== newLines.length) setCaretDelayed(lastChangedLine, 0) // create new history store, when passing 15 steps
             updates++
             if (updates >= 15) {
                 HISTORY_UPDATE_KEY++
@@ -313,18 +312,17 @@
 
     // update auto size
     let loaded = false
-    $: isAuto = item?.auto
-    $: textFit = item?.textFit
+    $: isAuto = item?.auto || (item?.textFit || "none") !== "none"
     $: textArray = Array.isArray(item?.lines?.[0]?.text) ? item.lines[0].text : []
     $: itemText = textArray.filter((a) => !a.customType?.includes("disableTemplate")) || []
     $: itemFontSize = Number(getStyles((ref.type === "stage" ? item : itemText[0])?.style, true)?.["font-size"] || "")
-    $: if (isAuto || textFit || itemFontSize || textChanged) getCustomAutoSize()
+    $: if (isAuto || itemFontSize || textChanged) getCustomAutoSize()
 
     let autoSize = 0
     let alignElem: HTMLElement | undefined
     let loopStop: NodeJS.Timeout | null = null
     function getCustomAutoSize() {
-        if (isTyping || !loaded || !alignElem || (!item.auto && !item.textFit)) return
+        if (isTyping || !loaded || !alignElem || !isAuto) return
 
         if (loopStop) return
         loopStop = setTimeout(() => (loopStop = null), 200)
@@ -393,7 +391,7 @@
                 if (lineText === "\n") lineText = ""
                 if (plain && !lineText && !style) {
                     style = item.lines?.[i - 1]?.text[0]?.style || ""
-                    newLines[pos].align = newLines[pos - 1].align || ""
+                    newLines[pos].align = newLines[pos - 1]?.align || ""
                 }
 
                 // remove custom font size
@@ -407,8 +405,12 @@
                 // GET CHORDS
                 let storedChords = child.getAttribute("data-chords")
                 if (storedChords) {
-                    storedChords = JSON.parse(storedChords)
-                    lineChords.push(...storedChords)
+                    try {
+                        storedChords = JSON.parse(storedChords)
+                        lineChords.push(...storedChords)
+                    } catch (err) {
+                        return
+                    }
                 }
             })
 
@@ -555,6 +557,7 @@
         let newLines: any[] = []
         let pastingIndex = -1
         sel.forEach((lineSel, lineIndex) => {
+            if (!lines[lineIndex]) return
             if (lineSel.start === undefined && (!emptySelection || lineIndex < sel.length - 1)) {
                 newLines.push(lines[lineIndex])
                 return
@@ -573,7 +576,7 @@
             let linePos = 0
             let pasteOverflow = 0
             // move multi line select to one line
-            lines[lineIndex].text.forEach((text) => {
+            lines[lineIndex].text?.forEach((text) => {
                 let value = text.value
                 let newLinePos = linePos + value.length
                 if (newLinePos < lineSel.start || linePos > lineSel.end) {
@@ -640,7 +643,7 @@
 {#if item?.lines}
     <!-- TODO: remove align..... -->
     <div bind:this={alignElem} class="align" class:chords={chordsMode} class:plain style={plain ? null : item.align || null}>
-        {#if item.lines?.length < 2 && !item.lines?.[0]?.text?.[0]?.value?.length}
+        {#if item.lines?.length < 2 && !getItemText(item).length}
             <span class="placeholder">
                 <p>
                     {#if chordsMode}
@@ -738,6 +741,14 @@
     }
     .edit.hidden {
         visibility: hidden;
+    }
+
+    .edit :global(.break) {
+        /* balanced breaking, looks much cleaner */
+        text-wrap: balance;
+    }
+    .edit :global(.break.normalWrap) {
+        text-wrap: unset;
     }
 
     /* .edit.tallLines {

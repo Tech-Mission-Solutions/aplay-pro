@@ -3,19 +3,20 @@
 // https://www.npmjs.com/package/electron-store
 
 import Store from "electron-store"
-import { renameSync, statSync } from "fs"
+import { mkdirSync, renameSync, statSync } from "fs"
 import path from "path"
 import type { Event } from "../../types/Calendar"
 import type { History } from "../../types/History"
 import { Main } from "../../types/IPC/Main"
+import { ToMain } from "../../types/IPC/ToMain"
 import type { Config, ErrorLog, Media } from "../../types/Main"
 import type { Themes } from "../../types/Settings"
 import type { Overlays, Templates, TrimmedShows } from "../../types/Show"
 import type { StageLayouts } from "../../types/Stage"
 import type { ContentProviderId } from "../contentProviders/base/types"
-import { sendMain } from "../IPC/main"
+import { sendMain, sendToMain } from "../IPC/main"
 import { dataFolderNames, deleteFile, doesPathExist, getDataFolderPath, getDataFolderRoot, getDefaultDataFolderRoot, readFile, readFolder } from "../utils/files"
-import { clone } from "../utils/helpers"
+import { clone, wait } from "../utils/helpers"
 import "./contentProviders"
 import { defaultConfig, defaultSettings, defaultSyncedSettings } from "./defaults"
 
@@ -44,7 +45,7 @@ export const storeFilesData = {
     ERROR_LOG: { fileName: "error_log", portable: false, defaults: {} as { renderer?: ErrorLog[]; main?: ErrorLog[]; request?: ErrorLog[] } },
 
     DRIVE_API_KEY: { fileName: "DRIVE_API_KEY", portable: false, defaults: {} as any },
-    ACCESS: { fileName: "ACCESS", portable: false, defaults: { contentProviders: {} as { [key in ContentProviderId]?: any } } },
+    ACCESS: { fileName: "ACCESS", portable: false, defaults: { contentProviders: {} as { [key in ContentProviderId]?: any } } }
 }
 
 export const appDataPath = path.dirname(config.path)
@@ -89,32 +90,130 @@ function checkStores(dataPath: string) {
 export let _store: { [key in keyof typeof storeFilesData]?: Store<any> } = {}
 
 export function createStores(previousLocation?: string | null, setup: boolean = false) {
-    const configFolderPath = getDataFolderPath("userData")
+    const configFolderPath = getWritableConfigPath(previousLocation, setup)
+    if (!configFolderPath) return
+    if (previousLocation === configFolderPath) previousLocation = ""
 
     Object.entries(storeFilesData).forEach(([key, data]) => {
-        _store[key as keyof typeof storeFilesData] = new Store({
+        const createStoreConfig = (useCwd: boolean) => ({
             name: data.fileName,
             defaults: data.defaults,
-            cwd: data.portable ? configFolderPath : undefined,
-            serialize: (data as any).minify ? (v) => JSON.stringify(v) : undefined,
-            accessPropertiesByDotNotation: key === "MEDIA" ? false : true,
+            cwd: useCwd && data.portable ? configFolderPath : undefined,
+            serialize: (data as any).minify ? (v: any) => JSON.stringify(v) : undefined,
+            accessPropertiesByDotNotation: key === "MEDIA" ? false : true
         })
 
-        // move user data files to data/Config folder if not already
-        if (previousLocation && data.portable) moveStore(key as keyof typeof storeFilesData, previousLocation, setup)
+        try {
+            _store[key as keyof typeof storeFilesData] = new Store(createStoreConfig(true))
+
+            // move user data files to data/Config folder if not already
+            if (previousLocation && data.portable) moveStore(key as keyof typeof storeFilesData, previousLocation, setup)
+        } catch (err) {
+            console.error(`Failed to create store for ${key} with cwd:`, err)
+
+            // try again at app data location
+            try {
+                _store[key as keyof typeof storeFilesData] = new Store(createStoreConfig(false))
+                console.log(`Created store for ${key} without custom cwd`)
+            } catch (fallbackErr) {
+                console.error(`Failed to create store for ${key} even without cwd:`, fallbackErr)
+            }
+        }
     })
+}
+
+function getWritableConfigPath(previousLocation?: string | null, setup: boolean = false): string | null {
+    let configFolderPath = getDataFolderPath("userData")
+
+    if (doesPathExist(configFolderPath)) return configFolderPath
+
+    try {
+        // try to create "Config" folder at current path
+        if (!configFolderPath) throw new Error("No config folder path")
+        mkdirSync(configFolderPath, { recursive: true })
+    } catch (err) {
+        sendToMain(ToMain.ALERT, "Error: No permission to create folder!")
+
+        // in setup previous path is the app data path
+        if (setup && previousLocation) return previousLocation
+
+        // fallback to previous (often the default data path), or default data path
+        const dataFolderPath = previousLocation || getDefaultDataFolderRoot()
+        if (dataFolderPath) {
+            config.set("dataPath", dataFolderPath)
+            sendMain(Main.DATA_PATH, dataFolderPath)
+        }
+
+        configFolderPath = getDataFolderPath("userData")
+
+        if (doesPathExist(configFolderPath)) return configFolderPath
+
+        try {
+            if (!configFolderPath) throw new Error("No config folder path")
+            mkdirSync(configFolderPath, { recursive: true })
+        } catch (err) {
+            // fallback to app data path
+            config.set("dataPath", appDataPath)
+            sendMain(Main.DATA_PATH, appDataPath)
+
+            configFolderPath = getDataFolderPath("userData")
+
+            if (doesPathExist(configFolderPath)) return configFolderPath
+
+            try {
+                if (!configFolderPath) throw new Error("No config folder path")
+                mkdirSync(configFolderPath, { recursive: true })
+            } catch (err) {
+                console.error("Could not get a writable data folder", err)
+                sendToMain(ToMain.ALERT, "Error: No permission to create data folder! Try installing as administrator.")
+                return null
+            }
+        }
+    }
+
+    return configFolderPath
+}
+
+// ----- SET STORE -----
+
+// store file, retry if failed
+export async function safeStoreSet(store: any, newData: any, key: string): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            store.clear()
+            store.set(newData)
+            await wait(100)
+            return
+        } catch (err: any) {
+            const isLastAttempt = attempt === 2
+            // Windows permission error, likely due to permission set to read-only
+            if ((err?.code === "EPERM" || err?.message?.includes("EPERM")) && !isLastAttempt) {
+                await wait(200 * Math.pow(2, attempt))
+            } else {
+                console.error(`Failed to save ${key}:`, err)
+                sendToMain(ToMain.ALERT, `Failed to save ${key}. Please check file permissions or try running as administrator.`)
+                return
+            }
+        }
+    }
 }
 
 // ----- GET STORE -----
 
 export function getStore(id: "config"): Config
-export function getStore<T extends keyof typeof storeFilesData>(id: T): typeof storeFilesData[T]["defaults"]
+export function getStore<T extends keyof typeof storeFilesData>(id: T): (typeof storeFilesData)[T]["defaults"]
 export function getStore<T extends keyof typeof storeFilesData | "config">(id: T) {
     if (id === "config") return config.store
 
     const storeId = id as keyof typeof storeFilesData
     if (!_store[storeId]) throw new Error(`Store with key ${id} does not exist.`)
-    return _store[storeId]!.store
+
+    try {
+        return _store[storeId]!.store
+    } catch (err) {
+        console.error(`Could not get store data for ${id}:`, err)
+        return storeFilesData[storeId].defaults
+    }
 }
 
 // GET STORE VALUE (used in special cases - currently only some "config" keys)
@@ -151,11 +250,18 @@ function moveStore(key: keyof typeof storeFilesData, previousLocation: string, s
     const fileData = readFile(filePathOld)
     if (!fileData) return
 
-    store.clear()
-    store.set(JSON.parse(fileData))
+    try {
+        store.clear()
+        store.set(JSON.parse(fileData))
+
+        console.info(`Moved ${storeFilesData[key].fileName}.json to data folder`)
+    } catch (err) {
+        console.error("Could not read the " + filePathOld + ".json settings file, probably wrong JSON format!", err)
+        // auto delete files that can't be parsed!
+        deleteFile(filePathOld)
+    }
 
     // deleteFile(filePathOld) // keep old file for now
-    console.info(`Moved ${storeFilesData[key].fileName}.json to data folder`)
 }
 
 // move pre 1.5.3 data path & config

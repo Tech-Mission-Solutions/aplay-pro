@@ -236,30 +236,30 @@ function XMLtoBible(xml: string) {
     const booksObj = getChildren(xmlDoc, "b")
     const books: Book[] = []
 
-        ;[...booksObj].forEach((book: any, i: number) => {
-            let length = 0
-            const name = book.getAttribute("n")
-            const number = i + 1
-            const chapters: Chapter[] = []
+    ;[...booksObj].forEach((book: any, i: number) => {
+        let length = 0
+        const name = book.getAttribute("n")
+        const number = i + 1
+        const chapters: Chapter[] = []
 
-                ;[...getChildren(book, "c")].forEach((chapter: any) => {
-                    const chapterNumber = chapter.getAttribute("n")
-                    const verses: Verse[] = []
+        ;[...getChildren(book, "c")].forEach((chapter: any) => {
+            const chapterNumber = chapter.getAttribute("n")
+            const verses: Verse[] = []
 
-                        ;[...getChildren(chapter, "v")].forEach((verse: any) => {
-                            const text = verse.innerHTML
-                                .toString()
-                                .replace(/\[\d+\] /g, "") // remove [1], not [text]
-                                .trim()
-                            length += text.length
-                            if (text.length) verses.push({ number: verse.getAttribute("n"), text })
-                        })
+            ;[...getChildren(chapter, "v")].forEach((verse: any) => {
+                const text = verse.innerHTML
+                    .toString()
+                    .replace(/\[\d+\] /g, "") // remove [1], not [text]
+                    .trim()
+                length += text.length
+                if (text.length) verses.push({ number: verse.getAttribute("n"), text })
+            })
 
-                    chapters.push({ number: chapterNumber, verses })
-                })
-
-            if (length) books.push({ name, number, chapters })
+            chapters.push({ number: chapterNumber, verses })
         })
+
+        if (length) books.push({ name, number, chapters })
+    })
 
     return { name: "", metadata: { copyright: "" }, books } as Bible
 }

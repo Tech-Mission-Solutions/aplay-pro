@@ -12,7 +12,7 @@ import { updateOut } from "../components/helpers/showActions"
 import { _show } from "../components/helpers/shows"
 import { clearAll } from "../components/output/clear"
 import { REMOTE } from "./../../types/Channels"
-import { activePage, activeProject, activeShow, connections, dictionary, driveData, folders, language, openedFolders, outLocked, overlays, projects, remotePassword, scriptures, shows, showsCache, styles } from "./../stores"
+import { actions, actionTags, activePage, activeProject, activeShow, activeTimers, categories, connections, dictionary, driveData, folders, language, openedFolders, outLocked, overlayCategories, overlays, projects, remotePassword, runningActions, scriptures, shows, showsCache, styles, templateCategories, templates, timers, triggers, variableTags, variables } from "./../stores"
 import { lastClickTime } from "./common"
 import { translateText } from "./language"
 import { send } from "./request"
@@ -128,7 +128,7 @@ export const receiveREMOTE: any = {
 
             if (currentOut !== currentId) return
         }
-        if (id.length && msg.id) {
+        if (id?.length && msg.id) {
             setConnectedState("REMOTE", msg.id, "active", id)
         }
 
@@ -175,7 +175,7 @@ export const receiveREMOTE: any = {
                 const bookData = await jsonBible.getBook(bookKey)
                 const mapped = (bookData.data.chapters || []).map((c) => ({
                     number: c.number,
-                    keyName: c.number,
+                    keyName: c.number
                 }))
                 msg.data.bibleUpdate = { kind: "chapters", id, bookIndex, chapters: mapped }
             } catch (error) {
@@ -193,7 +193,7 @@ export const receiveREMOTE: any = {
                 const mappedVerses = versesData.map((v) => ({
                     number: v.number,
                     text: v.text,
-                    keyName: v.number,
+                    keyName: v.number
                 }))
                 msg.data.bibleUpdate = { kind: "verses", id, bookIndex, chapterIndex, verses: mappedVerses }
             } catch (error) {
@@ -208,7 +208,7 @@ export const receiveREMOTE: any = {
             name: b.name,
             number: b.number,
             keyName: b.id,
-            chapters: [],
+            chapters: []
         }))
         msg.data.bible = { books: mappedBooks }
         return msg
@@ -264,7 +264,7 @@ export const receiveREMOTE: any = {
                     verseNumber: typeof ref.verse === "object" ? ref.verse.number : ref.verse,
                     reference: `${ref.book}.${ref.chapter}.${typeof ref.verse === "object" ? ref.verse.number : ref.verse}`,
                     referenceFull: ref.reference || "",
-                    verseText: typeof ref.verse === "object" ? ref.verse.text : (ref.text || "")
+                    verseText: typeof ref.verse === "object" ? ref.verse.text : ref.text || ""
                 }))
 
                 // Apply book filter if provided
@@ -284,6 +284,27 @@ export const receiveREMOTE: any = {
         }
 
         return msg
+    },
+    GET_OVERLAYS: (msg: any) => {
+        msg.data = { overlays: get(overlays), categories: get(overlayCategories) }
+        return msg
+    },
+    GET_TEMPLATES: (msg: any) => {
+        msg.data = { templates: get(templates), categories: get(templateCategories) }
+        return msg
+    },
+    GET_FUNCTIONS: (msg: any) => {
+        msg.data = {
+            actions: get(actions),
+            actionTags: get(actionTags),
+            variables: get(variables),
+            variableTags: get(variableTags),
+            timers: get(timers),
+            triggers: get(triggers),
+            activeTimers: get(activeTimers),
+            runningActions: get(runningActions)
+        }
+        return msg
     }
 }
 
@@ -300,9 +321,7 @@ export async function initializeRemote(id: string) {
 
     // Get current output state
     const currentOutput = getFirstActiveOutput()
-    const styleRes = currentOutput?.style ?
-        get(styles)[currentOutput?.style]?.aspectRatio || get(styles)[currentOutput?.style]?.resolution :
-        null
+    const styleRes = currentOutput?.style ? get(styles)[currentOutput?.style]?.aspectRatio || get(styles)[currentOutput?.style]?.resolution : null
 
     const outSlide = currentOutput?.out?.slide
     const out: any = {
@@ -329,8 +348,8 @@ export async function initializeRemote(id: string) {
     sendData(REMOTE, { id, channel: "OUT_DATA" })
 
     // Send additional data
-    send(REMOTE, ["OVERLAYS"], get(overlays))
     send(REMOTE, ["SCRIPTURE"], get(scriptures))
+    send(REMOTE, ["CATEGORIES"], get(categories))
 }
 
 export async function convertBackgrounds(show: Show, noLoad = false, init = false) {

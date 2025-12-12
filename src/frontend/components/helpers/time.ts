@@ -111,6 +111,8 @@ export function changeTime(date: string | Date, time: string | Date) {
 
 export function combineDateAndTime(date: string | Date, time: string) {
     date = new Date(date)
+    if (typeof time !== "string") return date
+
     const splittedDate = splitDate(date)
     const splittedTime = { hours: Number(time.slice(0, 2)), minutes: Number(time.slice(3, 5)) }
 
@@ -123,7 +125,7 @@ const intervals = [
     { label: "day", seconds: 86400 },
     { label: "hour", seconds: 3600 },
     { label: "minute", seconds: 60 },
-    { label: "second", seconds: 1 },
+    { label: "second", seconds: 1 }
 ]
 
 export function timeAgo(time: number) {

@@ -1,6 +1,7 @@
 export const DEFAULT_DICTIONARY = {
     main: {
         unnamed: "Unnamed",
+        "search...": "Search..."
     },
     empty: {
         general: "Nothing here",
@@ -13,36 +14,82 @@ export const DEFAULT_DICTIONARY = {
         groups: "No groups",
         events: "No events",
         text: "Type something",
+        timers: "No timers"
     },
     new: {
         show: "New show",
-        project: "New project",
+        project: "New project"
     },
     tabs: {
+        shows: "Shows",
+        media: "Media",
+        overlays: "Overlays",
+        audio: "Audio",
         scripture: "Scriptures",
+        calendar: "Calendar",
+        templates: "Templates",
+        functions: "Functions",
+        actions: "Actions",
+        timers: "Timers",
+        variables: "Variables",
+        triggers: "Triggers"
+    },
+    guide_title: {
+        categories: "Categories"
     },
     category: {
         favourites: "Favourites",
+        all: "All",
+        unlabeled: "Unlabeled",
+        song: "Songs",
+        bible: "Bibles",
+        image: "Images",
+        video: "Videos",
+        audio: "Audio",
+        presentation: "Presentations",
+        web: "Web",
+        camera: "Camera",
+        countdown: "Countdowns",
+        timer: "Timers",
+        other: "Other",
+        notice: "Notice",
+        visuals: "Visuals",
+        info: "Info",
+        scripture: "Scripture",
+        events: "Events",
+        pictures: "Pictures",
+        videos: "Videos",
+        music: "Music",
+        offers: "Offers",
+        sound_effects: "Sound effects"
+    },
+    show: {
+        name: "Name"
+    },
+    info: {
+        modified: "Date Modified",
+        created: "Date Created"
     },
     scripture: {
         collections: "Collections",
         bibles_section: "Bibles",
-        api_section: "API",
+        api_section: "API"
     },
     titlebar: {
-        edit: "Edit",
+        edit: "Edit"
     },
     settings: {
-        add: "Add",
+        add: "Add"
     },
     actions: {
         rename: "Rename",
         delete: "Delete",
         done: "Done",
         back: "Back",
+        archive_title: "Archive"
     },
     tools: {
-        groups: "Groups",
+        groups: "Groups"
     },
     remote: {
         projects: "Projects",
@@ -53,20 +100,21 @@ export const DEFAULT_DICTIONARY = {
         lyrics: "Lyrics",
         end: "End",
         no_output: "No output",
+        no_content: "No content",
         remember: "Remember me",
         loading: "Loading...",
         submit: "Submit",
         password: "Password",
         wrong_password: "Wrong password",
-        quick_play: "Quick play",
+        quick_play: "Quick play"
     },
     clear: {
-        all: "Clear all",
+        all: "Clear all"
     },
     media: {
-        play: "Play",
+        play: "Play"
     },
     context: {
-        addToProject: "Add to project",
-    },
+        addToProject: "Add to project"
+    }
 }

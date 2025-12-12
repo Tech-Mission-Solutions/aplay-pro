@@ -56,6 +56,7 @@ import {
     folders,
     lessonsLoaded,
     media,
+    mediaDownloads,
     outputs,
     overlays,
     popupData,
@@ -233,6 +234,23 @@ export const mainResponses: MainResponses = {
     [ToMain.CAPTURE_CANVAS]: (data) => captureCanvas(data),
     [ToMain.LESSONS_DONE]: (data) => lessonsLoaded.set({ ...get(lessonsLoaded), [data.showId]: data.status }),
     [ToMain.IMAGES_TO_SHOW]: (data) => createImageShow(data),
+    [ToMain.MEDIA_DOWNLOAD_PROGRESS]: (data) => {
+        mediaDownloads.update((downloads) => {
+            const newDownloads = new Map(downloads)
+            if (data.status === "complete" || data.status === "error") {
+                // Remove completed/errored downloads after a short delay
+                setTimeout(() => {
+                    mediaDownloads.update((d) => {
+                        const updated = new Map(d)
+                        updated.delete(data.url)
+                        return updated
+                    })
+                }, 2000)
+            }
+            newDownloads.set(data.url, { progress: data.progress, total: data.total, status: data.status })
+            return newDownloads
+        })
+    },
     [ToMain.AUDIO_METADATA]: (data) => {
         audioData.update((a) => {
             a[data.filePath] = { metadata: data.metadata }
@@ -282,7 +300,7 @@ export const mainResponses: MainResponses = {
     [ToMain.PROVIDER_CONNECT]: (data) => {
         if (!data.success) return
 
-        providerConnections.update(c => {
+        providerConnections.update((c) => {
             c[data.providerId] = true
             return c
         })
@@ -318,7 +336,7 @@ export const mainResponses: MainResponses = {
                 const existingShow = allShows.find(({ name }) => name.toLowerCase() === show.name.toLowerCase())
                 // const existingShowHasContent = existingShow && (await loadShows([existingShow.id])) && getSlidesText(get(showsCache)[existingShow.id].slides)
                 if (existingShow) {
-                    const useLocal = get(contentProviderData).planningcenter?.localAlways ?? await confirmCustom(`There is an existing show with the same name: ${existingShow.name}.<br><br>Would you like to use the local version instead of the one from Planning Center?`)
+                    const useLocal = get(contentProviderData).planningcenter?.localAlways ?? (await confirmCustom(`There is an existing show with the same name: ${existingShow.name}.<br><br>Would you like to use the local version instead of the one from Planning Center?`))
                     if (useLocal) {
                         replaceIds[id] = existingShow.id
 
@@ -387,7 +405,7 @@ export const mainResponses: MainResponses = {
     [ToMain.OPEN_FOLDER2]: (a) => {
         const receiveFOLDER = {
             MEDIA: () => addDrawerFolder(a, "media"), // menuClick
-            AUDIO: () => addDrawerFolder(a, "audio"), // menuClick
+            AUDIO: () => addDrawerFolder(a, "audio") // menuClick
         }
 
         if (!receiveFOLDER[a.channel]) return

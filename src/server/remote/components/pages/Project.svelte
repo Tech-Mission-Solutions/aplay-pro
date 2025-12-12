@@ -142,7 +142,7 @@
             {#if projectSections.length}
                 <div class="scroll project-shows-list">
                     <div class="project-sections">
-                        {#each projectSections as section}
+                        {#each projectSections as section (section.id)}
                             <div class="section-card">
                                 {#if section.name}
                                     <div class="section-title">
@@ -150,7 +150,7 @@
                                     </div>
                                 {/if}
                                 <div class="section-items">
-                                    {#each section.items as show}
+                                    {#each section.items as show (getShowId(show) || show)}
                                         {@const showId = getShowId(show)}
                                         {@const showType = getShowType(show)}
                                         {@const showData = showId ? (showLookup[showId] ?? null) : null}
@@ -234,14 +234,7 @@
         {/if}
 
         <div class="floating-input-container">
-            <Button
-                on:click={() => (editProject = !editProject)}
-                center
-                dark
-                class="floating-edit-input"
-                aria-label={editProject ? translate("actions.done", $dictionary) : translate("titlebar.edit", $dictionary)}
-                title={editProject ? translate("actions.done", $dictionary) : translate("titlebar.edit", $dictionary)}
-            >
+            <Button on:click={() => (editProject = !editProject)} center dark class="floating-edit-input" aria-label={editProject ? translate("actions.done", $dictionary) : translate("titlebar.edit", $dictionary)} title={editProject ? translate("actions.done", $dictionary) : translate("titlebar.edit", $dictionary)}>
                 <Icon id={editProject ? "check" : "edit"} size={1.2} />
                 <span>{editProject ? translate("actions.done", $dictionary) : translate("titlebar.edit", $dictionary)}</span>
             </Button>

@@ -31,7 +31,11 @@ function XMLtoObject(xml: string) {
     const bible = xml2json(xml, true)?.XMLBIBLE || {}
     const books: Book[] = []
 
+    if (!bible.BIBLEBOOK) return { name: "", books } as Bible
+
+    if (!Array.isArray(bible.BIBLEBOOK)) bible.BIBLEBOOK = [bible.BIBLEBOOK]
     bible.BIBLEBOOK.forEach((book: any) => {
+        if (!book) return
         const name = book["@bname"]
         const abbreviation = book["@babbr"]
         const bookNumber = book["@bnumber"]
@@ -39,11 +43,12 @@ function XMLtoObject(xml: string) {
 
         if (!Array.isArray(book.CHAPTER)) book.CHAPTER = [book.CHAPTER]
         book.CHAPTER.forEach((chapter: any) => {
+            if (!chapter) return
             const chapterNumber = chapter["@cnumber"]
             const verses: Verse[] = []
 
             if (!Array.isArray(chapter.VERS)) chapter.VERS = [chapter.VERS]
-            chapter.VERS.forEach((verse: { ["@vnumber"]: string;["#text"]?: string; STYLE?: string[] }) => {
+            chapter.VERS.forEach((verse: { ["@vnumber"]: string; ["#text"]?: string; STYLE?: string[] }) => {
                 if (!verse) return
                 let text = verse["#text"] || ""
 

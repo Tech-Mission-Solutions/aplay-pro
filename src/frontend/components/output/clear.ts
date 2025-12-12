@@ -2,30 +2,7 @@ import { get } from "svelte/store"
 import type { OutSlide } from "../../../types/Show"
 import { clearAudio } from "../../audio/audioFading"
 import { AudioPlayer } from "../../audio/audioPlayer"
-import {
-    activeEdit,
-    activePage,
-    activePopup,
-    activeStage,
-    contextActive,
-    customMessageCredits,
-    drawSettings,
-    focusMode,
-    lockedOverlays,
-    outLocked,
-    outputCache,
-    outputs,
-    outputSlideCache,
-    overlays,
-    overlayTimers,
-    playingAudio,
-    playingMetronome,
-    selected,
-    slideTimers,
-    topContextActive,
-    videosData,
-    videosTime
-} from "../../stores"
+import { activeEdit, activePage, activePopup, activeStage, contextActive, customMessageCredits, drawSettings, focusMode, lockedOverlays, outLocked, outputCache, outputs, outputSlideCache, overlays, overlayTimers, playingAudio, playingMetronome, selected, slideTimers, topContextActive, videosData, videosTime } from "../../stores"
 import { customActionActivation } from "../actions/actions"
 import { startMetronome } from "../drawer/audio/metronome"
 import { clone } from "../helpers/array"
@@ -148,7 +125,7 @@ export function clearSlide(shouldClearAll = false) {
         }
 
         // slide gets outlined if not blurred
-        ; (document.activeElement as any)?.blur()
+        ;(document.activeElement as any)?.blur()
     }
 
     setOutput("slide", null)

@@ -58,6 +58,8 @@ export function convertQuelea(data: any) {
     }, 50)
 
     function convertSong(song: Song) {
+        if (!song) return
+
         const layoutID = uid()
         let show = new ShowObj(false, categoryId, layoutID)
         show.origin = "quelea"
@@ -72,7 +74,7 @@ export function convertQuelea(data: any) {
             author: song.author || "",
             key: song.key || "",
             publisher: song.publisher || "",
-            year: song.year || "",
+            year: song.year || ""
         }
         if (show.meta.CCLI) show = setQuickAccessMetadata(show, "CCLI", show.meta.CCLI)
 
@@ -107,8 +109,8 @@ function createSlides(song: Song) {
         let items: Item[] = [
             {
                 style: DEFAULT_ITEM_STYLE,
-                lines: parseLines(allLines),
-            },
+                lines: parseLines(allLines)
+            }
         ]
 
         // custom translations
@@ -127,7 +129,7 @@ function createSlides(song: Song) {
             color: null,
             settings: {},
             notes: "",
-            items,
+            items
         }
 
         const globalGroup = getGlobalGroup(groupName) || "verse"

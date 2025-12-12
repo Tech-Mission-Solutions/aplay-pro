@@ -80,12 +80,16 @@ export function sortObject<T extends Record<string, any>>(object: T[], key: keyo
         if (a.default === true) textA = translateText(textA) || textA.slice(textA.indexOf("."))
         if (b.default === true) textB = translateText(textB) || textB.slice(textB.indexOf("."))
 
+        if (typeof textA !== "string") textA = ""
+        if (typeof textB !== "string") textB = ""
+
         return textA.localeCompare(textB)
     })
 }
 
 // sort objects in array numerically
 export function sortObjectNumbers<T extends Record<string, any>>(object: T[], key: keyof T, reverse = false) {
+    if (!Array.isArray(object)) return []
     return object.sort((a, b) => {
         return reverse ? b[key] - a[key] : a[key] - b[key]
     })
@@ -93,6 +97,8 @@ export function sortObjectNumbers<T extends Record<string, any>>(object: T[], ke
 
 // sort quick access numbers with optional prefixes/suffixes; blanks always go last
 export function sortByNameAndNumber<T extends Record<string, any>>(array: T[], direction: "asc" | "desc" = "asc") {
+    if (!Array.isArray(array)) return []
+
     const dir = direction === "asc" ? 1 : -1
 
     const parseToken = (value: string | undefined) => {
@@ -121,10 +127,9 @@ export function sortByNameAndNumber<T extends Record<string, any>>(array: T[], d
 
         if (aToken.suffix !== bToken.suffix) return aToken.suffix.localeCompare(bToken.suffix) * dir
 
-        return ((a.name || "").localeCompare(b.name || "")) * dir
+        return (a.name || "").localeCompare(b.name || "") * dir
     })
 }
-
 
 // sort object by name and numbers any location (file names)
 export function sortFilenames<T extends Record<string, any>>(filenames: T[]) {
@@ -220,7 +225,7 @@ export function clone<T>(object: T): T {
 export function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
-            ;[array[i], array[j]] = [array[j], array[i]]
+        ;[array[i], array[j]] = [array[j], array[i]]
     }
 
     return array
@@ -244,8 +249,7 @@ export function getChangedKeys(current: any[], previous: any[]) {
     return changedKeys
 }
 
-
-export function rangeSelect(e: any, currentlySelected: (number | string)[], newSelection: (number | string)): (number | string)[] {
+export function rangeSelect(e: any, currentlySelected: (number | string)[], newSelection: number | string): (number | string)[] {
     if (!e.ctrlKey && !e.metaKey && !e.shiftKey) return [newSelection]
 
     if (e.ctrlKey || e.metaKey) {

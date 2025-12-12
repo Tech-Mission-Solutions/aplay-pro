@@ -44,12 +44,7 @@
 <MaterialToggleSwitch label="cloud.enable_custom_folder_id" checked={customFolderEnabled} defaultValue={false} on:change={(e) => (customFolderEnabled = e.detail)} />
 
 {#if customFolderEnabled}
-    <MaterialTextInput
-        label="cloud.main_folder{$driveData?.mainFolderId ? `<span style="margin-left: 10px;font-size: 0.7em;opacity: 0.5;color: var(--text);">drive.google.com/drive/folders/</span>` : ''}"
-        value={$driveData?.mainFolderId || ""}
-        defaultValue=""
-        on:change={(e) => updateValue(e.detail, "mainFolderId")}
-    />
+    <MaterialTextInput label="cloud.main_folder{$driveData?.mainFolderId ? `<span style="margin-left: 10px;font-size: 0.7em;opacity: 0.5;color: var(--text);">drive.google.com/drive/folders/</span>` : ''}" value={$driveData?.mainFolderId || ""} defaultValue="" on:change={(e) => updateValue(e.detail, "mainFolderId")} />
 {/if}
 
 <style>

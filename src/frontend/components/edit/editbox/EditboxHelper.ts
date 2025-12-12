@@ -14,11 +14,11 @@ export class EditboxHelper {
         const newTexts: string[] = []
 
         oldLines?.forEach((line) => {
-            oldTexts.push(line.text[0].value)
+            if (line.text?.[0]?.value) oldTexts.push(line.text[0].value)
         })
 
         newLines.forEach((line) => {
-            newTexts.push(line.text[0].value)
+            if (line.text?.[0]?.value) newTexts.push(line.text[0].value)
         })
 
         let lastLineChanged = -1
@@ -42,23 +42,27 @@ export class EditboxHelper {
     }
 
     static splitCrlf(line: Line) {
+        if (!line?.text?.length) return []
+
         const result: Line[] = []
-        let newLine = { ...line }
+        let newLine = clone(line)
         newLine.text = []
 
-        line.text.forEach((text) => {
+        line.text?.forEach((text) => {
             const value = text.value
             const parts = value.replace("\r", "").split("\n")
             newLine.text.push({ style: text.style, value: parts[0] })
             if (parts.length > 1) {
                 for (let i = 1; i < parts.length; i++) {
-                    result.push(newLine)
-                    newLine = { ...line }
+                    result.push(clone(newLine))
+                    newLine = clone(line)
+
                     newLine.text = [{ style: text.style, value: parts[i] }]
                 }
             }
         })
         result.push(newLine)
+
         return result
     }
 
@@ -77,7 +81,7 @@ export class EditboxHelper {
 
                 if (start > -1 && currentIndex >= start) {
                     if (!secondLines.length) secondLines.push({ align: line.align, text: [] })
-                    const pos = sel[i].start - textPos
+                    const pos = start - textPos
                     if (pos > 0)
                         firstLines[firstLines.length - 1].text.push({
                             style: text.style,
@@ -113,10 +117,10 @@ export class EditboxHelper {
 
         // add chords (currently only adding full line chords, so splitting in the middle of a line might shift chords)
         const chordLines = clone(lines.map((a) => a.chords || []))
-            ;[...firstLines, ...secondLines].forEach((line) => {
-                const oldLineChords = chordLines.shift()
-                if (oldLineChords?.length) line.chords = oldLineChords
-            })
+        ;[...firstLines, ...secondLines].forEach((line) => {
+            const oldLineChords = chordLines.shift()
+            if (oldLineChords?.length) line.chords = oldLineChords
+        })
 
         return { firstLines, secondLines }
     }
@@ -133,7 +137,10 @@ export class EditboxHelper {
             const align = (line.align || "").replaceAll(lineStyleBg, "").replaceAll(lineStyleRadius, "") + ";"
             currentStyle += align + lineStyleBg + lineStyleRadius // + line.chords?.map((a) => a.key)
             const style = align || lineStyleBg || lineStyleRadius || listStyle ? 'style="' + align + lineStyleBg + lineStyleRadius + listStyle + '"' : ""
-            html += `<div class="break" ${plain ? "" : style}>`
+
+            const normalWrap = align.includes("justify") || JSON.stringify(line).includes("nowrap")
+
+            html += `<div class="break ${normalWrap ? "normalWrap" : ""}" ${plain ? "" : style}>`
 
             // fix removing all text in a line
             if (i === 0 && line.text?.[0]?.style) firstTextStyleArchive = line.text?.[0]?.style || ""

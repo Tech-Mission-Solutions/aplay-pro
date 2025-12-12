@@ -100,7 +100,7 @@ const Timer: any = function (this: any, callback: (id: string) => void, delay: n
 
     function update() {
         slideTimers.update((a) => {
-            a[timerId] = { ...a, ...options, start }
+            a[timerId] = { ...options, start }
             return a
         })
     }

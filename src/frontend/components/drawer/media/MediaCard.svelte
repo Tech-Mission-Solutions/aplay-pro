@@ -27,11 +27,12 @@
     export let contentProvider: ContentProviderId | false = false
     export let contentFileData: ContentFile | null = null
 
-    // Store ContentFile object for later license check during download
+    // Store ContentFile object and display name for later use (license check, convert to show, etc.)
     $: if (contentFileData && contentProvider && path) {
         media.update((m) => {
             if (!m[path]) m[path] = {}
             m[path].contentFile = { ...contentFileData, providerId: contentProvider }
+            m[path].name = name
             return m
         })
     }
@@ -63,6 +64,7 @@
 
         let time = Math.floor(duration * ((Math.floor(percentage * steps) * steps + steps) / 100))
         if (time && videoElem.currentTime === time) return
+        if (!isFinite(time)) return
 
         if (Number(time) === time) videoElem.currentTime = time
     }
@@ -190,7 +192,7 @@
     }
 </script>
 
-<SelectElem id="media" class="context #media_card" data={{ name, path, type }} {shiftRange} draggable fill>
+<SelectElem id="media" class="context #media_card" data={{ name, path, type, contentProvider }} {shiftRange} draggable fill>
     <Card
         resolution={{ width: 16, height: 9 }}
         {loaded}

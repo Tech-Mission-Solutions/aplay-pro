@@ -241,14 +241,7 @@
                                                 <MaterialButton variant="outlined" icon="delete" title="actions.delete" style="padding: 8px;border-radius: 50%;" on:click={() => deleteContent(a, b, c, d)} />
                                             </div>
                                             <div class="copy">
-                                                <MaterialButton
-                                                    variant="outlined"
-                                                    showOutline={JSON.stringify(CONTENT) === JSON.stringify(clipboard)}
-                                                    icon="copy"
-                                                    title="actions.copy"
-                                                    style="padding: 8px;border-radius: 50%;"
-                                                    on:click={() => copyContent(CONTENT)}
-                                                />
+                                                <MaterialButton variant="outlined" showOutline={JSON.stringify(CONTENT) === JSON.stringify(clipboard)} icon="copy" title="actions.copy" style="padding: 8px;border-radius: 50%;" on:click={() => copyContent(CONTENT)} />
                                             </div>
                                         {/if}
 

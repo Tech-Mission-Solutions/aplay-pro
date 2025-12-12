@@ -67,6 +67,7 @@
         // gradient colors
         if (input.id === "style" && input.key === "background-color") {
             // set "background" value instead of "background-color"
+            if (typeof input.value !== "string") input.value = ""
             if (input.value.includes("gradient")) input.key = "background"
             // reset "background" value
             else if (data.background) {
@@ -88,7 +89,7 @@
         let showSlides = $showsCache[$activeShow?.id || ""]?.slides || {}
 
         // get all selected slides
-        if ($selected.id === "slide") {
+        if ($selected.id === "slide" && Array.isArray($selected.data)) {
             let selectedSlides = $selected.data.filter(({ index }) => index !== $activeEdit.slide!)
             slides.push(...selectedSlides.map(({ index }) => ref[index]?.id))
 
@@ -125,6 +126,7 @@
             // loop through all items
             slideItems[i].forEach((itemIndex) => {
                 let currentSlideItem = showSlides[slide]?.items?.[itemIndex] || allSlideItems[itemIndex]
+                if (!currentSlideItem) return
 
                 let newValue = input.value
                 if (input.relative) {

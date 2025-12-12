@@ -44,6 +44,6 @@ function getUnsplashCredits(media) {
         artistUrl: "https://unsplash.com/@" + media.user.username + UTM,
         downloadUrl: media.links.download,
         trigger_download: media.links.download_location,
-        homepage: "https://unsplash.com/" + UTM,
+        homepage: "https://unsplash.com/" + UTM
     }
 }

@@ -36,6 +36,7 @@ import {
     projects,
     refreshEditSlide,
     scriptures,
+    scriptureSettings,
     selectAllAudio,
     selectAllMedia,
     selected,
@@ -67,6 +68,7 @@ import { select } from "./select"
 import { loadShows } from "./setShow"
 import { checkName, getLayoutRef } from "./show"
 import { _show } from "./shows"
+import { confirmCustom } from "../../utils/popup"
 
 export function copy(clip: Clipboard | null = null, getData = true, shouldDuplicate = false) {
     let copyData: Clipboard | null = clip
@@ -189,7 +191,7 @@ export function duplicate(clip: Clipboard | null = null) {
 export function selectAll(data: any = {}) {
     const activeElem = document.activeElement
     if (activeElem?.nodeName === "INPUT" || activeElem?.nodeName === "TEXTAREA") {
-        ; (activeElem as HTMLInputElement).select()
+        ;(activeElem as HTMLInputElement).select()
         return
     }
 
@@ -417,12 +419,16 @@ const copyActions = {
 
         const sortedData = data.sort((a, b) => (a.index < b.index ? -1 : 1))
 
-        let ids = sortedData.map((a) => {
-            // get layout
-            if (a.index !== undefined) layouts.push(ref[a.index].data)
+        let ids = sortedData
+            .map((a) => {
+                if (!ref[a.index]) return ""
 
-            return a.id || (a.index !== undefined ? ref[a.index].id : "")
-        })
+                // get layout
+                if (a.index !== undefined) layouts.push(ref[a.index].data)
+
+                return a.id || (a.index !== undefined ? ref[a.index].id : "")
+            })
+            .filter(Boolean)
 
         if (fullGroup) {
             // select all children of group
@@ -540,6 +546,8 @@ const pasteActions = {
         }
 
         const ref = getLayoutRef()[get(activeEdit).slide!]
+        if (!ref) return
+
         const items: any[] = []
         data.forEach((item) => {
             items.push(clone(item))
@@ -725,7 +733,9 @@ const deleteActions = {
         }
 
         const layout = data.layout || _show().get("settings.activeLayout")
-        const slide = data.slideId || getLayoutRef()[data.slide].id
+        const slide = data.slideId || getLayoutRef()[data.slide]?.id
+        if (!slide) return
+
         history({
             id: "deleteItem",
             location: {
@@ -802,7 +812,9 @@ const deleteActions = {
         if (!activePlaylist) return
 
         audioPlaylists.update((a) => {
-            const songs = clone(a[activePlaylist]?.songs || [])
+            if (!a[activePlaylist]) return a
+
+            const songs = clone(a[activePlaylist].songs || [])
             data.forEach((song) => {
                 const currentSongIndex = songs.findIndex((path) => path === song.path)
                 if (currentSongIndex >= 0) songs.splice(currentSongIndex, 1)
@@ -828,7 +840,36 @@ const deleteActions = {
     player: (data: any) => historyDelete("UPDATE", data, { updater: "player_video" }),
     overlay: (data: any) => historyDelete("UPDATE", data, { updater: "overlay" }),
     effect: (data: any) => historyDelete("UPDATE", data, { updater: "effect" }),
-    template: (data: any) => historyDelete("UPDATE", data, { updater: "template" }),
+    template: async (data: any) => {
+        const ids = data.map((id) => id)
+
+        // check if template is used anywhere
+        // STYLES
+        let styleTemplates: string[] = []
+        Object.values(get(styles)).forEach((a) => {
+            if (a.template) styleTemplates.push(a.template)
+            if (a.templateScripture) styleTemplates.push(a.templateScripture)
+        })
+        if (ids.some((id) => styleTemplates.includes(id))) {
+            if (!(await confirmCustom(translateText("This template is in use by Styles.<br>popup.delete_show_confirmation?")))) return
+        }
+        // SCRIPTURE
+        if (ids.includes(get(scriptureSettings).template)) {
+            if (!(await confirmCustom(translateText("This template is in use by Scripture.<br>popup.delete_show_confirmation?")))) return
+        }
+        // TEMPLATE (First slide template)
+        let firstSlideTemplateIds: string[] = []
+        Object.values(get(templates)).forEach((a) => {
+            if (a.settings?.firstSlideTemplate) firstSlideTemplateIds.push(a.settings.firstSlideTemplate)
+        })
+        if (ids.some((id) => firstSlideTemplateIds.includes(id))) {
+            if (!(await confirmCustom(translateText('This template is in use by Templates as "First slide template".<br>popup.delete_show_confirmation?"')))) return
+        }
+        // SHOWS (skip)
+        // Style overwrites (not relevant as it's not in the global list)
+
+        historyDelete("UPDATE", data, { updater: "template" })
+    },
     category_scripture: (data: any) => {
         scriptures.update((a) => {
             data.forEach((id: string) => {
@@ -881,12 +922,14 @@ const deleteActions = {
     // "remove"
     show: (data: any) => {
         if (!get(activeProject)) return
-        const projectItems = get(projects)[get(activeProject)!].shows
+        const projectItems = get(projects)[get(activeProject)!]?.shows || []
         const indexes: number[] = []
 
         // don't remove private shows
         data.forEach(({ index }) => {
             const projectRef = projectItems[index]
+            if (!projectRef) return
+
             if (projectRef.type === "show" || projectRef.type === undefined) {
                 const isPrivate = _show(projectRef.id).get("private")
                 if (isPrivate) return
@@ -914,11 +957,11 @@ const deleteActions = {
             })
 
             // remove from active project if any
-            projects.update(a => {
+            projects.update((a) => {
                 if (!a[get(activeProject) || ""]?.shows) return a
 
                 data.forEach((layoutId: string) => {
-                    a[get(activeProject) || ""].shows.forEach(show => {
+                    a[get(activeProject) || ""].shows.forEach((show) => {
                         if (show.layout !== layoutId) return
 
                         delete show.layout
@@ -1018,6 +1061,8 @@ const deleteActions = {
 const duplicateActions = {
     event: (data: any) => {
         const event = clone(get(events)[data.id])
+        if (!event) return
+
         event.name += " 2"
         event.repeat = false
         delete event.group
@@ -1066,6 +1111,8 @@ const duplicateActions = {
         if (!layoutId) return
 
         const newLayout = clone(get(showsCache)[get(activeShow)!.id].layouts[layoutId])
+        if (!newLayout) return
+
         newLayout.name += " 2"
         history({ id: "UPDATE", newData: { key: "layouts", subkey: uid(), data: newLayout }, oldData: { id: get(activeShow)?.id }, location: { page: "show", id: "show_layout" } })
     },
@@ -1223,7 +1270,7 @@ function mediaPaste(data: any) {
     if (!data || get(selected).id !== "media") return
 
     const selectedMedia = get(selected).data || []
-    const multipleTypes = (new Set(selectedMedia.map(a => a.type))).size > 1
+    const multipleTypes = new Set(selectedMedia.map((a) => a.type)).size > 1
 
     media.update((a) => {
         selectedMedia.forEach(({ path, type }) => {
@@ -1251,7 +1298,7 @@ function historyDelete(id, data, { updater } = { updater: "" }) {
 
     // set as deleted (for defaults)
     if (["template", "overlay", "effect"].includes(updater)) {
-        special.update(a => {
+        special.update((a) => {
             if (updater === "template") a.deletedTemplates = getDeletedArray("deletedTemplates")
             if (updater === "overlay") a.deletedOverlays = getDeletedArray("deletedOverlays")
             if (updater === "effect") a.deletedEffects = getDeletedArray("deletedEffects")
@@ -1275,7 +1322,6 @@ function historyDelete(id, data, { updater } = { updater: "" }) {
             }
         })
     }
-
 }
 
 async function duplicateShows(selectedData: any) {

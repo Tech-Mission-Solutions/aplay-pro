@@ -217,14 +217,7 @@
 
                 {#each week as day}
                     {@const dayEvents = getEvents(day, currentEvents, active || "event")}
-                    <div
-                        class="day"
-                        class:today={isSameDay(day, today)}
-                        class:faded={day.getMonth() !== month || day.getFullYear() !== year}
-                        class:active={$activeDays?.includes(copyDate(day).getTime())}
-                        on:mousedown={(e) => dayClick(e, day)}
-                        on:mousemove={(e) => move(e, day)}
-                    >
+                    <div class="day" class:today={isSameDay(day, today)} class:faded={day.getMonth() !== month || day.getFullYear() !== year} class:active={$activeDays?.includes(copyDate(day).getTime())} on:mousedown={(e) => dayClick(e, day)} on:mousemove={(e) => move(e, day)}>
                         <!-- // isSameDay(day, new Date($activeDays[0]))} -->
                         <span style="font-size: 1.5em;font-weight: 600;">{day.getDate()}</span>
                         <span class="events">

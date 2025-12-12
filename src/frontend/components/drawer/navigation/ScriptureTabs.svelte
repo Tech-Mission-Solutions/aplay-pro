@@ -20,11 +20,7 @@
     $: favoritesList = scripturesList.filter((a) => a.favorite)
 
     let sections: any[] = []
-    $: sections = [
-        ...(favoritesList.length ? [[{ id: "TITLE", label: "category.favourites" }, ...convertToButton(favoritesList)]] : []),
-        [{ id: "TITLE", label: "scripture.collections" }, ...convertToButton(collections)],
-        [{ id: "TITLE", label: "scripture.bibles_section" }, ...convertToButton(localBibles), ...(localBibles.length && apiBibles.length ? [{ id: "SEPARATOR", label: "API" }] : []), ...convertToButton(apiBibles)]
-    ]
+    $: sections = [...(favoritesList.length ? [[{ id: "TITLE", label: "category.favourites" }, ...convertToButton(favoritesList)]] : []), [{ id: "TITLE", label: "scripture.collections" }, ...convertToButton(collections)], [{ id: "TITLE", label: "scripture.bibles_section" }, ...convertToButton(localBibles), ...(localBibles.length && apiBibles.length ? [{ id: "SEPARATOR", label: "API" }] : []), ...convertToButton(apiBibles)]]
 
     function convertToButton(categories: any[]) {
         return categories

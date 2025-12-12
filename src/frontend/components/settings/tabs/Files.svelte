@@ -186,11 +186,7 @@
 {#if validKeys}
     <MaterialToggleSwitch label="cloud.enable" checked={!$driveData.disabled} defaultValue={true} on:change={(e) => toggleData(e.detail, "disabled", true)} />
     <!-- <MaterialTextInput label="cloud.media_id" value={$driveData?.mediaId || "default"} defaultValue="default" on:change={(e) => updateValue(e.detail, "mediaId")} /> -->
-    <MaterialTextInput
-        label="cloud.main_folder{$driveData?.mainFolderId ? `<span style="margin-left: 10px;font-size: 0.7em;opacity: 0.5;color: var(--text);">drive.google.com/drive/folders/</span>` : ''}"
-        value={$driveData?.mainFolderId || ""}
-        on:change={(e) => updateValue(e.detail, "mainFolderId")}
-    />
+    <MaterialTextInput label="cloud.main_folder{$driveData?.mainFolderId ? `<span style="margin-left: 10px;font-size: 0.7em;opacity: 0.5;color: var(--text);">drive.google.com/drive/folders/</span>` : ''}" value={$driveData?.mainFolderId || ""} on:change={(e) => updateValue(e.detail, "mainFolderId")} />
 
     <!-- TODO: media folder -->
     <!-- <div>

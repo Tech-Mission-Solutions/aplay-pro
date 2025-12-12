@@ -252,9 +252,7 @@
         {#each currentVariable.sets || [DEFAULT_SET] as set, i}
             <InputRow style="border-radius: 4px;overflow: hidden;">
                 {#if (currentVariable.sets?.length || 0) > 1}
-                    <span style="background-color: var(--primary-darker);font-weight: bold;font-size: 0.8em;display: flex;align-items: center;padding: 0 10px;"
-                        ><span style="color: var(--secondary);display: flex;align-items: center;">#</span>{i + 1}</span
-                    >
+                    <span style="background-color: var(--primary-darker);font-weight: bold;font-size: 0.8em;display: flex;align-items: center;padding: 0 10px;"><span style="color: var(--secondary);display: flex;align-items: center;">#</span>{i + 1}</span>
                     <MaterialTextInput label="inputs.name" style="flex: 2;" value={set.name} on:change={(e) => updateSet(i, e.detail, "name")} autofocus={!!currentVariable.name && !set.name} />
                 {/if}
 

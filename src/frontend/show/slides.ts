@@ -511,7 +511,7 @@ export function removeItemValues(items: Item[]) {
 // split in half
 // WIP similar to Editbox.svelte
 export function splitItemInTwo(slideRef: LayoutRef, itemIndex: number, sel: { start?: number; end?: number }[] = [], cutIndex = -1) {
-    let lines: Line[] = _show().slides([slideRef.id]).items([itemIndex]).get("lines")[0][0]
+    let lines: Line[] = _show().slides([slideRef.id]).items([itemIndex]).get("lines")[0]?.[0] || []
     lines = lines.filter((a) => a.text?.[0]?.value?.length)
 
     // if only one line (like scriptures, split by text)
@@ -608,10 +608,10 @@ export function splitItemInTwo(slideRef: LayoutRef, itemIndex: number, sel: { st
 
     // add chords
     const chordLines = clone(lines.map((a) => a.chords || []))
-        ;[...firstLines, ...secondLines].forEach((line) => {
-            const oldLineChords = chordLines.shift()
-            if (oldLineChords?.length) line.chords = oldLineChords
-        })
+    ;[...firstLines, ...secondLines].forEach((line) => {
+        const oldLineChords = chordLines.shift()
+        if (oldLineChords?.length) line.chords = oldLineChords
+    })
 
     // create new slide
     const newSlide = clone(_show().slides([slideRef.id]).get()[0])
@@ -893,8 +893,10 @@ export function createVirtualBreaks(lines: Line[], skip = false) {
     if (!lines?.length) return []
 
     const replaceWith = skip ? "" : "<br>"
-    lines.forEach(a => {
-        a.text.forEach(text => {
+    lines.forEach((line) => {
+        if (!Array.isArray(line?.text)) return
+
+        line.text.forEach((text) => {
             text.value = replaceVirtualBreaks(text.value, replaceWith)
         })
     })

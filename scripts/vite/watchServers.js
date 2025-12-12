@@ -10,7 +10,7 @@ const processes = []
 
 servers.forEach((server) => {
     console.log(`Starting watch for ${server}...`)
-    
+
     const watchProcess = spawn("npx", ["vite", "build", "--config", viteConfig, "--watch"], {
         stdio: "inherit",
         shell: true,
@@ -21,22 +21,22 @@ servers.forEach((server) => {
             VITE_SERVER_ID: server
         }
     })
-    
+
     watchProcess.on("error", (err) => {
         console.error(`Failed to watch ${server}:`, err)
     })
-    
+
     processes.push(watchProcess)
 })
 
 // Handle cleanup
 process.on("SIGINT", () => {
     console.log("\nShutting down server watches...")
-    processes.forEach(p => p.kill())
+    processes.forEach((p) => p.kill())
     process.exit(0)
 })
 
 process.on("SIGTERM", () => {
-    processes.forEach(p => p.kill())
+    processes.forEach((p) => p.kill())
     process.exit(0)
 })

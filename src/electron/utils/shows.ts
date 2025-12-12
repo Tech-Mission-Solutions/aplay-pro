@@ -29,7 +29,7 @@ export function trimShow(showCache: Show) {
         name: showCache.name,
         category: showCache.category,
         timestamps: showCache.timestamps,
-        quickAccess: showCache.quickAccess || {},
+        quickAccess: showCache.quickAccess || {}
     }
     if (showCache.origin) show.origin = showCache.origin
     if (showCache.private) show.private = true

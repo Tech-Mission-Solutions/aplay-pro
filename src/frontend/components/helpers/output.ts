@@ -8,39 +8,7 @@ import type { Item, Layout, LayoutRef, Media, OutSlide, Show, Slide, SlideData, 
 import { AudioAnalyser } from "../../audio/audioAnalyser"
 import { fadeinAllPlayingAudio, fadeoutAllPlayingAudio } from "../../audio/audioFading"
 import { sendMain } from "../../IPC/main"
-import {
-    actions,
-    activeProject,
-    activeRename,
-    activeTimers,
-    allOutputs,
-    categories,
-    connections,
-    currentOutputSettings,
-    disabledServers,
-    effects,
-    lockedOverlays,
-    media,
-    outputDisplay,
-    outputs,
-    outputSlideCache,
-    outputState,
-    overlays,
-    overlayTimers,
-    playingVideos,
-    projects,
-    scriptures,
-    serverData,
-    showsCache,
-    special,
-    stageShows,
-    styles,
-    templates,
-    theme,
-    themes,
-    transitionData,
-    usageLog
-} from "../../stores"
+import { actions, activeProject, activeRename, activeTimers, allOutputs, categories, connections, currentOutputSettings, disabledServers, effects, lockedOverlays, media, outputDisplay, outputs, outputSlideCache, outputState, overlays, overlayTimers, playingVideos, projects, scriptures, serverData, showsCache, special, stageShows, styles, templates, theme, themes, transitionData, usageLog } from "../../stores"
 import { trackScriptureUsage } from "../../utils/analytics"
 import { isMainWindow, isOutputWindow, newToast } from "../../utils/common"
 import { translateText } from "../../utils/language"
@@ -60,17 +28,17 @@ import { _show } from "./shows"
 import { getStyles } from "./style"
 import { getFirstOutputIdWithAudableBackground } from "./video"
 
-export function toggleOutputs(outputIds: string[] | null = null, options: { force?: boolean, autoStartup?: boolean, state?: boolean } = {}) {
+export function toggleOutputs(outputIds: string[] | null = null, options: { force?: boolean; autoStartup?: boolean; state?: boolean } = {}) {
     if (outputIds === null) outputIds = getActiveOutputs(get(outputs), false)
     // if (outputIds === null) outputIds = Object.keys(get(outputs))
 
-    const outputsList = outputIds.map((id) => ({ ...get(outputs)[id], id })).filter(a => a.enabled)
+    const outputsList = outputIds.map((id) => ({ ...get(outputs)[id], id })).filter((a) => a.enabled)
     if (!outputsList.length) return
 
     // sort so display order can be changed! (needs app restart)
     const sortedOutputList = sortObject(sortByName(outputsList), "stageOutput")
 
-    const currentOutputState = !!get(outputState).find(a => a.id === outputIds[0])?.active
+    const currentOutputState = !!get(outputState).find((a) => a.id === outputIds[0])?.active
     const state = typeof options.state === "boolean" ? options.state : options.force || !(outputIds.length === 1 ? currentOutputState : get(outputDisplay))
 
     const autoPosition = sortedOutputList.length === 1 && !sortedOutputList[0].forcedResolution?.width
@@ -132,12 +100,10 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
             // log usage if show is not currently outputted
             if (currentOutSlideId !== data?.id) appendShowUsage(data.id)
 
-            const overrideCategoryAction = ref[data?.index]?.data?.actions?.slideActions?.find((action) =>
-                Object.values(action.customData || {}).find((a1) => Object.entries(a1).find(([key, value]) => key === "overrideCategoryAction" && value === true))
-            )
+            const overrideCategoryAction = ref[data?.index]?.data?.actions?.slideActions?.find((action) => Object.values(action.customData || {}).find((a1) => Object.entries(a1).find(([key, value]) => key === "overrideCategoryAction" && value === true)))
 
             // run category action if show slide is not currently outputted, and it does not have a custom override action
-            if ((currentOutSlideId !== data?.id) || resetActionTrigger) {
+            if (currentOutSlideId !== data?.id || resetActionTrigger) {
                 const category = get(showsCache)[data.id]?.category || ""
                 const categoryActionId = get(categories)[category]?.action
                 if (!overrideCategoryAction && categoryActionId) runAction(get(actions)[categoryActionId], {}, true)
@@ -174,7 +140,7 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
             }
 
             let outData = a[id].out?.[type] || null
-            if ((type === "overlays" || type === "effects") && data.length) {
+            if ((type === "overlays" || type === "effects") && data?.length) {
                 if (!Array.isArray(data)) data = [data]
                 if (toggle && i === 0) toggleState = outData?.includes(data[0])
                 if (toggle && toggleState) outData.splice(outData.indexOf(data[0]), 1)
@@ -363,7 +329,7 @@ export function getAllOutputs() {
     // return sortByName(keysToID(get(outputs)))
 }
 export function getAllEnabledOutputs() {
-    return getAllOutputs().filter(a => a.enabled)
+    return getAllOutputs().filter((a) => a.enabled)
 }
 
 export function getAllNormalOutputs() {
@@ -377,8 +343,15 @@ export function getFirstOutput() {
     return getAllNormalOutputs()[0]
 }
 
+// get window output id
+export function getWindowOutputId() {
+    if (!isOutputWindow()) return getFirstOutput()?.id || ""
+    return getActiveOutputs(get(outputs), false, true, true)[0]
+    // return getActiveOutputs(get(allOutputs), false, true, true)[0]
+}
+
 export function getAllActiveOutputs() {
-    return getAllEnabledOutputs().filter(a => !a.stageOutput && a.active)
+    return getAllEnabledOutputs().filter((a) => !a.stageOutput && a.active)
 }
 export function getFirstActiveOutput(_updater: any = null) {
     const firstActive = getAllActiveOutputs()[0]
@@ -388,7 +361,7 @@ export function getFirstActiveOutput(_updater: any = null) {
     if (!getAllOutputs().filter((a) => !a.stageOutput).length && isMainWindow()) addOutput(true)
 
     // get first regardless of active state
-    return keysToID(get(outputs)).find(a => !a.stageOutput)
+    return keysToID(get(outputs)).find((a) => !a.stageOutput)
 }
 
 // DEPRECATED
@@ -881,12 +854,18 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         ] as string[]
 
         item.lines?.forEach((line, j) => {
-            const templateLine = templateItem?.lines?.[j] || templateItem?.lines?.[0]
+            let templateLine = templateItem?.lines?.[j] || templateItem?.lines?.[0]
+            if (!templateLine) return
+
+            // remove empty text parts (if not completely empty)
+            if (templateLine.text.some((a) => a?.value?.trim().length)) templateLine.text = templateLine.text.filter((a) => a?.value?.trim().length)
+
+            const hasDynamicValue = templateLine?.text?.some((text) => text.value?.includes("{"))
 
             line.align = templateLine?.align || ""
             line.text?.forEach((text, k) => {
                 const templateText = templateLine?.text?.[k] || templateLine?.text?.[0]
-                if (!text.customType?.includes("disableTemplate")) {
+                if (!text.customType?.includes("disableTemplate") && !templateText?.value?.includes("{scripture_number}")) {
                     let style = templateText?.style || ""
 
                     // add original text color, if template is not clicked & slide text has multiple colors
@@ -902,7 +881,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
                 const firstChar = templateText?.value?.[0] || ""
 
                 // add dynamic values
-                if (!text.value?.length && firstChar === "{" && templateItem?.lines?.[j]) {
+                if (!text.value?.length && hasDynamicValue && templateItem?.lines?.[j]) {
                     text.value = templateText!.value
                 }
 
@@ -941,15 +920,18 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
     // remove textbox items
     templateItems = templateItems.filter((a) => (a.type || "text") !== "text")
     // remove any duplicate values
-    templateItems = templateItems.filter((item) => !newSlideItems.find((a) => {
-        const currentItem = clone(a)
-        delete currentItem.align
-        delete currentItem.auto
-        delete currentItem.autoFontSize
-        delete currentItem.fromTemplate
+    templateItems = templateItems.filter(
+        (item) =>
+            !newSlideItems.find((a) => {
+                const currentItem = clone(a)
+                delete currentItem.align
+                delete currentItem.auto
+                delete currentItem.autoFontSize
+                delete currentItem.fromTemplate
 
-        return areObjectsEqual(currentItem, item)
-    }))
+                return areObjectsEqual(currentItem, item)
+            })
+    )
 
     // this will ensure the correct order on the remaining items
     const remainingCount = Object.values(sortedTemplateItems).reduce((value, items) => (value += items.length), 0)
@@ -980,16 +962,7 @@ export function updateSlideFromTemplate(slide: Slide, template: Template, isFirs
     return slide
 }
 
-export function updateLayoutsFromTemplate(
-    layouts: { [key: string]: Layout },
-    media: { [key: string]: Media },
-    template: Template,
-    oldTemplate: Template,
-    layoutId: string,
-    slideRef: LayoutRef,
-    templateMode: "global" | "group" | "slide",
-    removeOverflow = false
-) {
+export function updateLayoutsFromTemplate(layouts: { [key: string]: Layout }, media: { [key: string]: Media }, template: Template, oldTemplate: Template, layoutId: string, slideRef: LayoutRef, templateMode: "global" | "group" | "slide", removeOverflow = false) {
     if (typeof layouts !== "object") layouts = {}
     if (typeof media !== "object") media = {}
 
@@ -1053,7 +1026,12 @@ function getSlideItemsFromTemplate(templateSettings: TemplateSettings) {
 function removeTextValue(items: Item[]) {
     items.forEach((item) => {
         if (!item.lines) return
-        item.lines = item.lines.map((line) => ({ align: line.align, text: [{ style: line.text?.[0]?.style, value: getTemplateText(line.text?.[0]?.value) }] }))
+        item.lines = item.lines.map((line) => {
+            const hasDynamicValue = line.text?.some((text) => text.value?.includes("{"))
+
+            if (hasDynamicValue) return { align: line.align, text: line.text }
+            return { align: line.align, text: [{ style: line.text?.[0]?.style, value: "" }] }
+        })
     })
 
     return items
@@ -1081,6 +1059,8 @@ export function sortItemsByType(items: Item[]) {
     const sortedItems: { [key: string]: Item[] } = {}
 
     items.forEach((item) => {
+        if (!item) return
+
         const type = item.type || "text"
         if (!sortedItems[type]) sortedItems[type] = []
 
@@ -1214,7 +1194,7 @@ export function getOutputLines(outSlide: OutSlide, styleLines = 0) {
     // if the value is 3 & 2 lines, with slide text of 6 lines, the center will not match, but I probably can't do anything about that
 
     // lines reveal
-    const linesRevealItems = (showSlide?.items || []).filter((a) => a.lineReveal)
+    const linesRevealItems = (showSlide?.items || []).filter((a) => a?.lineReveal)
     const currentReveal = outSlide.revealCount ?? 0
     let linesStart: number | null = null
     let linesEnd: number | null = null

@@ -85,7 +85,7 @@ export class AudioPlayer {
                 name: removeExtension(metadata.name || getFileName(path)),
                 paused: false,
                 isMic: false,
-                audio,
+                audio
             }
             return a
         })
@@ -118,7 +118,7 @@ export class AudioPlayer {
                 paused: false,
                 isMic: true,
                 audio,
-                stream,
+                stream
             }
             return a
         })
@@ -299,9 +299,9 @@ export class AudioPlayer {
         return get(playingAudioPaths).length
             ? get(playingAudioPaths)
             : Object.keys(get(playingAudio)).filter((id) => {
-                const audioData = get(playingAudio)[id]
-                return audioData.audio && (!removePaused || !audioData.paused)
-            })
+                  const audioData = get(playingAudio)[id]
+                  return audioData.audio && (!removePaused || !audioData.paused)
+              })
     }
 
     static getAudio(id: string): HTMLAudioElement | null {
@@ -359,7 +359,7 @@ export class AudioPlayer {
     }
 
     static getOutputs(): Promise<{ value: string; label: string }[]> {
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             navigator.mediaDevices
                 .enumerateDevices()
                 .then((devices) => {

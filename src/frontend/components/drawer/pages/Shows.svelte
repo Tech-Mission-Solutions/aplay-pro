@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from "svelte"
     // import VirtualList from "@sveltejs/svelte-virtual-list"
     // import VirtualList from "./VirtualList2.svelte"
     import type { ShowList } from "../../../../types/Show"
@@ -183,11 +184,7 @@
     $: sortType = $sorted.shows?.type || "name"
     $: modifiedType = ["modified", "created", "used"].includes(sortType.replace("_old", "")) ? sortType.replace("_old", "") : "modified"
     // All sortable columns share the same metadata so the UI + store stay in sync
-    $: sortHeaders = [
-        { id: "name", style: "flex: 1;", label: translateText("show.name"), asc: "name", desc: "name_des", default: "asc" },
-        ...(showWithNumber ? [{ id: "number", style: "min-width: var(--number-width);", label: translateText("meta.number"), asc: "number", desc: "number_des", default: "asc" }] : []),
-        { id: "modified", style: "min-width: var(--modified-width);", label: translateText(`info.${modifiedType}`), asc: `${modifiedType}_old`, desc: modifiedType, default: "desc" }
-    ]
+    $: sortHeaders = [{ id: "name", style: "flex: 1;", label: translateText("show.name"), asc: "name", desc: "name_des", default: "asc" }, ...(showWithNumber ? [{ id: "number", style: "min-width: var(--number-width);", label: translateText("meta.number"), asc: "number", desc: "number_des", default: "asc" }] : []), { id: "modified", style: "min-width: var(--modified-width);", label: translateText(`info.${modifiedType}`), asc: `${modifiedType}_old`, desc: modifiedType, default: "desc" }]
 
     function toggleSort(columnId: string) {
         const definition = sortHeaders.find((header) => header.id === columnId)
@@ -240,12 +237,14 @@
     }
 
     let activeIsSearch = true
-    function mouseup() {
-        activeIsSearch = document.activeElement?.classList.contains("search") || false
-    }
+    onMount(() => {
+        const searchInput = document.querySelector(".drawer")?.querySelector(".search")
+        searchInput?.addEventListener("focus", () => (activeIsSearch = true))
+        searchInput?.addEventListener("blur", () => (activeIsSearch = false))
+    })
 </script>
 
-<svelte:window on:keydown={keydown} on:mouseup={mouseup} />
+<svelte:window on:keydown={keydown} />
 
 <Autoscroll style="overflow-y: auto;flex: 1;">
     <!-- bind:this={listElem} -->
@@ -279,14 +278,7 @@
                 <VirtualList items={filteredShows} let:item={show} activeIndex={searchValue.length ? -1 : filteredShows.findIndex((a) => a.id === $activeShow?.id)}>
                     <SelectElem id="show_drawer" data={{ id: show.id }} shiftRange={filteredShows} draggable>
                         {#if searchValue.length <= 1 || show.match}
-                            <ShowButton
-                                id={show.id}
-                                {show}
-                                data={dateToString(show.timestamps?.[sortType.replace("_old", "")] || show.timestamps?.modified || show.timestamps?.created || "", true)}
-                                class="#drawer_show_button"
-                                match={show.match || null}
-                                isFirst={firstMatch?.id === show.id && activeIsSearch}
-                            />
+                            <ShowButton id={show.id} {show} data={dateToString(show.timestamps?.[sortType.replace("_old", "")] || show.timestamps?.modified || show.timestamps?.created || "", true)} class="#drawer_show_button" match={show.match || null} isFirst={firstMatch?.id === show.id && activeIsSearch} />
                         {/if}
                     </SelectElem>
                 </VirtualList>

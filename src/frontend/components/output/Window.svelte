@@ -16,9 +16,9 @@
                 maxWidth: 1920,
                 maxHeight: 1080,
                 // maxAspectRatio: 16/9,
-                maxFrameRate: 60,
-            },
-        },
+                maxFrameRate: 60
+            }
+        }
     }
 
     onMount(() => {

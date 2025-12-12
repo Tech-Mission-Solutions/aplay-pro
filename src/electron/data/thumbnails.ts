@@ -10,6 +10,7 @@ import type { Resolution } from "../../types/Settings"
 import { requestToMain, sendToMain } from "../IPC/main"
 import { OutputHelper } from "../output/OutputHelper"
 import { createFolder, deleteFile, doesPathExist, doesPathExistAsync, getDataFolderPath, getFileStatsAsync, makeDir } from "../utils/files"
+import { appDataPath } from "./store"
 import { waitUntilValueIsDefined } from "../utils/helpers"
 import { captureOptions } from "../utils/windowOptions"
 import { imageExtensions, videoExtensions } from "./media"
@@ -35,11 +36,10 @@ export async function doesMediaExist(data: { path: string; creationTime?: number
     return { path: data.path, exists: true, creationTime }
 }
 
-
 // delete thumbnail cache
 const sizes = [900, 500, 250, 100]
 function deleteThumbnails(filePath: string) {
-    sizes.forEach(size => {
+    sizes.forEach((size) => {
         const outputPath = getThumbnailPath(filePath, size)
         if (doesPathExist(outputPath)) deleteFile(outputPath)
     })
@@ -99,15 +99,23 @@ async function generateThumbnail(data: Thumbnail) {
         generationFinished()
     }
 }
-
 let thumbnailFolderPath = ""
 export function getThumbnailFolderPath() {
     if (thumbnailFolderPath) return thumbnailFolderPath
 
-    const folderPath: string = path.join(app.getPath("temp"), "freeshow-cache")
-    if (!doesPathExist(folderPath)) makeDir(folderPath)
-    thumbnailFolderPath = folderPath
+    // use app data path for cache, fallback to temp if appData is not available
+    let folderPath: string
+    try {
+        folderPath = path.join(appDataPath, "media-cache")
+        if (!doesPathExist(folderPath)) makeDir(folderPath)
+    } catch (err) {
+        // fallback to temp directory if app data path is not accessible
+        // temp folder is periodically deleted on macOS
+        folderPath = path.join(app.getPath("temp"), "freeshow-cache")
+        if (!doesPathExist(folderPath)) makeDir(folderPath)
+    }
 
+    thumbnailFolderPath = folderPath
     return folderPath
 }
 
@@ -178,7 +186,7 @@ async function captureWithCanvas(data: { input: string; output: string; size: Re
 
 export function saveImage(data: { path?: string; base64?: string; filePath?: string[]; format?: "png" | "jpg" }) {
     const dataURL = data.base64
-    let savePath = data.path
+    let savePath = data.path || ""
 
     if (data.filePath?.length) {
         const fileName = data.filePath.pop()!
@@ -288,7 +296,7 @@ function saveToDisk(savePath: string, image: NativeImage, nextOnFinished = true,
 
 /// // CAPTURE SLIDE /////
 
-export function captureSlide(data: { output: { [key: string]: Output }; resolution: Resolution }): Promise<{ base64: string } | undefined> {
+export function captureSlide(data: { output: { [key: string]: Output }; resolution: Resolution }): Promise<{ base64: string } | null> {
     return new Promise((resolve) => {
         const outSlide = Object.values(data.output)[0].out?.slide
         const OUTPUT_ID = "capture" + String(outSlide?.id) + String(outSlide?.layout) + String(outSlide?.index)
@@ -302,11 +310,15 @@ export function captureSlide(data: { output: { [key: string]: Output }; resoluti
         window.on("ready-to-show", () => {
             // send correct output data after load
             setTimeout(() => {
+                if (window.isDestroyed()) return resolve(null)
+
                 window.webContents.send(OUTPUT, { channel: "OUTPUTS", data: data.output })
                 // WIP mute videos
 
                 // wait for content load
                 setTimeout(async () => {
+                    if (window.isDestroyed()) return resolve(null)
+
                     const page = await window.capturePage()
                     const base64 = page.toDataURL({ scaleFactor: 1 })
                     resolve({ base64 })

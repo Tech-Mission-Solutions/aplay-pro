@@ -58,6 +58,7 @@ export function createGlobalTimerFromLocalTimer(showId: string | undefined) {
     Object.keys(currentShow.slides).forEach(checkSlide)
     function checkSlide(slideId) {
         const items: any[] = currentShow.slides[slideId].items
+        if (!Array.isArray(items)) return
 
         // TODO: "backup" global timer to show item.timer
 
@@ -104,7 +105,7 @@ export function getCurrentTimerValue(timer: Timer, ref: any, today: Date, update
     } else if (timer.type === "event") {
         let currentEvent = get(events)[timer.event || ""] || {}
         // if repeating event & has passed more than an hour ago
-        if (currentEvent.group && (new Date(currentEvent.from)?.getTime() || 0) < (today.getTime() - ONE_HOUR)) {
+        if (currentEvent.group && (new Date(currentEvent.from)?.getTime() || 0) < today.getTime() - ONE_HOUR) {
             const newEvent = getClosestUpcommingEvent(currentEvent.group)
             if (newEvent) currentEvent = newEvent
         }
@@ -119,15 +120,15 @@ export function getCurrentTimerValue(timer: Timer, ref: any, today: Date, update
 }
 
 function getClosestUpcommingEvent(eventGroup: string) {
-    const eventsList = keysToID(get(events)).filter(a => a.group === eventGroup)
+    const eventsList = keysToID(get(events)).filter((a) => a.group === eventGroup)
     if (!eventsList.length) return null
 
     const today = Date.now()
 
     let closestTime = 0
     let closestId = ""
-    eventsList.forEach(a => {
-        const currentTime = (new Date(a?.from)?.getTime() || 0)
+    eventsList.forEach((a) => {
+        const currentTime = new Date(a?.from)?.getTime() || 0
         if (currentTime > today && (!closestTime || currentTime < closestTime)) {
             closestTime = currentTime
             closestId = a.id

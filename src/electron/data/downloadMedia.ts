@@ -131,7 +131,11 @@ function startDownload(data: DownloadFile) {
   const file = data.file
   const url = file.url
 
-  if (!url) return next()
+    if (!url) {
+        currentlyDownloading--
+        initDownload()
+        return
+    }
 
   makeDir(path.dirname(data.path))
   const fileStream = fs.createWriteStream(data.path)
@@ -247,35 +251,48 @@ export function downloadMedia({ url, contentFile }: { url: string; contentFile?:
         fileStream.close()
         fs.unlink(outputPath, err => err && console.error(err))
 
-        console.error(`Failed to download file, status code: ${String(res.statusCode)}`)
-        return
-      }
+                console.error(`Failed to download file, status code: ${String(res.statusCode)}`)
+                sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
+                return
+            }
 
-      res.pipe(fileStream)
+            // track download progress
+            const totalSize = parseInt(res.headers["content-length"] || "0", 10)
+            let downloadedSize = 0
+            res.on("data", (chunk) => {
+                downloadedSize += chunk.length
+                if (totalSize > 0) sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: downloadedSize, total: totalSize, status: "downloading" })
+            })
 
-      res.on("error", err => {
-        fileStream.close()
-        console.error(`Response error: ${err.message}`)
+            res.pipe(fileStream)
+
+            res.on("error", (err) => {
+                fileStream.close()
+                console.error(`Response error: ${err.message}`)
+                sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
 
         retry()
       })
 
-      fileStream.on("error", err1 => {
-        fs.unlink(outputPath, err2 => err2 && console.error(err2))
-        console.error(`File error: ${err1.message}`)
+            fileStream.on("error", (err1) => {
+                fs.unlink(outputPath, (err2) => err2 && console.error(err2))
+                console.error(`File error: ${err1.message}`)
+                sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
 
         retry()
       })
 
-      fileStream.on("finish", async () => {
-        fileStream.close()
-        downloading.splice(downloading.indexOf(url), 1)
-        console.info(`Finished downloading file: ${url}`)
-      })
-    })
-    .on("error", err => {
-      fileStream.close()
-      console.error(`Request error: ${err.message}`)
+            fileStream.on("finish", async () => {
+                fileStream.close()
+                downloading.splice(downloading.indexOf(url), 1)
+                console.info(`Finished downloading file: ${url}`)
+                sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: totalSize, total: totalSize, status: "complete" })
+            })
+        })
+        .on("error", (err) => {
+            fileStream.close()
+            console.error(`Request error: ${err.message}`)
+            sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
 
       retry()
     })
@@ -300,11 +317,13 @@ export function downloadMedia({ url, contentFile }: { url: string; contentFile?:
 export async function checkIfMediaDownloaded({ url, contentFile }: { url: string; contentFile?: any }) {
   if (!url?.includes("http")) return null
 
-  // still being downloaded
-  if (downloading.includes(url)) return { path: url, buffer: null, isDownloading: true }
+    // still being downloaded
+    if (downloading.includes(url)) return { path: url, buffer: null, isDownloading: true }
 
-  const outputPath = getMediaThumbnailPath(url, contentFile)
-  if (!doesPathExist(outputPath)) return null
+    const outputPath = getMediaThumbnailPath(url, contentFile)
+    if (!doesPathExist(outputPath)) return null
+
+
 
   // Check if provider-based encryption is needed
   if (contentFile?.providerId) {
@@ -328,7 +347,7 @@ export async function checkIfMediaDownloaded({ url, contentFile }: { url: string
     }
   }
 
-  return { path: outputPath, buffer: null }
+    return { path: outputPath, buffer: null }
 }
 
 function getMediaThumbnailPath(url: string, contentFile?: any) {
@@ -340,17 +359,17 @@ function getMediaThumbnailPath(url: string, contentFile?: any) {
     }
   }
 
-  const urlWithoutQuery = url.split("?")[0]
-  const extension = path.extname(urlWithoutQuery)
-  const fileName = `${filePathHashCode(url)}${extension}`
-  const outputFolder = getDataFolderPath("onlineMedia")
+    const urlWithoutQuery = url.split("?")[0]
+    const extension = path.extname(urlWithoutQuery)
+    const fileName = `${filePathHashCode(url)}${extension}`
+    const outputFolder = getDataFolderPath("onlineMedia")
 
   return path.join(outputFolder, fileName)
 }
 
 function getMimeTypeFromContentFile(contentFile: any, fallbackPath: string) {
-  if (typeof contentFile?.mimeType === "string") return contentFile.mimeType
-  if (contentFile?.type === "image") return "image/jpeg"
-  if (contentFile?.type === "video") return "video/mp4"
-  return getMimeType(fallbackPath) || "application/octet-stream"
+    if (typeof contentFile?.mimeType === "string") return contentFile.mimeType
+    if (contentFile?.type === "image") return "image/jpeg"
+    if (contentFile?.type === "video") return "video/mp4"
+    return getMimeType(fallbackPath) || "application/octet-stream"
 }

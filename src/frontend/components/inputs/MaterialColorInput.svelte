@@ -27,6 +27,8 @@
     function getHexValue(value: string) {
         if (typeof value !== "string") return "#000000"
 
+        opacity = 100
+
         if (value.includes("gradient")) {
             if (!pickerOpen) opacity = getGradientOpacity(value) * 100
             return value
@@ -61,6 +63,7 @@
     }
 
     function colorUpdate(color: string) {
+        if (typeof color !== "string") return "#000000"
         if (editMode) return color
 
         hexValue = color
@@ -168,6 +171,12 @@
     let opacity = 100
     let updated: NodeJS.Timeout | null = null
     let gotUpdate = false
+    // don't update if value just changed
+    $: if (value) remount()
+    function remount() {
+        mounted = false
+        setTimeout(() => (mounted = true))
+    }
     $: if (opacity) opacityChanged()
     function opacityChanged() {
         if (!allowOpacity || !mounted) return
@@ -216,16 +225,7 @@
                         {#if color === "BREAK"}
                             <div style="display: block;margin: 10px;width: 100%;"></div>
                         {:else}
-                            <div
-                                class="pickColor"
-                                class:active={!editMode && hexValue === color.value}
-                                class:disabled={disabledGradientColors.includes(color.value)}
-                                data-title={color.name}
-                                style="background: {color.value};"
-                                tabindex="0"
-                                aria-label="Select gradient {color.name || color.value}"
-                                on:click={() => selectColor(color.value)}
-                            >
+                            <div class="pickColor" class:active={!editMode && hexValue === color.value} class:disabled={disabledGradientColors.includes(color.value)} data-title={color.name} style="background: {color.value};" tabindex="0" aria-label="Select gradient {color.name || color.value}" on:click={() => selectColor(color.value)}>
                                 {#if editMode}
                                     <div class="hover" class:visible={disabledGradientColors.includes(color.value)}>
                                         <Icon id={isCustom ? "delete" : "disable"} white style="fill: {getContrast(color.value)};" />
@@ -279,16 +279,7 @@
                         {#if color === "BREAK"}
                             <div style="display: block;margin: 10px;width: 100%;"></div>
                         {:else}
-                            <div
-                                data-value={color.value}
-                                class="pickColor"
-                                class:active={!editMode && hexValue.toLowerCase() === color.value.toLowerCase()}
-                                class:disabled={disabledColors.includes(color.value)}
-                                data-title={color.name}
-                                tabindex="0"
-                                style="background:{color.value};--outline-color: {getContrast(color.value)};"
-                                on:click={() => selectColor(color.value)}
-                            >
+                            <div data-value={color.value} class="pickColor" class:active={!editMode && hexValue.toLowerCase() === color.value.toLowerCase()} class:disabled={disabledColors.includes(color.value)} data-title={color.name} tabindex="0" style="background:{color.value};--outline-color: {getContrast(color.value)};" on:click={() => selectColor(color.value)}>
                                 {#if editMode}
                                     <div class="hover" class:visible={disabledColors.includes(color.value)}>
                                         <Icon id={isCustom ? "delete" : "disable"} white style="fill: {getContrast(color.value)};" />

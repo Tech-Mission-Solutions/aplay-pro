@@ -167,7 +167,7 @@
 
     let editActive = false
     function rename(value: string, id: string) {
-        if (editActive) return
+        // if (editActive) return
 
         history({ id: "UPDATE", newData: { key: "name", data: value }, oldData: { id }, location: { page: "show", id: "project_template" } })
     }
@@ -260,14 +260,7 @@
                 <div class="title">{translateText("tabs.templates")}</div>
                 <div class="scroll">
                     {#each templates as project}
-                        <MaterialButton
-                            id={project.id}
-                            style="width: 100%;padding: 0.1rem 0.65rem;font-weight: normal;"
-                            on:click={(e) => createFromTemplate(e, project.id)}
-                            class="context #project_template{readOnly ? '_readonly' : ''}"
-                            isActive={$activeProject === project.id}
-                            tab
-                        >
+                        <MaterialButton id={project.id} style="width: 100%;padding: 0.1rem 0.65rem;font-weight: normal;" on:click={(e) => createFromTemplate(e, project.id)} class="context #project_template{readOnly ? '_readonly' : ''}" isActive={$activeProject === project.id} tab>
                             <Icon id="templates" white={$projects[project.id]?.archived} />
                             <HiddenInput value={project.name} id={"project_" + project.id} on:edit={(e) => rename(e.detail.value, project.id)} bind:edit={editActive} />
                         </MaterialButton>

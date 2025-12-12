@@ -29,7 +29,7 @@
 
 <div class="editor-container">
     <Textarea bind:value />
-    
+
     {#if showTransposeButtons}
         <div class="transpose-buttons">
             <Button on:click={transposeUp} title={translate("edit.transpose_up", $dictionary)} dark>
@@ -61,7 +61,6 @@
         bottom: 10px;
         right: 10px;
         display: flex;
-        flex-direction: column;
         gap: 4px;
         z-index: 10;
     }

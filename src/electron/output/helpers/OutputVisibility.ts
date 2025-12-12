@@ -10,7 +10,7 @@ export class OutputVisibility {
     static toggleOutputs(data: { outputs: (Output & { id: string })[]; state: boolean; force?: boolean; autoStartup?: boolean; autoPosition?: boolean }) {
         const newStates: { id: string; active: boolean | "invisible" }[] = []
 
-        data.outputs.forEach(output => {
+        data.outputs.forEach((output) => {
             const force = !!(data.force || output.allowMainScreen || output.boundsLocked)
             const newState = OutputVisibility.toggleOutput(output, data.state, force, data.autoStartup, data.autoPosition)
             newStates.push({ id: output.id, active: newState })
@@ -19,7 +19,7 @@ export class OutputVisibility {
         toApp(OUTPUT, { channel: "OUTPUT_STATE", data: newStates })
     }
 
-    static toggleOutput(output: (Output & { id: string }), state: boolean, force?: boolean, autoStartup?: boolean, autoPosition?: boolean) {
+    static toggleOutput(output: Output & { id: string }, state: boolean, force?: boolean, autoStartup?: boolean, autoPosition?: boolean) {
         if (!output?.id) return false
 
         let window: BrowserWindow = OutputHelper.getOutput(output.id)?.window

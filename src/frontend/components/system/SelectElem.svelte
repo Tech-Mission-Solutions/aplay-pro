@@ -34,6 +34,7 @@
         if ($selected.id !== id) selected.set({ id, data: [data] })
         else if (!arrayHasData($selected.data, data)) {
             selected.update((s) => {
+                if (!Array.isArray(s.data)) s.data = []
                 s.data = [...s.data, data]
                 return s
             })
@@ -163,7 +164,7 @@
 
             let selectedBetween: number[] = range(lowestNumber, highestNumber)
             function range(start: number, end: number) {
-                return Array(end - start + 1)
+                return Array(Math.abs(end - start) + 1)
                     .fill("")
                     .map((_, idx) => start + idx)
             }
@@ -176,10 +177,13 @@
             if (shiftRange) {
                 allNewData = allNewData
                     .map((data) => {
+                        if (!data) return null
+
                         let newData: any = {}
                         keys.forEach((key) => {
                             newData[key] = data[key]
                         })
+
                         return newData
                     })
                     .filter((a) => a)
@@ -321,19 +325,7 @@
     }}
 />
 
-<div
-    {id}
-    data-item={JSON.stringify(data)}
-    {draggable}
-    style={$$props.style}
-    class="selectElem {$$props.class || ''}"
-    class:fill
-    class:isSelected={selectable && $selected.id === id && arrayHasData($selected.data, data)}
-    bind:this={elem}
-    on:mouseenter={enter}
-    on:mousedown={mousedown}
-    on:dragstart={(e) => mousedown(e, true)}
->
+<div {id} data-item={JSON.stringify(data)} {draggable} style={$$props.style} class="selectElem {$$props.class || ''}" class:fill class:isSelected={selectable && $selected.id === id && arrayHasData($selected.data, data)} bind:this={elem} on:mouseenter={enter} on:mousedown={mousedown} on:dragstart={(e) => mousedown(e, true)}>
     <!-- on:mouseup={mouseup}
     on:contextmenu={contextmenu} -->
     <!-- TODO: validateDrop(id, $selected.id, true) -->

@@ -3,15 +3,16 @@
 
 import type { Rectangle } from "electron"
 import { BrowserWindow, Menu, app, ipcMain, powerSaveBlocker, protocol, screen } from "electron"
-import { AUDIO, CLOUD, EXPORT, MAIN, NDI, OUTPUT, RECORDER, STARTUP } from "../types/Channels"
+import { AUDIO, CLOUD, EXPORT, MAIN, NDI, OUTPUT, STARTUP } from "../types/Channels"
 import { Main } from "../types/IPC/Main"
 import type { Dictionary } from "../types/Settings"
 import { receiveAudio } from "./audio/receiveAudio"
 import { cloudConnect } from "./cloud/cloud"
 import { startExport } from "./data/export"
+import { registerProtectedProtocol } from "./data/protected"
 import { config, setupStores } from "./data/store"
 import { receiveMain, sendMain } from "./IPC/main"
-import { autoErrorReport, saveRecording } from "./IPC/responsesMain"
+import { autoErrorReport } from "./IPC/responsesMain"
 import { receiveNDI } from "./ndi/talk"
 import { OutputHelper } from "./output/OutputHelper"
 import { callClose, exitApp, saveAndClose } from "./utils/close"
@@ -19,7 +20,6 @@ import { isWithinDisplayBounds, mainWindowInitialize, openDevTools, parseCommand
 import { template } from "./utils/menuTemplate"
 import { spellcheck } from "./utils/spellcheck"
 import { loadingOptions, mainOptions } from "./utils/windowOptions"
-import { registerProtectedProtocol } from "./data/protected"
 
 // ----- STARTUP -----
 
@@ -85,7 +85,10 @@ protocol.registerSchemesAsPrivileged([
 
 // start when ready
 if (RECORD_STARTUP_TIME) console.time("Full startup")
-app.on("ready", startApp)
+app.on("ready", () => {
+    startApp()
+    requestHeaders()
+})
 
 export let powerSaveBlockerId: number | null = null
 function startApp() {
@@ -107,8 +110,6 @@ function startApp() {
 
     registerProtectedProtocol()
 
-    requestHeaders()
-
     // Start servers initialization early (asynchronously)
     Promise.resolve()
         .then(() => {
@@ -121,20 +122,18 @@ function startApp() {
     createMain()
 
     // prevent display sleeping
-    powerSaveBlockerId = powerSaveBlocker.start('prevent-display-sleep')
+    powerSaveBlockerId = powerSaveBlocker.start("prevent-display-sleep")
 }
 
 function requestHeaders() {
     // Fix YouTube Error 153 - set referrer policy for all requests
     // https://stackoverflow.com/questions/79802987/youtube-error-153-video-player-configuration-error-when-embedding-youtube-video
-    app.whenReady().then(() => {
-        const session = require("electron").session.defaultSession
-        session.webRequest.onBeforeSendHeaders((details: any, callback: any) => {
-            if (details.url.includes("youtube.com") || details.url.includes("youtube-nocookie.com")) {
-                details.requestHeaders["Referer"] = "https://joinamazing.com/"
-            }
-            callback({ requestHeaders: details.requestHeaders })
-        })
+    const session = require("electron").session.defaultSession
+    session.webRequest.onBeforeSendHeaders((details: any, callback: any) => {
+        if (details.url.includes("youtube.com") || details.url.includes("youtube-nocookie.com")) {
+            details.requestHeaders["Referer"] = "https://joinamazing.com/"
+        }
+        callback({ requestHeaders: details.requestHeaders })
     })
 }
 
@@ -154,7 +153,7 @@ const MIN_WINDOW_SIZE = 400
 const DEFAULT_WINDOW_SIZE = { width: 800, height: 600 }
 function createMain() {
     if (RECORD_STARTUP_TIME) console.time("Main window")
-    const bounds: Rectangle = config.get("bounds")
+    const bounds: Rectangle = windowBounds.get()
     const screenBounds: Rectangle = screen.getPrimaryDisplay().bounds
 
     const options: Electron.BrowserWindowConstructorOptions = {
@@ -245,13 +244,33 @@ function setMainListeners() {
     mainWindow.on("maximize", () => config.set("maximized", true))
     mainWindow.on("unmaximize", () => config.set("maximized", false))
 
-    mainWindow.on("resize", () => config.set("bounds", mainWindow?.getBounds()))
-    mainWindow.on("move", () => config.set("bounds", mainWindow?.getBounds()))
+    mainWindow.on("resize", windowBounds.save)
+    mainWindow.on("move", windowBounds.save)
 
     mainWindow.on("close", callClose)
     mainWindow.once("closed", exitApp)
 
     mainWindow.webContents.on("context-menu", (_, a) => spellcheck(a))
+}
+
+const windowBounds = {
+    get(): Rectangle {
+        try {
+            const bounds = config.get("bounds")
+            if (bounds?.width && bounds?.height) return bounds as Rectangle
+        } catch (err) {
+            console.warn("Failed to load saved bounds:", err)
+        }
+        return { x: 0, y: 0, width: 0, height: 0 }
+    },
+    save() {
+        if (mainWindow?.isDestroyed()) return
+        try {
+            config.set("bounds", mainWindow!.getBounds())
+        } catch (err) {
+            console.warn("Failed to save window bounds:", err)
+        }
+    }
 }
 
 export function maximizeMain() {
@@ -312,7 +331,6 @@ ipcMain.on(MAIN, receiveMain)
 ipcMain.on(OUTPUT, OutputHelper.receiveOutput)
 ipcMain.on(EXPORT, startExport)
 ipcMain.on(CLOUD, cloudConnect)
-ipcMain.on(RECORDER, saveRecording)
 ipcMain.on(NDI, receiveNDI)
 ipcMain.on(AUDIO, receiveAudio)
 

@@ -56,7 +56,7 @@ export function setShow(id: string, value: "delete" | Show): Show {
                 name: value.name,
                 category: value.category,
                 timestamps: value.timestamps,
-                quickAccess: value.quickAccess || {},
+                quickAccess: value.quickAccess || {}
             }
 
             if (value.origin) a[id].origin = value.origin
@@ -103,41 +103,43 @@ export async function loadShows(s: string[], deleting = false) {
 
     if (!notLoaded.length) return
 
-    await Promise.all(notLoaded.map(async showId => {
-        await requestMain(Main.SHOW, { name: get(shows)[showId].name, id: showId }, (data) => {
-            if (data.error || !data.content) {
-                notFound.update((a) => {
-                    a.show.push(data.id)
-                    return a
-                })
-                return
-            }
-
-            // has been loaded in the meantime
-            if (get(showsCache)[data.id]) return
-
-            // remove from not found
-            if (get(notFound).show.includes(data.id)) {
-                notFound.update((a) => {
-                    a.show.splice(a.show.indexOf(data.id), 1)
-                    return a
-                })
-            }
-
-            // might have been saved wrongly
-            if (typeof data.content[1] === "string") {
-                try {
-                    data.content[1] = JSON.parse(data.content[1])
-                    if (data.content[1]?.[1]?.name) data.content[1] = data.content[1][1]
-                } catch (err) {
+    await Promise.all(
+        notLoaded.map(async (showId) => {
+            await requestMain(Main.SHOW, { name: get(shows)[showId].name, id: showId }, (data) => {
+                if (data.error || !data.content) {
+                    notFound.update((a) => {
+                        a.show.push(data.id)
+                        return a
+                    })
                     return
                 }
-            }
 
-            const show = fixShowIssues(data.content[1])
-            setShow(data.id || data.content[0], show)
+                // has been loaded in the meantime
+                if (get(showsCache)[data.id]) return
+
+                // remove from not found
+                if (get(notFound).show.includes(data.id)) {
+                    notFound.update((a) => {
+                        a.show.splice(a.show.indexOf(data.id), 1)
+                        return a
+                    })
+                }
+
+                // might have been saved wrongly
+                if (typeof data.content[1] === "string") {
+                    try {
+                        data.content[1] = JSON.parse(data.content[1])
+                        if (data.content[1]?.[1]?.name) data.content[1] = data.content[1][1]
+                    } catch (err) {
+                        return
+                    }
+                }
+
+                const show = fixShowIssues(data.content[1])
+                setShow(data.id || data.content[0], show)
+            })
         })
-    }))
+    )
 
     if (savedBeforeLoading) {
         setTimeout(() => saved.set(true), 100)
@@ -150,11 +152,22 @@ export function saveTextCache(id: string, show: Show) {
     // don't cache scripture/calendar shows text or archived categories
     if (!show?.slides || show?.reference?.type || get(categories)[show.category || ""]?.isArchive) return
 
-    const txt = Object.values(show.slides)
+    const txt = getTextCacheString(show)
+    tempCache[id] = txt
+
+    // prevent rapid updates
+    if (updateTimeout) clearTimeout(updateTimeout)
+    updateTimeout = setTimeout(() => {
+        textCache.set({ ...get(textCache), ...tempCache })
+        tempCache = {}
+    }, 1000)
+}
+function getTextCacheString(show: Show) {
+    return Object.values(show.slides)
         .flatMap((slide) => slide?.items)
         .flatMap((item) => item?.lines || [])
         .flatMap((line) => line?.text || [])
-        .map((text) => text?.value)
+        .map((text) => text?.value || "")
         .join(" ")
         .toLowerCase()
     // .replace(/[^a-z0-9 ]+/g, "")
@@ -164,15 +177,6 @@ export function saveTextCache(id: string, show: Show) {
     // txt = Buffer.from(txt).toString("base64")
     // Buffer.from(encode, 'base64').toString('utf-8')
     // window.atob(encode)
-
-    tempCache[id] = txt
-
-    // prevent rapid updates
-    if (updateTimeout) clearTimeout(updateTimeout)
-    updateTimeout = setTimeout(() => {
-        textCache.set({ ...get(textCache), ...tempCache })
-        tempCache = {}
-    }, 1000)
 }
 
 export function setQuickAccessMetadata(show: ShowObj, key: string, value: string) {

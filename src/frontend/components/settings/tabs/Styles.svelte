@@ -118,15 +118,7 @@
 
     $: templateOverride = currentStyle.template || ""
     $: templateOverrideScripture = currentStyle.templateScripture || ""
-    $: scriptureTemplateLabel = currentStyle.templateScripture
-        ? $templates[currentStyle.templateScripture || ""]?.name
-        : currentStyle.templateScripture_2
-          ? $templates[currentStyle.templateScripture_2 || ""]?.name + " (2)"
-          : currentStyle.templateScripture_3
-            ? $templates[currentStyle.templateScripture_3 || ""]?.name + " (3)"
-            : currentStyle.templateScripture_4
-              ? $templates[currentStyle.templateScripture_4 || ""]?.name + " (4)"
-              : ""
+    $: scriptureTemplateLabel = currentStyle.templateScripture ? $templates[currentStyle.templateScripture || ""]?.name : currentStyle.templateScripture_2 ? $templates[currentStyle.templateScripture_2 || ""]?.name + " (2)" : currentStyle.templateScripture_3 ? $templates[currentStyle.templateScripture_3 || ""]?.name + " (3)" : currentStyle.templateScripture_4 ? $templates[currentStyle.templateScripture_4 || ""]?.name + " (4)" : ""
 
     function editTemplate(id: string) {
         activeDrawerTab.set("templates")
@@ -180,21 +172,10 @@
     </MaterialButton>
 {/if}
 
-<MaterialColorInput
-    label="edit.background_color{templateBackground ? ' <span style="color: var(--text);opacity: 0.5;font-weight: normal;font-size: 0.6em;">settings.overrided_value<span>' : ''}"
-    value={currentStyle.background || "#000000"}
-    defaultValue="#000000"
-    on:input={(e) => updateStyle(e, "background")}
-/>
+<MaterialColorInput label="edit.background_color{templateBackground ? ' <span style="color: var(--text);opacity: 0.5;font-weight: normal;font-size: 0.6em;">settings.overrided_value<span>' : ''}" value={currentStyle.background || "#000000"} defaultValue="#000000" on:input={(e) => updateStyle(e, "background")} />
 
 <InputRow arrow={!!(currentStyle.backgroundImage && (currentStyle.clearStyleBackgroundOnText || activeLayers.includes("slide")))}>
-    <MaterialFilePicker
-        label="edit.background_media{templateBackgroundImage && bgImage ? ' <span style="color: var(--text);opacity: 0.5;font-weight: normal;">settings.overrided_value<span>' : ''}"
-        value={bgImage}
-        filter={{ name: "Media files", extensions: mediaExtensions }}
-        on:change={(e) => updateStyle(e, "backgroundImage")}
-        allowEmpty
-    />
+    <MaterialFilePicker label="edit.background_media{templateBackgroundImage && bgImage ? ' <span style="color: var(--text);opacity: 0.5;font-weight: normal;">settings.overrided_value<span>' : ''}" value={bgImage} filter={{ name: "Media files", extensions: mediaExtensions }} on:change={(e) => updateStyle(e, "backgroundImage")} allowEmpty />
     {#if bgImage}
         <MaterialButton title="titlebar.edit" icon="edit" on:click={editBackgroundImage} />
     {/if}
@@ -223,33 +204,14 @@
 
 <InputRow>
     <!-- WIP doubleClick ?? -->
-    <MaterialPopupButton
-        label="settings.override_with_template"
-        disabled={!activeLayers.includes("slide")}
-        value={templateOverride}
-        name={$templates[templateOverride]?.name}
-        popupId="select_template"
-        icon="templates"
-        on:change={(e) => updateStyle(e.detail, "template")}
-        allowEmpty
-    />
+    <MaterialPopupButton label="settings.override_with_template" disabled={!activeLayers.includes("slide")} value={templateOverride} name={$templates[templateOverride]?.name} popupId="select_template" icon="templates" on:change={(e) => updateStyle(e.detail, "template")} allowEmpty />
     {#if templateOverride && $templates[templateOverride]}
         <MaterialButton title="titlebar.edit" icon="edit" on:click={() => editTemplate(templateOverride)} />
     {/if}
 </InputRow>
 
 <InputRow>
-    <MaterialPopupButton
-        id="scripture"
-        label="settings.override_scripture_with_template"
-        disabled={!activeLayers.includes("slide")}
-        value={templateOverrideScripture || currentStyle.templateScripture_2 || currentStyle.templateScripture_3 || currentStyle.templateScripture_4}
-        name={scriptureTemplateLabel}
-        popupId="select_template"
-        icon="templates"
-        on:change={updateScriptureTemplate}
-        allowEmpty
-    />
+    <MaterialPopupButton id="scripture" label="settings.override_scripture_with_template" disabled={!activeLayers.includes("slide")} value={templateOverrideScripture || currentStyle.templateScripture_2 || currentStyle.templateScripture_3 || currentStyle.templateScripture_4} name={scriptureTemplateLabel} popupId="select_template" icon="templates" on:change={updateScriptureTemplate} allowEmpty />
     {#if templateOverrideScripture && $templates[templateOverrideScripture]}
         <MaterialButton title="titlebar.edit" icon="edit" on:click={() => editTemplate(templateOverrideScripture)} />
     {/if}
@@ -258,42 +220,15 @@
 <!-- Overlays -->
 <Title label="preview.overlays (tools.metadata)" icon="overlays" />
 
-<MaterialPopupButton
-    label="meta.display_metadata"
-    disabled={!activeLayers.includes("overlays")}
-    value={metadataDisplay}
-    defaultValue="never"
-    name={metadataDisplayLabel}
-    popupId="metadata_display"
-    icon="info"
-    on:change={(e) => updateStyle(e.detail, "displayMetadata")}
-/>
+<MaterialPopupButton label="meta.display_metadata" disabled={!activeLayers.includes("overlays")} value={metadataDisplay} defaultValue="never" name={metadataDisplayLabel} popupId="metadata_display" icon="info" on:change={(e) => updateStyle(e.detail, "displayMetadata")} />
 
 {#if (currentStyle.displayMetadata || "never") !== "never"}
     <MaterialTextInput label="meta.text_divider" disabled={!activeLayers.includes("overlays")} value={metadataDividerValue} defaultValue={defaultDivider} on:change={(e) => updateStyle(e.detail, "metadataDivider")}></MaterialTextInput>
-    <MaterialPopupButton
-        label="meta.meta_template"
-        disabled={!activeLayers.includes("overlays")}
-        value={metadataTemplate}
-        defaultValue="metadata"
-        name={$templates[metadataTemplate]?.name}
-        popupId="select_template"
-        icon="templates"
-        on:change={(e) => updateStyle(e.detail, "metadataTemplate")}
-    />
+    <MaterialPopupButton label="meta.meta_template" disabled={!activeLayers.includes("overlays")} value={metadataTemplate} defaultValue="metadata" name={$templates[metadataTemplate]?.name} popupId="select_template" icon="templates" on:change={(e) => updateStyle(e.detail, "metadataTemplate")} />
     <!-- <CombinedInput>
         <p><T id="meta.metadata_layout" /></p>
         <TextInput value={currentStyle.metadataLayout || DEFAULT_META_LAYOUT} on:change={(e) => updateStyle(e, "metadataLayout")} on:keydown={keydown} />
     </CombinedInput> -->
 {/if}
 
-<MaterialPopupButton
-    label="meta.message_template"
-    disabled={!activeLayers.includes("overlays")}
-    value={messageTemplate}
-    defaultValue="message"
-    name={$templates[messageTemplate]?.name}
-    popupId="select_template"
-    icon="templates"
-    on:change={(e) => updateStyle(e.detail, "messageTemplate")}
-/>
+<MaterialPopupButton label="meta.message_template" disabled={!activeLayers.includes("overlays")} value={messageTemplate} defaultValue="message" name={$templates[messageTemplate]?.name} popupId="select_template" icon="templates" on:change={(e) => updateStyle(e.detail, "messageTemplate")} />

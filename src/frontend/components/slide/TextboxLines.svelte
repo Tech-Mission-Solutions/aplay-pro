@@ -208,26 +208,20 @@
     }
 
     // UPDATE DYNAMIC VALUES e.g. {time_} EVERY SECOND
+    // & update instantly when variables or item change
     let updateDynamic = 0
-    $: if ($variables) updateDynamic++
-    const dynamicInterval = setInterval(() => {
+    $: if ($variables) setTimeout(update)
+    $: if ($outputs) setTimeout(update, isStage ? 250 : 0) // time with auto size
+    const dynamicInterval = setInterval(update, 1000)
+    function update() {
         updateDynamic++
-    }, 1000)
+    }
 
     $: chordFontSize = chordLines.length ? stageItem?.chords?.size || stageItem?.chordsData?.size || item?.chords?.size || 50 : 0
     $: chordsStyle = `--chord-size: ${chordLines.length ? (fontSize || cssFontSize) * (chordFontSize / 100) : "undefined"}px;--chord-color: ${stageItem?.chords?.color || stageItem?.chordsData?.color || item?.chords?.color || "#FF851B"};`
 </script>
 
-<div
-    class="align"
-    class:isStage
-    class:scrolling={!isStage && item?.scrolling?.type}
-    class:topBottomScrolling={!isStage && item?.scrolling?.type === "top_bottom"}
-    class:bottomTopScrolling={!isStage && item?.scrolling?.type === "bottom_top"}
-    class:leftRightScrolling={!isStage && item?.scrolling?.type === "left_right"}
-    class:rightLeftScrolling={!isStage && item?.scrolling?.type === "right_left"}
-    style="--scrollSpeed: {item?.scrolling?.speed ?? 30}s;{style ? item?.align : null}"
->
+<div class="align" class:isStage class:scrolling={!isStage && item?.scrolling?.type} class:topBottomScrolling={!isStage && item?.scrolling?.type === "top_bottom"} class:bottomTopScrolling={!isStage && item?.scrolling?.type === "bottom_top"} class:leftRightScrolling={!isStage && item?.scrolling?.type === "left_right"} class:rightLeftScrolling={!isStage && item?.scrolling?.type === "right_left"} style="--scrollSpeed: {item?.scrolling?.speed ?? 30}s;{style ? item?.align : null}">
     <div class="lines" style="{style ? lineStyleBox : ''}{smallFontSize || customFontSize !== null ? '--font-size: ' + (smallFontSize ? (-1.1 * $slidesOptions.columns + 10) * 5 : customFontSize) + 'px;' : ''}{textAnimation}{chordsStyle}">
         {#each renderedLines as line, i}
             {#if (linesStart === null || linesEnd === null || (i >= linesStart && i < linesEnd)) && (!maxLines || (maxLinesInvert ? i > lines.length - maxLines - 1 : i < maxLines))}
@@ -240,22 +234,14 @@
                 <!-- class:height={!line.text[0]?.value.length} -->
                 <div
                     class="break"
+                    class:normalWrap={isStage ? stageItem.style.includes("justify") || stageItem.style.includes("nowrap") : line.align.includes("justify") || JSON.stringify(line).includes("nowrap")}
                     class:reveal={(centerPreview || isStage) && item?.lineReveal && revealed < i}
                     class:smallFontSize={smallFontSize || customFontSize || textAnimation.includes("font-size")}
-                    style="{style ? lineStyle : ''}{style ? line.align : ''}{item?.list?.enabled && line.text?.reduce((value, t) => (value += t.value || ''), '')?.length ? listStyle : ''}{item?.list?.enabled
-                        ? `color: ${getStyles(line.text[0].style).color || ''};`
-                        : ''}"
+                    style="{style ? lineStyle : ''}{style ? line.align : ''}{item?.list?.enabled && line.text?.reduce((value, t) => (value += t.value || ''), '')?.length ? listStyle : ''}{item?.list?.enabled ? `color: ${getStyles(line.text[0]?.style).color || ''};` : ''}"
                 >
                     {#each line.text || [] as text, ti}
                         {@const value = text.value?.replaceAll("\n", "<br>") || "<br>"}
-                        <span
-                            class="textContainer"
-                            style="{style ? getCustomStyle(text.style) : ''}{customStyle}{text.customType?.includes('disableTemplate') ? text.style : ''}{fontSize
-                                ? `;font-size: ${fontSize * (text.customType?.includes('disableTemplate') && !text.customType?.includes('jw') ? customTypeRatio : 1)}px;`
-                                : style
-                                  ? getCustomFontSize(text.style, outputStyle)
-                                  : ''}"
-                        >
+                        <span class="textContainer" style="{style ? getCustomStyle(text.style) : ''}{customStyle}{text.customType?.includes('disableTemplate') ? text.style : ''}{fontSize ? `;font-size: ${fontSize * (text.customType?.includes('disableTemplate') && !text.customType?.includes('jw') ? customTypeRatio : 1)}px;` : style ? getCustomFontSize(text.style, outputStyle) : ''}">
                             {@html getTextValue(value, i, ti, updateDynamic)}
                         </span>
                     {/each}
@@ -301,6 +287,14 @@
         overflow-wrap: break-word;
         /* line-break: after-white-space;
     -webkit-line-break: after-white-space; */
+
+        /* balanced breaking, looks much cleaner */
+        text-wrap: balance;
+    }
+
+    /* normal wrap if "Text on one line (nowrap)" or Justify aligned */
+    .break.normalWrap {
+        text-wrap: unset;
     }
 
     .lines .break.reveal {

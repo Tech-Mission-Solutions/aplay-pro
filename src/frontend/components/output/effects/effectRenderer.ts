@@ -1,62 +1,7 @@
-import type {
-    AssetItem,
-    AuroraItem,
-    BloomItem,
-    BubbleItem,
-    CircleItem,
-    CityItem,
-    CycleItem,
-    EffectDefinition,
-    EffectFunction,
-    EffectInit,
-    EffectItem,
-    EffectType,
-    FireworkItem,
-    FogItem,
-    GalaxyItem,
-    GrassItem,
-    LensFlareItem,
-    LightningItem,
-    RainbowItem,
-    RainItem,
-    RayItem,
-    RectangleItem,
-    ShapeItem,
-    Side,
-    SnowItem,
-    SpotlightItem,
-    StarItem,
-    SunItem,
-    TriangleItem,
-    WaveItem
-} from "../../../../types/Effects"
+import type { AssetItem, AuroraItem, BloomItem, BubbleItem, CircleItem, CityItem, CycleItem, EffectDefinition, EffectFunction, EffectInit, EffectItem, EffectType, FireworkItem, FogItem, GalaxyItem, GrassItem, LensFlareItem, LightningItem, RainbowItem, RainItem, RayItem, RectangleItem, ShapeItem, Side, SnowItem, SpotlightItem, StarItem, SunItem, TriangleItem, WaveItem } from "../../../../types/Effects"
 import { createNoise2D } from "./simplex-noise"
 
-const effectTypes: readonly EffectType[] = [
-    "circle",
-    "rectangle",
-    "triangle",
-    "wave",
-    "bubbles",
-    "stars",
-    "galaxy",
-    "rain",
-    "snow",
-    "sun",
-    "lens_flare",
-    "spotlight",
-    "aurora",
-    "bloom",
-    "fog",
-    "city",
-    "rays",
-    "fireworks",
-    "cycle",
-    "grass",
-    "lightning",
-    "rainbow",
-    "asset"
-] as const
+const effectTypes: readonly EffectType[] = ["circle", "rectangle", "triangle", "wave", "bubbles", "stars", "galaxy", "rain", "snow", "sun", "lens_flare", "spotlight", "aurora", "bloom", "fog", "city", "rays", "fireworks", "cycle", "grass", "lightning", "rainbow", "asset"] as const
 // type EffectType = (typeof effectTypes)[number]
 
 export class EffectRender {
@@ -1291,7 +1236,10 @@ export class EffectRender {
                 // modern syntax with spaces
                 if (parts.includes("/")) {
                     const [rgbPart] = parts.split("/")
-                    const [r, g, b] = rgbPart.trim().split(/\s+/).map((n: string) => parseFloat(n))
+                    const [r, g, b] = rgbPart
+                        .trim()
+                        .split(/\s+/)
+                        .map((n: string) => parseFloat(n))
                     return `rgba(${r},${g},${b},${opacity})`
                 } else {
                     const [r, g, b] = parts.split(",").map((n: string) => parseFloat(n.trim()))

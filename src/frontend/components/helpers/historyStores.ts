@@ -1,6 +1,6 @@
-import type { Writable } from "svelte/store";
+import type { Writable } from "svelte/store"
 import { get } from "svelte/store"
-import type { StoreKey } from "../../stores";
+import type { StoreKey } from "../../stores"
 import { $ } from "../../stores"
 import { clone } from "./array"
 import { historyNew } from "./history"

@@ -6,16 +6,16 @@ import { checkStartupActions } from "../components/actions/actions"
 import { getTimeFromInterval } from "../components/helpers/time"
 import { requestMain, requestMainMultiple, sendMain, sendMainMultiple } from "../IPC/main"
 import { cameraManager } from "../media/cameraManager"
-import { activePopup, alertMessage, contentProviderData, currentWindow, deviceId, isDev, language, loaded, loadedState, os, scriptures, shows, special, tempPath, version, windowState } from "../stores"
+import { activePopup, alertMessage, cachePath, contentProviderData, currentWindow, deviceId, isDev, language, loaded, loadedState, os, scriptures, shows, special, version, windowState } from "../stores"
 import { startTracking } from "./analytics"
 import { wait, waitUntilValueIsDefined } from "./common"
+import { getDefaultElements } from "./createData"
 import { setLanguage } from "./language"
 import { storeSubscriber } from "./listeners"
 import { openProfileByName } from "./profile"
 import { receiveOUTPUTasOUTPUT, remoteListen, setupMainReceivers } from "./receivers"
 import { destroy, receive, send } from "./request"
 import { save, unsavedUpdater } from "./save"
-import { getDefaultElements } from "./createData"
 
 let initialized = false
 let startupProfile = ""
@@ -23,7 +23,7 @@ let startupProfile = ""
 export function startup() {
   window.api.receive(
     STARTUP,
-    msg => {
+    (msg) => {
       if (initialized || msg.channel !== "TYPE") return
       initialized = true // only call this once per window
       destroy(STARTUP, "startup")
@@ -67,7 +67,7 @@ async function startupMain() {
   contentProviderSync()
 
   // custom alert
-  if (get(language) === "no" && !get(activePopup) && !Object.values(get(scriptures)).find(a => ["eea18ccd2ca05dde-01", "7bcaa2f2e77739d5-01"].includes(a.id || "")) && Math.random() < 0.4) {
+  if (get(language) === "no" && !get(activePopup) && !Object.values(get(scriptures)).find((a) => ["eea18ccd2ca05dde-01", "7bcaa2f2e77739d5-01"].includes(a.id || "")) && Math.random() < 0.4) {
     alertMessage.set('Bibel 2011 Bokmål/Nynorsk er nå tilgjengelig som API i "Bibel"-menyen!')
     activePopup.set("alert")
   }
@@ -98,7 +98,7 @@ function autoBackup() {
   const minTimeToBackup = getTimeFromInterval(interval)
 
   if (now - lastBackup > minTimeToBackup) {
-    special.update(a => {
+    special.update((a) => {
       // subtract one hour from time to keep it relatively the same with each backup
       a.autoBackupPrevious = now - 3600000
       return a
@@ -123,12 +123,12 @@ export function contentProviderSync() {
 
 function getMainData() {
   requestMainMultiple({
-    [Main.VERSION]: a => version.set(a),
-    [Main.IS_DEV]: a => isDev.set(a),
-    [Main.GET_OS]: a => os.set(a),
-    [Main.GET_TEMP_PATHS]: a => tempPath.set(a.temp),
-    [Main.DEVICE_ID]: a => deviceId.set(a),
-    [Main.MAXIMIZED]: a => windowState.set({ ...windowState, maximized: a })
+    [Main.VERSION]: (a) => version.set(a),
+    [Main.IS_DEV]: (a) => isDev.set(a),
+    [Main.GET_OS]: (a) => os.set(a),
+    [Main.GET_TEMP_PATHS]: (a) => cachePath.set(a.temp),
+    [Main.DEVICE_ID]: (a) => deviceId.set(a),
+    [Main.MAXIMIZED]: (a) => windowState.set({ ...windowState, maximized: a })
   })
 }
 

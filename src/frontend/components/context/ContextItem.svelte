@@ -1,40 +1,6 @@
 <script lang="ts">
     import { cameraManager } from "../../media/cameraManager"
-    import {
-        actions,
-        activeEdit,
-        activeProject,
-        activeRecording,
-        activeShow,
-        categories,
-        colorbars,
-        dictionary,
-        disabledServers,
-        drawerTabsData,
-        effects,
-        effectsLibrary,
-        events,
-        forceClock,
-        livePrepare,
-        media,
-        os,
-        outputs,
-        overlayCategories,
-        overlays,
-        projects,
-        redoHistory,
-        scriptures,
-        selected,
-        shows,
-        showsCache,
-        slidesOptions,
-        stageShows,
-        styles,
-        templateCategories,
-        timers,
-        topContextActive,
-        undoHistory
-    } from "../../stores"
+    import { actions, activeEdit, activeProject, activeRecording, activeShow, categories, colorbars, dictionary, disabledServers, drawerTabsData, effects, effectsLibrary, events, forceClock, livePrepare, media, os, outputs, overlayCategories, overlays, projects, redoHistory, scriptures, selected, shows, showsCache, slidesOptions, stageShows, styles, templateCategories, timers, topContextActive, undoHistory } from "../../stores"
     import { translateText } from "../../utils/language"
     import { closeContextMenu } from "../../utils/shortcuts"
     import { keysToID } from "../helpers/array"
@@ -51,6 +17,7 @@
     export let id: string
     export let menu: ContextMenuItem = contextMenuItems[id]
     export let disabled = false
+    export let highlighted = false
 
     let hide = false
     let enabled: boolean = menu?.enabled ? true : false
@@ -88,7 +55,7 @@
         archive: () => {
             const projectId = $selected.data?.[0]?.id
             let project = $projects[projectId]
-            enabled = !!project.archived
+            enabled = !!project?.archived
         },
         edit: () => {
             if ($selected.id !== "show_drawer" || !$shows[$selected.data[0]?.id]?.locked) return
@@ -367,7 +334,7 @@
     $: customStyle = id === "uppercase" ? "text-transform: uppercase;" : id === "lowercase" ? "text-transform: lowercase;" : ""
 </script>
 
-<div on:click={contextItemClick} class:enabled class:disabled class:hide style="color: {menu?.color || 'unset'};font-weight: {menu?.color ? '500' : 'normal'};{menu?.style || ''}" tabindex={0} on:keydown={keydown} role="menuitem">
+<div on:click={contextItemClick} class:enabled class:disabled class:hide class:highlighted style="color: {menu?.color || 'unset'};font-weight: {menu?.color ? '500' : 'normal'};{menu?.style || ''}" tabindex={0} on:keydown={keydown} role="menuitem">
     <span style="display: flex;align-items: center;gap: 15px;">
         <!-- white={menu.icon !== "edit"} -->
         {#if menu?.icon}<Icon style="opacity: 0.7;color: {(topBar ? '' : menu.iconColor) || 'var(--text)'};" id={menu.icon} white />{/if}
@@ -425,5 +392,11 @@
 
     .hide {
         display: none;
+    }
+
+    .highlighted {
+        background-color: rgb(0 0 0 / 0.2);
+        outline: 2px solid var(--secondary);
+        outline-offset: -2px;
     }
 </style>

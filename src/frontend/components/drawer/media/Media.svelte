@@ -4,26 +4,7 @@
     import { Main } from "../../../../types/IPC/Main"
     import type { ClickEvent } from "../../../../types/Main"
     import { destroyMain, receiveMain, requestMain, sendMain } from "../../../IPC/main"
-    import {
-        activeEdit,
-        activeFocus,
-        activeMediaTagFilter,
-        activePopup,
-        activeShow,
-        drawerTabsData,
-        focusMode,
-        labelsDisabled,
-        media,
-        mediaFolders,
-        mediaOptions,
-        outLocked,
-        outputs,
-        popupData,
-        providerConnections,
-        selectAllMedia,
-        selected,
-        sorted
-    } from "../../../stores"
+    import { activeEdit, activeFocus, activeMediaTagFilter, activePopup, activeShow, drawerTabsData, focusMode, labelsDisabled, media, mediaFolders, mediaOptions, outLocked, outputs, popupData, providerConnections, selectAllMedia, selected, sorted } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
     import { clone, sortByName, sortFilenames } from "../../helpers/array"
@@ -450,15 +431,7 @@
                             {#if item.folder}
                                 <Folder name={item.name} path={item.path} mode={$mediaOptions.mode} folderPreview={sortedFiles.length < 20} on:open={(e) => (path = e.detail)} />
                             {:else}
-                                <Media
-                                    credits={item.credits || {}}
-                                    name={item.name || ""}
-                                    path={item.path}
-                                    thumbnailPath={item.previewUrl || ($mediaOptions.columns < 3 ? "" : item.thumbnailPath)}
-                                    type={getMediaType(item.extension)}
-                                    shiftRange={sortedFiles.map((a) => ({ ...a, type: getMediaType(a.extension), name: removeExtension(a.name) }))}
-                                    {active}
-                                />
+                                <Media credits={item.credits || {}} name={item.name || ""} path={item.path} thumbnailPath={item.previewUrl || ($mediaOptions.columns < 3 ? "" : item.thumbnailPath)} type={getMediaType(item.extension)} shiftRange={sortedFiles.map((a) => ({ ...a, type: getMediaType(a.extension), name: removeExtension(a.name) }))} {active} />
                             {/if}
                         </MediaGrid>
                     {:else}
@@ -466,15 +439,7 @@
                             {#if file.folder}
                                 <Folder name={file.name} path={file.path} mode={$mediaOptions.mode} on:open={(e) => (path = e.detail)} />
                             {:else}
-                                <Media
-                                    credits={file.credits || {}}
-                                    thumbnail={$mediaOptions.mode !== "list"}
-                                    name={file.name || ""}
-                                    path={file.path}
-                                    type={getMediaType(file.extension)}
-                                    shiftRange={sortedFiles.map((a) => ({ ...a, type: getMediaType(a.extension), name: removeExtension(a.name) }))}
-                                    {active}
-                                />
+                                <Media credits={file.credits || {}} thumbnail={$mediaOptions.mode !== "list"} name={file.name || ""} path={file.path} type={getMediaType(file.extension)} shiftRange={sortedFiles.map((a) => ({ ...a, type: getMediaType(a.extension), name: removeExtension(a.name) }))} {active} />
                             {/if}
                         </VirtualList>
                     {/if}

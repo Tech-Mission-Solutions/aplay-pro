@@ -133,13 +133,7 @@
     <MaterialNumberInput label="midi.controller" value={midi.values?.controller || 0} max={127} on:change={(e) => setValues("controller", e.detail)} />
     <MaterialNumberInput label="variables.value" value={midi.values?.value || 0} max={127} on:change={(e) => setValues("value", e.detail)} />
 {:else}
-    <MaterialNumberInput
-        label="midi.note <span style='color: var(--text);opacity: 0.5;font-weight: normal;font-size: 0.8em;margin-left: 10px;'>{midiToNote(midi.values?.note ?? 0)}</span>"
-        disabled={noActionOrDefaultValues && type !== "output" && !playSlide}
-        value={midi.values?.note || 0}
-        max={127}
-        on:change={(e) => setValues("note", e.detail)}
-    />
+    <MaterialNumberInput label="midi.note <span style='color: var(--text);opacity: 0.5;font-weight: normal;font-size: 0.8em;margin-left: 10px;'>{midiToNote(midi.values?.note ?? 0)}</span>" disabled={noActionOrDefaultValues && type !== "output" && !playSlide} value={midi.values?.note || 0} max={127} on:change={(e) => setValues("note", e.detail)} />
 
     {#if (!noActionOrDefaultValues && firstActionId?.includes("index_")) || type === "output" || type === "emitter" || playSlide}
         {#if type === "input"}

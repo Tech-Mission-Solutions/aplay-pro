@@ -1,6 +1,6 @@
 import { get } from "svelte/store"
 import { uid } from "uid"
-import type { Show } from "../../types/Show"
+import type { Show, Slide } from "../../types/Show"
 import type { Category } from "../../types/Tabs"
 import { history } from "../components/helpers/history"
 import { checkName } from "../components/helpers/show"
@@ -54,7 +54,7 @@ export function importShow(files: { content: string; name?: string; extension?: 
         try {
             const showData = JSON.parse(content)
             if (Array.isArray(showData)) {
-                [id, show] = showData
+                ;[id, show] = showData
             } else {
                 id = uid()
                 show = showData
@@ -66,7 +66,7 @@ export function importShow(files: { content: string; name?: string; extension?: 
             try {
                 const showData = JSON.parse(content)
                 if (Array.isArray(showData)) {
-                    [id, show] = showData
+                    ;[id, show] = showData
                 } else {
                     id = uid()
                     show = showData
@@ -144,7 +144,16 @@ export function importSpecific(data: { content: string; name?: string; extension
     newToast("main.finished")
 }
 
-export function fixShowIssues(show) {
+export function fixShowIssues(show: Show) {
+    if (typeof show.name !== "string") show.name = ""
+    if (!show.category) show.category = null
+    if (!show.slides) show.slides = {}
+    if (!show.layouts) show.layouts = {}
+    if (!show.settings) show.settings = { activeLayout: Object.keys(show.layouts)[0] || "", template: null }
+    if (!show.timestamps) show.timestamps = { created: 0, modified: 0, used: 0 }
+    if (!show.meta) show.meta = {}
+    if (!show.media) show.media = {}
+
     // remove unused children slides
     const allUsedSlides: string[] = Object.keys(show.slides).reduce((ids: string[], slideId: string) => {
         const slide = show.slides[slideId]
@@ -164,6 +173,8 @@ export function fixShowIssues(show) {
             return
         }
 
+        if (!Array.isArray(slide.items)) slide.items = []
+
         // check & fix looping items bug
         if (slide.items?.length < 30) return
 
@@ -180,6 +191,17 @@ export function fixShowIssues(show) {
 
             previousItem = currentItem
         }
+    })
+
+    Object.values<Slide>(show.slides).forEach((slide) => {
+        // fix undefined items issue
+        slide.items = slide.items?.filter((item) => item !== undefined && item !== null) || []
+
+        // fix undefined lines issue
+        slide.items.forEach((item) => {
+            if (!item.lines) return
+            item.lines = item.lines.filter((line) => line !== undefined)
+        })
     })
 
     return show

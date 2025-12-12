@@ -40,8 +40,7 @@
                 if (ref.type === "child") ref = ref.parent
 
                 // remove global group if active
-                if ($activeShow && $showsCache[$activeShow.id].slides[ref.id].globalGroup)
-                    history({ id: "UPDATE", newData: { data: null, key: "slides", keys: [ref.id], subkey: "globalGroup" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
+                if ($activeShow && $showsCache[$activeShow.id].slides[ref.id].globalGroup) history({ id: "UPDATE", newData: { data: null, key: "slides", keys: [ref.id], subkey: "globalGroup" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
 
                 history({ id: "UPDATE", newData: { data: value, key: "slides", keys: [ref.id], subkey: "color" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key", override: "color" } })
             })
@@ -74,6 +73,7 @@
         profile: () => {
             profiles.update((a) => {
                 selection.data.forEach(({ id }) => {
+                    if (!a[id]) return
                     a[id].color = value
                 })
 

@@ -62,7 +62,7 @@ export function stopTimers() {
     }, 50)
 }
 
-function increment(timer: { id: string; start: number; end: number;[key: string]: any }, i: number) {
+function increment(timer: { id: string; start: number; end: number; [key: string]: any }, i: number) {
     if (!timer.paused && (timer.start < timer.end ? timer.currentTime >= timer.end && timer.currentTime < timer.end + 1 : timer.currentTime <= timer.end && timer.currentTime > timer.end - 1)) {
         if (!timer.overflow) timer.paused = true
 

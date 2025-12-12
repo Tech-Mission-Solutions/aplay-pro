@@ -45,9 +45,20 @@
     $: overlayList = sortByName(keysToID($overlays))
         .filter((a) => a.name)
         .map((a) => ({ value: a.id, label: a.name }))
+
+    const modes = [
+        { value: "default", label: translateText("example.default") },
+        { value: "scripture", label: translateText("tabs.scripture") }
+        // { value: "text", label: translateText("edit.text") } // hidden
+    ]
+    $: mode = template.settings?.mode || "default"
 </script>
 
 <div class="tools">
+    <div>
+        <MaterialDropdown label="actions.mode" options={modes} value={mode} defaultValue="default" on:change={(e) => setValue(e.detail, "mode")} />
+    </div>
+
     <div>
         <MaterialColorInput
             label="edit.background_color"
@@ -105,6 +116,21 @@
                     <MaterialButton title="titlebar.edit" icon="edit" on:click={() => editTemplate(settings.firstSlideTemplate || "")} />
                 {/if} -->
         </InputRow>
+
+        <!-- <InputRow>
+            <MaterialPopupButton
+                label="edit.different_last_template"
+                value={settings.lastSlideTemplate}
+                name={$templates[settings.lastSlideTemplate || ""]?.name}
+                popupId="select_template"
+                icon="templates"
+                on:change={e => {
+                    settings.lastSlideTemplate = e.detail
+                    update()
+                }}
+                allowEmpty
+            />
+        </InputRow> -->
 
         <MaterialButton
             variant="outlined"

@@ -51,14 +51,7 @@
     let editActive = false
 </script>
 
-<div
-    class="label"
-    class:alignRight={icon}
-    class:padding={!renameId}
-    data-title={title}
-    class:list={mode !== "grid"}
-    style={$fullColors ? `background-color: ${color};color: ${getContrast(color || "")};` : mode !== "list" ? `border-bottom: 2px solid ${color};` : ""}
->
+<div class="label" class:alignRight={icon} class:padding={!renameId} data-title={title} class:list={mode !== "grid"} style={$fullColors ? `background-color: ${color};color: ${getContrast(color || "")};` : mode !== "list" ? `border-bottom: 2px solid ${color};` : ""}>
     {#if icon}
         <Icon id={icon} class="icon" style={icon === "protected" ? "opacity: 0.6;" : ""} size={icon === "protected" ? 0.6 : 1} {white} />
     {/if}

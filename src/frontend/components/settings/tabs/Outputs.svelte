@@ -5,7 +5,7 @@
     import { Option } from "../../../../types/Main"
     import type { Output } from "../../../../types/Output"
     import { AudioAnalyser } from "../../../audio/audioAnalyser"
-    import { activePage, activeStage, activeStyle, currentOutputSettings, ndiData, os, outputDisplay, outputs, settingsTab, stageShows, styles, toggleOutputEnabled } from "../../../stores"
+    import { activePage, activePopup, activeStage, activeStyle, alertMessage, currentOutputSettings, ndiData, os, outputDisplay, outputs, saved, settingsTab, stageShows, styles, toggleOutputEnabled } from "../../../stores"
     import { newToast } from "../../../utils/common"
     import { translateText } from "../../../utils/language"
     import { destroy, receive, send } from "../../../utils/request"
@@ -20,6 +20,7 @@
     import MaterialDropdown from "../../inputs/MaterialDropdown.svelte"
     import MaterialPopupButton from "../../inputs/MaterialPopupButton.svelte"
     import MaterialToggleSwitch from "../../inputs/MaterialToggleSwitch.svelte"
+    import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
 
     let outputsList: Output[] = []
     $: outputsList = sortObject(sortByName(keysToID($outputs)), "stageOutput")
@@ -178,6 +179,12 @@
             if (value) AudioAnalyser.recorderActivate()
             else AudioAnalyser.recorderDeactivate()
         }
+
+        if (key === "name" || key === "groups") {
+            alertMessage.set("settings.restart_for_change")
+            activePopup.set("alert")
+            saved.set(false)
+        }
     }
 
     const framerates = [
@@ -290,13 +297,7 @@
 <!-- window -->
 <Title label="settings.window" icon="window" />
 
-<MaterialPopupButton
-    label="settings.output_screen"
-    value={outputLabel}
-    name={outputLabel}
-    icon={currentOutput?.invisible ? "stage" : currentOutput?.boundsLocked ? "locked" : "screen"}
-    popupId={currentOutput?.invisible ? "change_output_values" : "choose_screen"}
-/>
+<MaterialPopupButton label="settings.output_screen" value={outputLabel} name={outputLabel} icon={currentOutput?.invisible ? "stage" : currentOutput?.boundsLocked ? "locked" : "screen"} popupId={currentOutput?.invisible ? "change_output_values" : "choose_screen"} />
 <MaterialToggleSwitch label="settings.always_on_top" checked={currentOutput?.alwaysOnTop !== false} defaultValue={true} disabled={currentOutput?.invisible} on:change={(e) => updateOutput("alwaysOnTop", e.detail)} />
 
 <!-- this will make the whole application "locked" so no other apps can be accessed, might increase performance, but generally not recommend -->
@@ -313,7 +314,12 @@
 
 {#if currentOutput?.ndi}
     <MaterialToggleSwitch label="preview.audio" checked={currentOutput.ndiData?.audio} defaultValue={false} on:change={(e) => updateNdiData(e.detail, "audio")} />
-    <MaterialDropdown label="settings.frame_rate" value={currentOutput?.ndiData?.framerate || "30"} defaultValue="30" options={framerates} on:change={(e) => updateNdiData(e.detail, "framerate")} />
+    <MaterialDropdown label="settings.frame_rate" value={currentOutput.ndiData?.framerate || "30"} defaultValue="30" options={framerates} on:change={(e) => updateNdiData(e.detail, "framerate")} />
+
+    <InputRow>
+        <MaterialTextInput label="inputs.name" value={currentOutput.ndiData?.name || `FreeShow NDI${currentOutput.name ? ` - ${currentOutput.name}` : ""}`} defaultValue={`FreeShow NDI${currentOutput.name ? ` - ${currentOutput.name}` : ""}`} on:change={(e) => updateNdiData(e.detail, "name")} />
+        <MaterialTextInput label="inputs.group" title="settings.comma_seperated" value={currentOutput.ndiData?.groups || ""} defaultValue="" placeholder="public" on:change={(e) => updateNdiData(e.detail, "groups")} />
+    </InputRow>
 {/if}
 
 <!-- Blackmagic -->
@@ -336,20 +342,12 @@
     {#if currentOutput.blackmagicData?.deviceId}
         <CombinedInput>
             <p><T id="settings.display_mode" /></p>
-            <Dropdown
-                value={currentOutput.blackmagicData?.displayModes?.find((a) => a.name === currentOutput?.blackmagicData?.displayMode)?.name || "—"}
-                options={currentOutput.blackmagicData?.displayModes || []}
-                on:click={(e) => updateBlackmagicData(e, "displayMode")}
-            />
+            <Dropdown value={currentOutput.blackmagicData?.displayModes?.find((a) => a.name === currentOutput?.blackmagicData?.displayMode)?.name || "—"} options={currentOutput.blackmagicData?.displayModes || []} on:click={(e) => updateBlackmagicData(e, "displayMode")} />
         </CombinedInput>
 
         <CombinedInput>
             <p><T id="settings.pixel_format" /></p>
-            <Dropdown
-                value={currentOutput.blackmagicData?.pixelFormats?.find((a) => a.name === currentOutput?.blackmagicData?.pixelFormat)?.name || "—"}
-                options={currentOutput.blackmagicData?.pixelFormats || []}
-                on:click={(e) => updateBlackmagicData(e, "pixelFormat")}
-            />
+            <Dropdown value={currentOutput.blackmagicData?.pixelFormats?.find((a) => a.name === currentOutput?.blackmagicData?.pixelFormat)?.name || "—"} options={currentOutput.blackmagicData?.pixelFormats || []} on:click={(e) => updateBlackmagicData(e, "pixelFormat")} />
         </CombinedInput>
 
         <MaterialToggleSwitch label="settings.alpha_key" checked={currentOutput.blackmagicData?.alphaKey} on:change={(e) => updateBlackmagicData(e.detail, "alphaKey")} />

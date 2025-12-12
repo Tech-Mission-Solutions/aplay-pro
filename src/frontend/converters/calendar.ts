@@ -79,7 +79,7 @@ export function convertCalendar(data: any) {
                 repeat: false,
                 notes: event.DESCRIPTION?.trim() || "",
                 location: event.LOCATION || "",
-                id: event.UID,
+                id: event.UID
             }
             if (!fullDay) {
                 newEvent.fromTime = from.hours.toString() + ":" + from.minutes.toString()
@@ -111,7 +111,7 @@ export function convertCalendar(data: any) {
                         ending: repeatData.UNTIL ? "date" : "after",
                         count: Number(repeatData.INTERVAL || 1),
                         endingDate: date || "",
-                        afterRepeats: Number(repeatData.COUNT || 10),
+                        afterRepeats: Number(repeatData.COUNT || 10)
                     }
 
                     // create repeated events

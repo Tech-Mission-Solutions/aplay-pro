@@ -205,6 +205,7 @@
         "blur_fill": "Blur fill",
         "cover": "Cover",
         "online": "Online",
+        "downloading": "Downloading",
         "recommended": "Recommended",
         "bundle_media_files": "Bundle all media files",
         "bundle_media_files_tip": "Copy the media files from all shows into one folder"
@@ -355,6 +356,7 @@
     "inputs": {
         "name": "Name",
         "url": "URL",
+        "group": "Group",
         "method": "Method",
         "contentType": "Content Type",
         "payload": "Payload",
@@ -769,6 +771,7 @@
         "start_playlist": "Start playlist",
         "playlist_next": "Next track in playlist",
         "start_metronome": "Start metronome",
+        "start_audio_effect": "Start audio effect",
         "id_start_timer": "Start timer",
         "start_slide_timers": "Start timers on active slide",
         "id_select_output_style": "Select output style",
@@ -997,8 +1000,8 @@
         "_title_top": "Align top",
         "_title_bottom": "Align bottom",
         "align_center": "Centered",
-        "align_start": "Start",
-        "align_end": "End",
+        "align_start": "Top",
+        "align_end": "Bottom",
         "outline": "Outline",
         "shadow": "Shadow",
         "shadow_inset": "Shadow inset",
@@ -1273,6 +1276,7 @@
         "disable_labels": "Disable labels",
         "group_numbers": "Group numbers",
         "auto_group_numbers": "Auto assign group numbers",
+        "shortcuts_on_slides": "Display shortcuts on slides",
         "transparent_slides": "Transparent slide preview",
         "full_colors": "High contrast group colors",
         "next_item_on_last_slide": "Arrow left/right changes project item on first/last slide",
@@ -1309,6 +1313,7 @@
         "auto_locate_missing_media_files": "Auto locate missing media files",
         "popup_before_close": "Enable close confirmation popup",
         "log_song_usage": "Log song usage to a file",
+        "auto_error_reporting": "Auto error reporting",
         "disable_hardware_acceleration": "Disable hardware acceleration",
         "restart_for_change": "You have to restart the program for the change to take effect!",
         "font": "Font",
@@ -1356,7 +1361,8 @@
     },
     "output": {
         "state_inactive": "Inactive",
-        "state_locked": "Locked"
+        "state_locked": "Locked",
+        "disabled_layers": "Disabled layers"
     },
     "profile": {
         "profiles_hint": "Create multiple profiles/roles to limit certain users access to control/edit chosen parts of the program.",
@@ -1426,6 +1432,7 @@
         "first_slide_reference": "Reference on first slide",
         "reference_at_bottom": "Move to bottom",
         "red_jesus": "Jesus words in red",
+        "show_all": "Show all",
         "search": "Search in the Bible"
     },
     "filter": {

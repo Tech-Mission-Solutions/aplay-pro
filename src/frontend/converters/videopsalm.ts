@@ -92,7 +92,7 @@ const keys = [
     "Tonality",
     "Language",
     "IsAudioFileEnabled",
-    "Tempo",
+    "Tempo"
 ]
 export function convertVideopsalm(data: any) {
     const categoryId = createCategory("VideoPsalm")
@@ -146,7 +146,7 @@ export function convertVideopsalm(data: any) {
                 author: song.Author || "",
                 composer: song.Composer || "",
                 copyright: song.Copyright || "",
-                CCLI: song.CCLI || "",
+                CCLI: song.CCLI || ""
             }
             if (show.meta.number !== undefined) show.quickAccess = { number: show.meta.number }
             if (show.meta.CCLI) show = setQuickAccessMetadata(show, "CCLI", show.meta.CCLI)
@@ -311,7 +311,7 @@ function createSlides({ Verses, Sequence }: Song) {
             color: null,
             settings: {},
             notes: "",
-            items,
+            items
         }
         const globalGroup = sequenceKey ? VPgroups[sequenceKey.replace(/[0-9]/g, "")] : "verse"
         if (get(groups)[globalGroup]) slides[id].globalGroup = globalGroup

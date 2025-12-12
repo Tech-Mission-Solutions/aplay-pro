@@ -30,9 +30,7 @@
     $: resolution = getResolution(null, { $outputs, $styles })
 
     let filteredOverlays: (Overlay & { id: string })[] = []
-    $: filteredOverlays = sortByName(
-        keysToID($overlays).filter((s) => (active === "all" && !$overlayCategories[s?.category || ""]?.isArchive) || active === s.category || (active === "unlabeled" && (s.category === null || !$overlayCategories[s.category])))
-    )
+    $: filteredOverlays = sortByName(keysToID($overlays).filter((s) => (active === "all" && !$overlayCategories[s?.category || ""]?.isArchive) || active === s.category || (active === "unlabeled" && (s.category === null || !$overlayCategories[s.category]))))
 
     // search
     $: if (filteredOverlays || searchValue !== undefined) filterSearch()

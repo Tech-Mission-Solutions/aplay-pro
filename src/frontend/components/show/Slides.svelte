@@ -110,7 +110,7 @@
             }
 
             // get lines reveal
-            const linesRevealItems = (showSlide?.items || []).filter((a) => a.lineReveal)
+            const linesRevealItems = (showSlide?.items || []).filter((a) => a?.lineReveal)
             let revealCount = outSlide?.revealCount ?? 0
             if (outSlide && outSlide.id === showId && outSlide.layout === activeLayout && outSlide.index === index && linesRevealItems.length && isRevealed) {
                 revealCount++
@@ -182,7 +182,9 @@
                 if (!item.lines) return
 
                 item.lines.forEach((line) => {
-                    line?.text.forEach((text) => {
+                    if (!Array.isArray(line?.text)) return
+
+                    line.text.forEach((text) => {
                         let newValue = capitalize(text.value)
                         if (text.value !== newValue) capitalized = true
                         text.value = newValue
@@ -280,7 +282,7 @@
             }
 
             // lines reveal
-            const linesRevealItems = (showSlide?.items || []).filter((a) => a.lineReveal)
+            const linesRevealItems = (showSlide?.items || []).filter((a) => a?.lineReveal)
             if (linesRevealItems.length) {
                 lineIndex = getFewestOutputLinesReveal($outputs) - 1
                 maxLines = getItemWithMostLines({ items: linesRevealItems })
@@ -466,25 +468,7 @@
                     {#if layoutSlides.length}
                         {#each layoutSlides as slide, i}
                             {#if (loaded || i < lazyLoader) && currentShow?.slides?.[slide.id] && (mode === "grid" || mode === "groups" || !slide.disabled) && (mode !== "groups" || currentShow.slides[slide.id].group !== null || activeSlides[i] !== undefined)}
-                                <Slide
-                                    {showId}
-                                    slide={currentShow.slides[slide.id]}
-                                    show={currentShow}
-                                    {layoutSlides}
-                                    layoutSlide={slide}
-                                    index={i}
-                                    color={slide.color}
-                                    output={activeSlides[i]}
-                                    active={activeSlides[i] !== undefined}
-                                    {endIndex}
-                                    list={!gridMode}
-                                    columns={$slidesOptions.columns}
-                                    icons
-                                    {altKeyPressed}
-                                    disableThumbnails={isLessons && !loaded}
-                                    centerPreview
-                                    on:click={(e) => slideClick(e, i)}
-                                />
+                                <Slide {showId} slide={currentShow.slides[slide.id]} show={currentShow} {layoutSlides} layoutSlide={slide} index={i} color={slide.color} output={activeSlides[i]} active={activeSlides[i] !== undefined} {endIndex} list={!gridMode} columns={$slidesOptions.columns} icons {altKeyPressed} disableThumbnails={isLessons && !loaded} centerPreview on:click={(e) => slideClick(e, i)} />
                             {/if}
                         {/each}
                     {:else}

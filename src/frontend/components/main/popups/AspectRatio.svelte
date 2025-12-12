@@ -85,24 +85,11 @@
             </div>
         {/if}
 
-        <MaterialDropdown
-            style="width: 200px;"
-            label="edit.position"
-            disabled={active.outputResolutionAsRatio}
-            options={alignOptions}
-            value={active.alignPosition || "center"}
-            on:change={(e) => setAspectRatio({ ...active, alignPosition: e.detail })}
-        />
+        <MaterialDropdown style="width: 200px;" label="edit.position" disabled={active.outputResolutionAsRatio} options={alignOptions} value={active.alignPosition || "center"} on:change={(e) => setAspectRatio({ ...active, alignPosition: e.detail })} />
     </div>
 {/if}
 
-<MaterialToggleSwitch
-    style="margin-top: {showMore ? 10 : 20}px;"
-    label="settings.output_resolution_ratio"
-    checked={active.outputResolutionAsRatio}
-    defaultValue={false}
-    on:change={(e) => setAspectRatio({ ...active, outputResolutionAsRatio: e.detail })}
-/>
+<MaterialToggleSwitch style="margin-top: {showMore ? 10 : 20}px;" label="settings.output_resolution_ratio" checked={active.outputResolutionAsRatio} defaultValue={false} on:change={(e) => setAspectRatio({ ...active, outputResolutionAsRatio: e.detail })} />
 
 {#if showMore}
     <HRule />

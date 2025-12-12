@@ -647,20 +647,7 @@
         {#each bands as band, i}
             <div class="band-control" class:dragging={draggedBandIndex === i} style="left: {getFreqX(band.frequency) - 15}px;">
                 <!-- Gain Handle -->
-                <div
-                    class="gain-handle"
-                    class:high-pass={band.type === "highpass"}
-                    class:low-pass={band.type === "lowpass"}
-                    style="top: {getGainY(band.gain) - 10}px;"
-                    on:mousedown={(e) => handleMouseDown(e, i)}
-                    on:wheel={(e) => handleWheel(e, i)}
-                    role="slider"
-                    tabindex="0"
-                    aria-label="Band {i + 1} gain control"
-                    aria-valuenow={band.gain}
-                    aria-valuemin={minGain}
-                    aria-valuemax={maxGain}
-                >
+                <div class="gain-handle" class:high-pass={band.type === "highpass"} class:low-pass={band.type === "lowpass"} style="top: {getGainY(band.gain) - 10}px;" on:mousedown={(e) => handleMouseDown(e, i)} on:wheel={(e) => handleWheel(e, i)} role="slider" tabindex="0" aria-label="Band {i + 1} gain control" aria-valuenow={band.gain} aria-valuemin={minGain} aria-valuemax={maxGain}>
                     <div class="handle-inner" style="background-color: {bandColors[i]}{draggedBandIndex === i ? 90 : 10}; color: {bandColors[i]}; border: 2px solid {bandColors[i]}90;">
                         {i + 1}
                     </div>

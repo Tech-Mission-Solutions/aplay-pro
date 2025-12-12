@@ -36,14 +36,16 @@ function getLayersFromId(id: string) {
 export function getFirstOutputIdWithAudableBackground(outputIds: string[] = [], _updater: any = null) {
     if (!outputIds.length) outputIds = getAllNormalOutputs().map((a) => a.id)
 
-    return outputIds.find(id => {
-        const output = get(outputs)[id]
-        if (!output || output.stageOutput) return false
+    return (
+        outputIds.find((id) => {
+            const output = get(outputs)[id]
+            if (!output || output.stageOutput) return false
 
-        const style = get(styles)[output.style || ""]
-        let layers = style?.layers
-        if (!Array.isArray(layers)) layers = ["background"]
+            const style = get(styles)[output.style || ""]
+            let layers = style?.layers
+            if (!Array.isArray(layers)) layers = ["background"]
 
-        return layers.includes("background") && style?.volume !== 0
-    }) || null
+            return layers.includes("background") && style?.volume !== 0
+        }) || null
+    )
 }

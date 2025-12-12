@@ -16,7 +16,7 @@ const ENHARMONIC: Record<string, string> = {
     "D#": "Eb",
     "F#": "Gb",
     "G#": "Ab",
-    "A#": "Bb",
+    "A#": "Bb"
 }
 
 function normalizeRoot(root: string, preferSharps: boolean): string {
@@ -94,4 +94,3 @@ export function hasChords(text: string): boolean {
         return !(content.length > 3 && /[a-z]{3,}/.test(content))
     })
 }
-

@@ -361,28 +361,12 @@
 <!-- min-height: 50vh; -->
 <div style="min-width: 45vw;">
     {#if mode === "slide" || mode === "template"}
-        <CreateAction
-            mainId={id}
-            actionId={action.triggers?.[0] || ""}
-            existingActions={action.triggers || []}
-            actionValue={action.actionValues?.[action.triggers?.[0] || ""] || {}}
-            customData={action.customData?.[action.triggers?.[0] || ""] || {}}
-            {mode}
-            on:change={changeAction}
-            list
-        />
+        <CreateAction mainId={id} actionId={action.triggers?.[0] || ""} existingActions={action.triggers || []} actionValue={action.actionValues?.[action.triggers?.[0] || ""] || {}} customData={action.customData?.[action.triggers?.[0] || ""] || {}} {mode} on:change={changeAction} list />
     {:else}
         {#if actionActivationSelector}
             <MaterialButton class="popup-back" icon="back" iconSize={1.3} title="actions.back" on:click={() => (actionActivationSelector = false)} />
 
-            <MaterialButton
-                class="popup-options {showCommonActivate ? 'active' : ''}"
-                icon={showCommonActivate ? "eye" : "hide"}
-                iconSize={1.3}
-                title={showCommonActivate ? "actions.close" : "create_show.more_options"}
-                on:click={() => (showCommonActivate = !showCommonActivate)}
-                white
-            />
+            <MaterialButton class="popup-options {showCommonActivate ? 'active' : ''}" icon={showCommonActivate ? "eye" : "hide"} iconSize={1.3} title={showCommonActivate ? "actions.close" : "create_show.more_options"} on:click={() => (showCommonActivate = !showCommonActivate)} white />
 
             <div class="buttons">
                 {#each customActionActivations as activation}
@@ -436,7 +420,7 @@
                 disabled={!action.name}
                 style="margin-top: 10px;"
                 {id}
-                name={(action.keypressActivate || "").toUpperCase()}
+                name={typeof action.keypressActivate === "string" ? action.keypressActivate.toUpperCase() : ""}
                 value={action.keypressActivate}
                 icon="shortcut"
                 popupId="assign_shortcut"
@@ -473,12 +457,7 @@
 
                 <div slot="menu">
                     {#if ["timer_end", "timer_start", "group_start"].includes(customActivation)}
-                        <MaterialDropdown
-                            label={specificActivations[customActivation]?.name}
-                            options={getSpecificActivation(customActivation)}
-                            value={specificActivation}
-                            on:change={(e) => updateValue("specificActivation", `${customActivation}__${e.detail}`)}
-                        />
+                        <MaterialDropdown label={specificActivations[customActivation]?.name} options={getSpecificActivation(customActivation)} value={specificActivation} on:change={(e) => updateValue("specificActivation", `${customActivation}__${e.detail}`)} />
                     {:else if customActivation === "midi_signal_received"}
                         <MidiValues value={clone(action.midi || actionMidi)} firstActionId={action.triggers?.[0]} on:change={(e) => updateValue("midi", e)} simple />
                     {/if}
@@ -502,17 +481,7 @@
             <div class="actions">
                 {#each action.triggers as actionId, i}
                     {#key actionId}
-                        <CreateAction
-                            mainId={id}
-                            {actionId}
-                            existingActions={action.triggers}
-                            actionValue={action.actionValues?.[actionId]}
-                            actionNameIndex={i + 1}
-                            on:change={(e) => changeAction(e, i)}
-                            on:choose={() => (actionSelector = { id: actionId, index: i })}
-                            {mode}
-                            choosePopup
-                        />
+                        <CreateAction mainId={id} {actionId} existingActions={action.triggers} actionValue={action.actionValues?.[actionId]} actionNameIndex={i + 1} on:change={(e) => changeAction(e, i)} on:choose={() => (actionSelector = { id: actionId, index: i })} {mode} choosePopup />
                     {/key}
                 {/each}
                 {#if !action.triggers?.length || addTrigger}

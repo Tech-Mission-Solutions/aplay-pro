@@ -77,8 +77,8 @@
     }
 
     function updateData(data, key) {
-        let override = "show#" + $activeShow!.id + "_" + key
-        history({ id: "UPDATE", newData: { data, key }, oldData: { id: $activeShow!.id }, location: { page: "show", id: "show_key", override } })
+        let override = "show#" + ($activeShow?.id || "") + "_" + key
+        history({ id: "UPDATE", newData: { data, key }, oldData: { id: $activeShow?.id || "" }, location: { page: "show", id: "show_key", override } })
     }
 
     // AUTOFILL
@@ -145,37 +145,13 @@
         </InputRow>
 
         {#if metadata.override}
-            <MaterialPopupButton
-                label="meta.display_metadata"
-                value={metadataDisplay}
-                defaultValue="never"
-                name={metadataDisplayValues.find((a) => a.id === metadataDisplay)?.name || ""}
-                popupId="metadata_display"
-                icon="info"
-                on:change={(e) => updateMetadata(e, "display")}
-            />
+            <MaterialPopupButton label="meta.display_metadata" value={metadataDisplay} defaultValue="never" name={metadataDisplayValues.find((a) => a.id === metadataDisplay)?.name || ""} popupId="metadata_display" icon="info" on:change={(e) => updateMetadata(e, "display")} />
 
             {#if metadataDisplay !== "never"}
-                <MaterialPopupButton
-                    label="meta.meta_template"
-                    value={(metadata.template ? metadata.template : outputShowSettings.metadataTemplate) || "metadata"}
-                    defaultValue="metadata"
-                    name={$templates[(metadata.template ? metadata.template : outputShowSettings.metadataTemplate) || "metadata"]?.name}
-                    popupId="select_template"
-                    icon="templates"
-                    on:change={(e) => updateMetadata(e, "template")}
-                />
+                <MaterialPopupButton label="meta.meta_template" value={(metadata.template ? metadata.template : outputShowSettings.metadataTemplate) || "metadata"} defaultValue="metadata" name={$templates[(metadata.template ? metadata.template : outputShowSettings.metadataTemplate) || "metadata"]?.name} popupId="select_template" icon="templates" on:change={(e) => updateMetadata(e, "template")} />
             {/if}
 
-            <MaterialPopupButton
-                label="meta.message_template"
-                value={(message.template ? message.template : outputShowSettings.messageTemplate) || "message"}
-                defaultValue="message"
-                name={$templates[(message.template ? message.template : outputShowSettings.messageTemplate) || "message"]?.name}
-                popupId="select_template"
-                icon="templates"
-                on:change={updateMessageTemplate}
-            />
+            <MaterialPopupButton label="meta.message_template" value={(message.template ? message.template : outputShowSettings.messageTemplate) || "message"} defaultValue="message" name={$templates[(message.template ? message.template : outputShowSettings.messageTemplate) || "message"]?.name} popupId="select_template" icon="templates" on:change={updateMessageTemplate} />
         {/if}
     </div>
 

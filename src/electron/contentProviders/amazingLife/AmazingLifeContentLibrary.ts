@@ -26,8 +26,8 @@ export class AmazingLifeContentLibrary {
      */
     private static createAuthHeaders(accessToken: string): Record<string, string> {
         return {
-            "Authorization": `Bearer ${accessToken}`,
-            "accept": "application/json"
+            Authorization: `Bearer ${accessToken}`,
+            accept: "application/json"
         }
     }
 
@@ -43,7 +43,7 @@ export class AmazingLifeContentLibrary {
                     return
                 }
 
-                const libraries = Array.isArray(data) ? data : (data.data || data.libraries || [])
+                const libraries = Array.isArray(data) ? data : data.data || data.libraries || []
                 const productCategory: ContentLibraryCategory = {
                     name: productTitle,
                     thumbnail: productImage,
@@ -86,8 +86,8 @@ export class AmazingLifeContentLibrary {
 
                 console.log("APlay API response:", JSON.stringify(data, null, 2))
                 try {
-                    const modules = data.data || []
-                    console.log(`Found ${modules.length} modules`)
+                    const allModules = data.data || []
+                    const modules = allModules.filter((module: any) => !module.isLocked)
 
                     const modulePromises = modules.map(async (module: any) => {
                         const moduleCategory: ContentLibraryCategory = {
@@ -98,9 +98,8 @@ export class AmazingLifeContentLibrary {
 
                         // Fetch libraries for each product in the module
                         if (module.products && Array.isArray(module.products)) {
-                            const productPromises = module.products.map((product: any) =>
-                                this.fetchProductLibraries(product.productId, product.title, product.image, headers)
-                            )
+                            const visibleProducts = module.products.filter((product: any) => !product.isHidden)
+                            const productPromises = visibleProducts.map((product: any) => this.fetchProductLibraries(product.productId, product.title, product.image, headers))
 
                             const productResults = await Promise.all(productPromises)
                             moduleCategory.children = productResults.filter((p): p is ContentLibraryCategory => p !== null)
@@ -145,7 +144,7 @@ export class AmazingLifeContentLibrary {
                 }
 
                 try {
-                    const licenseData = Array.isArray(data) ? data : (data.data || [])
+                    const licenseData = Array.isArray(data) ? data : data.data || []
                     const result = licenseData.find((item: any) => item.mediaId === mediaId)
 
                     if (result?.isLicensed) {
@@ -194,12 +193,10 @@ export class AmazingLifeContentLibrary {
                             let url = ""
                             let thumbnail = item.thumbnail?.src || ""
 
-                            if (mediaType === 'video' && item.video) {
-                                url = item.video.muxPlaybackId
-                                    ? `https://stream.mux.com/${item.video.muxPlaybackId}/capped-1080p.mp4`
-                                    : item.video.muxStreamingUrl || ""
+                            if (mediaType === "video" && item.video) {
+                                url = item.video.muxPlaybackId ? `https://stream.mux.com/${item.video.muxPlaybackId}/capped-1080p.mp4` : item.video.muxStreamingUrl || ""
                                 thumbnail = thumbnail || item.video.thumbnailUrl || ""
-                            } else if (mediaType === 'image' || item.image) {
+                            } else if (mediaType === "image" || item.image) {
                                 url = item.image?.src || item.url || ""
                                 thumbnail = thumbnail || item.image?.src || ""
                             } else {
@@ -207,10 +204,7 @@ export class AmazingLifeContentLibrary {
                                 thumbnail = thumbnail || item.thumbnailUrl || ""
                             }
 
-                            const isVideo = mediaType === 'video' ||
-                                          url.includes('.m3u8') ||
-                                          url.toLowerCase().endsWith('.mp4') ||
-                                          url.toLowerCase().endsWith('.mov')
+                            const isVideo = mediaType === "video" || url.includes(".m3u8") || url.toLowerCase().endsWith(".mp4") || url.toLowerCase().endsWith(".mov")
 
                             const file: ContentFile = {
                                 url,

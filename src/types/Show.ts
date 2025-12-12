@@ -103,7 +103,7 @@ export interface Item {
     id?: string
     lines?: Line[]
     list?: List
-    auto?: boolean
+    auto?: boolean // DEPRECATED - use textFit
     textFit?: AutosizeTypes // auto size text fix option (default: shrinkToFit)
     autoFontSize?: number // only used to store the calculated auto size text size
     style: string
@@ -111,7 +111,7 @@ export interface Item {
     specialStyle?: any // line gap && line background
     media?: any
     // timer?: Timer // pre 0.8.3 // also local backup?
-    timer?: { id: string }
+    timer?: { id: string; [key: string]: any }
     timerId?: string // pre 1.5.0
     clock?: Clock
     events?: DynamicEvent
@@ -475,13 +475,10 @@ export interface Template {
 export interface TemplateStyleOverride {
     id: string
     pattern: string
-    color?: string
-    bold?: boolean
-    italic?: boolean
-    underline?: boolean
-    uppercase?: boolean
+    templateId?: string
 }
 export interface TemplateSettings {
+    mode?: "default" | "scripture" | "text"
     resolution?: Resolution
     backgroundColor?: string
     backgroundPath?: string
@@ -521,6 +518,7 @@ export interface OutSlide {
     index?: number
     tempItems?: Item[]
     previousSlides?: Item[][]
+    settings?: any // settings for temp (e.g. scripture background color)
     nextSlides?: Item[][]
     line?: number // styles limit lines
     revealCount?: number // reveal one by one line

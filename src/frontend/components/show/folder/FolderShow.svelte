@@ -81,19 +81,7 @@
     {#if folderFiles.length}
         {#each folderFiles as file}
             {@const outputted = file.type === "audio" ? [AudioPlayer.getPlaying(file.path), $playingAudio][0] : findMatchingOut(file.path, $outputs)}
-            <Card
-                resolution={{ width: 16, height: 9 }}
-                width={25}
-                outlineColor={typeof outputted === "string" ? outputted : null}
-                active={file.type === "audio" ? !!outputted : outputted !== null}
-                label={file.name}
-                title={file.path}
-                icon={file.type === "audio" ? "music" : file.type}
-                white={file.type !== "video"}
-                showPlayOnHover
-                checkered={file.type !== "audio"}
-                on:click={() => playMedia(file)}
-            >
+            <Card resolution={{ width: 16, height: 9 }} width={25} outlineColor={typeof outputted === "string" ? outputted : null} active={file.type === "audio" ? !!outputted : outputted !== null} label={file.name} title={file.path} icon={file.type === "audio" ? "music" : file.type} white={file.type !== "video"} showPlayOnHover checkered={file.type !== "audio"} on:click={() => playMedia(file)}>
                 <!-- icons -->
                 <div class="icons">
                     {#if file.type === "image" && timer}

@@ -50,7 +50,7 @@
             // WIP play audio? (data.audio.data ...)
 
             frame = data.frame.video
-        },
+        }
     }
 
     receive(BLACKMAGIC, receiveBlackmagic, screen.id)

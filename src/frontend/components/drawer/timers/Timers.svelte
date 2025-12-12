@@ -85,12 +85,7 @@
 
             <!-- {@const playing = $activeTimers.find((a) => a.id === id && a.paused !== true)} -->
             <SelectElem id="global_timer" data={timer} draggable={!onlyPlaying} selectable={!onlyPlaying}>
-                <div
-                    class:outline={!onlyPlaying && $activeTimers.find((a) => a.id === timer.id)}
-                    class:project={list.includes(timer.id)}
-                    class={onlyPlaying ? "" : `context #global_timer${readOnly ? "_readonly" : ""}`}
-                    style="display: flex;justify-content: space-between;padding: 3px;"
-                >
+                <div class:outline={!onlyPlaying && $activeTimers.find((a) => a.id === timer.id)} class:project={list.includes(timer.id)} class={onlyPlaying ? "" : `context #global_timer${readOnly ? "_readonly" : ""}`} style="display: flex;justify-content: space-between;padding: 3px;">
                     <div style="display: flex;{onlyPlaying ? '' : 'width: 50%;'}">
                         <Button disabled={timer.type !== "counter"} on:click={() => playPauseGlobal(timer.id, timer)} title={translateText($activeTimers.find((a) => a.id === timer.id && a.paused !== true) ? "media.pause" : "media.play")}>
                             <Icon id={isPlaying ? "pause" : "play"} white={!isPlaying} />
@@ -109,15 +104,7 @@
                     </div>
 
                     {#if timer.type === "counter"}
-                        <Slider
-                            style="background: var(--primary);align-self: center;margin: 0 10px;"
-                            on:input={(e) => updateActiveTimer(e, { id: timer.id }, timer)}
-                            on:mousedown={() => disableDragging.set(true)}
-                            value={getCurrentValue(timer, { id: timer.id }, $activeTimers)}
-                            min={Math.min(timer.start || 0, timer.end || 0)}
-                            max={Math.max(timer.start || 0, timer.end || 0)}
-                            invert={(timer.end || 0) < (timer.start || 0)}
-                        />
+                        <Slider style="background: var(--primary);align-self: center;margin: 0 10px;" on:input={(e) => updateActiveTimer(e, { id: timer.id }, timer)} on:mousedown={() => disableDragging.set(true)} value={getCurrentValue(timer, { id: timer.id }, $activeTimers)} min={Math.min(timer.start || 0, timer.end || 0)} max={Math.max(timer.start || 0, timer.end || 0)} invert={(timer.end || 0) < (timer.start || 0)} />
                     {/if}
 
                     <div style="display: flex;justify-content: end;{onlyPlaying ? '' : 'min-width: 125px;'}">

@@ -19,48 +19,21 @@ import { importFromClipboard } from "../converters/importHelpers"
 import { addSection } from "../converters/project"
 import { requestMain, sendMain } from "../IPC/main"
 import { changeSlidesView } from "../show/slides"
-import {
-    activeDrawerTab,
-    activeEdit,
-    activeFocus,
-    activePage,
-    activePopup,
-    activeSlideRecording,
-    activeStage,
-    contextActive,
-    drawer,
-    focusedArea,
-    focusMode,
-    guideActive,
-    media,
-    os,
-    outLocked,
-    outputs,
-    outputSlideCache,
-    quickSearchActive,
-    refreshEditSlide,
-    selected,
-    showsCache,
-    special,
-    spellcheck,
-    styles,
-    topContextActive,
-    videosData,
-    volume
-} from "../stores"
+import { activeDrawerTab, activeEdit, activeFocus, activePage, activePopup, activeSlideRecording, activeStage, contextActive, drawer, focusedArea, focusMode, guideActive, media, os, outLocked, outputs, outputSlideCache, quickSearchActive, refreshEditSlide, selected, showsCache, special, spellcheck, styles, topContextActive, videosData, volume } from "../stores"
 import { audioExtensions, imageExtensions, videoExtensions } from "../values/extensions"
 import { drawerTabs } from "../values/tabs"
 import { activeShow } from "./../stores"
 import { hideDisplay, isOutputWindow, togglePanels } from "./common"
 import { send } from "./request"
 import { save } from "./save"
+import { createScriptureShow } from "../components/drawer/bible/scripture"
 
 const menus: TopViews[] = ["show", "edit", "stage", "draw", "settings"]
 
 const ctrlKeys = {
     a: () => selectAll(),
     c: () => copy(),
-    f: () => shouldOpenReplace() ? activePopup.set("find_replace") : null,
+    f: () => (shouldOpenReplace() ? activePopup.set("find_replace") : null),
     v: () => paste(),
     // give time for drawer to not toggle
     d: () => setTimeout(() => duplicate(get(selected))),
@@ -68,7 +41,7 @@ const ctrlKeys = {
     e: () => activePopup.set("export"),
     i: (e: KeyboardEvent) => (e.altKey ? importFromClipboard() : activePopup.set("import")),
     n: () => createNew(),
-    h: () => get(activeDrawerTab) === "scripture" ? "" : activePopup.set("history"),
+    h: () => (get(activeDrawerTab) === "scripture" ? "" : activePopup.set("history")),
     m: () => volume.set(get(volume) ? 0 : 1),
     o: () => toggleOutputs(),
     s: () => save(),
@@ -80,15 +53,15 @@ const ctrlKeys = {
 }
 
 const shiftCtrlKeys = {
-    d: () => get(activePage) === "show" && get(activeShow) && (get(activeShow)?.type || "show") === "show" ? activePopup.set("next_timer") : "",
+    d: () => (get(activePage) === "show" && get(activeShow) && (get(activeShow)?.type || "show") === "show" ? activePopup.set("next_timer") : ""),
     // t: () => activePopup.set("translate"),
     f: () => menuClick("focus_mode"),
     n: () => activePopup.set("show"),
-    v: () => changeSlidesView(),
+    v: () => changeSlidesView()
 }
 
 const altKeys = {
-    Enter: () => get(activePage) === "show" ? menuClick("cut_in_half", true, null, null, null, get(selected)) : null,
+    Enter: () => (get(activePage) === "show" ? menuClick("cut_in_half", true, null, null, null, get(selected)) : null)
 }
 
 export const disablePopupClose = ["initialize", "cloud_method"]
@@ -114,7 +87,7 @@ const keys = {
 
         // blur focused elements
         if (document.activeElement !== document.body) {
-            ; (document.activeElement as HTMLElement).blur()
+            ;(document.activeElement as HTMLElement).blur()
 
             if (!popupId && get(selected).id) setTimeout(() => selected.set({ id: null, data: [] }))
             return
@@ -128,10 +101,10 @@ const keys = {
             else if (get(selected).id) selected.set({ id: null, data: [] })
         }, 20)
     },
-    Delete: () => deleteAction(get(selected), "remove"),
+    Delete: () => (get(contextActive) ? null : deleteAction(get(selected), "remove")),
     Backspace: () => keys.Delete(),
     // give time so it don't clear slide
-    F2: () => get(focusMode) ? null : setTimeout(() => menuClick("rename", true, null, null, null, get(selected))),
+    F2: () => (get(focusMode) ? null : setTimeout(() => menuClick("rename", true, null, null, null, get(selected)))),
     // default menu "togglefullscreen" role not working in production on Windows/Linux
     F11: () => (get(os).platform !== "darwin" ? sendMain(Main.FULLSCREEN) : null)
 }
@@ -334,6 +307,8 @@ export const previewShortcuts = {
         previousSlideIndividual(e)
     },
     " ": (e: KeyboardEvent) => {
+        if (get(contextActive)) return
+
         const currentShow = get(focusMode) ? get(activeFocus) : get(activeShow)
         if (currentShow?.type === "ppt") return
         if (currentShow?.type === "pdf") {
@@ -353,7 +328,7 @@ export const previewShortcuts = {
         const outSlide = currentOutput?.out?.slide || get(outputSlideCache)[outputId] || {}
 
         e.preventDefault()
-        if (outSlide.id !== currentShow?.id || (currentShow && outSlide.layout !== get(showsCache)[currentShow.id || ""].settings.activeLayout)) {
+        if (outSlide.id !== currentShow?.id || (currentShow && outSlide.layout !== get(showsCache)[currentShow.id || ""]?.settings.activeLayout)) {
             if (get(activeSlideRecording)) stopSlideRecording()
             nextSlideIndividual(e, true)
         } else {
@@ -409,23 +384,33 @@ function createNew() {
     else if (["action", "variable", "trigger"].includes(selectId)) activePopup.set(selectId as any)
     else if (get(activePage) === "edit") addItem("text")
     else if (get(activePage) === "stage") history({ id: "UPDATE", location: { page: "stage", id: "stage" } })
+    else if (get(activePage) === "show" && get(activeDrawerTab) === "scripture") createScriptureShow()
     else {
         console.info("CREATE NEW:", selectId)
         activePopup.set("show")
     }
 }
 
-export function togglePlayingMedia(e: Event | null = null, back = false) {
+// this only works if opened in preview - if not api
+export function togglePlayingMedia(e: Event | null = null, back = false, api = false) {
     if (get(outLocked)) return
     // if ($focusMode || e.target?.closest(".edit") || e.target?.closest("input")) return
-    const item = get(focusMode) ? get(activeFocus) : get(activeShow)
+    let item = get(focusMode) ? get(activeFocus) : get(activeShow)
+
+    const currentOutput = getFirstActiveOutput()
+    const currentlyPlaying = currentOutput?.out?.background?.path
+
+    if (api) {
+        // get playing audio
+        let audioId = AudioPlayer.getAllPlaying(false)[0]
+        if (audioId) item = { id: audioId, type: "audio" }
+        else if (currentlyPlaying) item = { id: currentlyPlaying, type: "video" }
+    }
 
     const type: ShowType | undefined = item?.type
     if (!item || !type) return
     e?.preventDefault()
 
-    const currentOutput = getFirstActiveOutput()
-    const currentlyPlaying = currentOutput?.out?.background?.path
     const alreadyPlaying = currentlyPlaying === item.id
 
     if (type === "video" || type === "image" || type === "player") {

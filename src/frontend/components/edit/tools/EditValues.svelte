@@ -304,15 +304,7 @@
                                 {@const values = getValues(input)}
 
                                 {#if input.type === "fontDropdown"}
-                                    <MaterialFontDropdown
-                                        label={values.label}
-                                        {value}
-                                        style={values.style}
-                                        fontStyleValue={input.styleValue}
-                                        on:change={(e) => changed(e, input)}
-                                        on:fontStyle={(e) => changed(e, { ...input, key: "font" })}
-                                        enableFontStyles
-                                    />
+                                    <MaterialFontDropdown label={values.label} {value} style={values.style} fontStyleValue={input.styleValue} on:change={(e) => changed(e, input)} on:fontStyle={(e) => changed(e, { ...input, key: "font" })} enableFontStyles />
                                 {:else if input.type === "toggle"}
                                     <MaterialButton style="min-width: 50px;flex: 1;" title={values.label} on:click={() => toggle(input)}>
                                         <Icon id={values.icon} size={1.2} white />
@@ -326,14 +318,7 @@
                                 {:else if input.type === "textarea"}
                                     <MaterialTextarea label={values.label} {value} on:change={(e) => changed(e, input, id)} />
                                 {:else if input.type === "media"}
-                                    <MaterialFilePicker
-                                        label={(value ? values.label : "") || "edit.choose_media"}
-                                        {value}
-                                        filter={{ name: "Media files", extensions: mediaExtensions }}
-                                        on:change={(e) => changed(e, input, id)}
-                                        autoTrigger={$activeEdit.type !== "template"}
-                                        allowEmpty
-                                    />
+                                    <MaterialFilePicker label={(value ? values.label : "") || "edit.choose_media"} {value} filter={{ name: "Media files", extensions: mediaExtensions }} on:change={(e) => changed(e, input, id)} autoTrigger={$activeEdit.type !== "template"} allowEmpty />
                                 {:else if input.type === "popup"}
                                     <MaterialPopupButton {...values} {value} on:change={(e) => changed(e, input, id)} allowEmpty />
                                 {:else if input.type === "tip"}

@@ -10,20 +10,30 @@
     import { _show } from "../../helpers/shows"
     import T from "../../helpers/T.svelte"
     import HRule from "../../input/HRule.svelte"
+    import MaterialButton from "../../inputs/MaterialButton.svelte"
     import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
     import Center from "../../system/Center.svelte"
-    import MaterialButton from "../../inputs/MaterialButton.svelte"
 
     const obj = $popupData.obj || {}
     const caret = $popupData.caret || {}
     onMount(() => popupData.set({}))
 
+    let mode: null | "scripture" = null
+    if ($activePage === "edit" && $activeEdit.type === "template" && ($templates[$activeEdit.id || ""]?.settings?.mode === "scripture" || $templates[$activeEdit.id || ""]?.category === "scripture")) mode = "scripture"
+
+    let showAll: boolean = false
+    function toggleShowAll() {
+        showAll = !showAll
+        values = getValues()
+        defaultValues = clone(values)
+    }
+
     const hidden: string[] = $special.disabledDynamicValues || []
 
-    const values = getValues()
+    let values = getValues()
 
     function getValues() {
-        let list = getDynamicIds().map((id) => ({ id }))
+        let list = getDynamicIds(false, mode, showAll).map((id) => ({ id }))
 
         const isStage = $activePage === "stage"
         const stageHidden = ["slide_text_previous", "slide_text_next"]
@@ -31,7 +41,7 @@
 
         let separatorId = ""
         // the ones that can have a custom name should be first (to prevent it from overwriting a category)
-        const separators = ["$", "timer_", "meta_", "rss_", "project_", "time_", "show_", "slide_text_", "video_", "audio_"]
+        const separators = ["$", "timer_", "meta_", "rss_", "project_", "time_", "show_", "slide_text_", "video_", "audio_", "scripture_"]
 
         let newList: { [key: string]: typeof list } = {}
         list.forEach((value) => {
@@ -50,6 +60,7 @@
     }
 
     function getTitle(id: string) {
+        if (id === "scripture_") return "tabs.scripture"
         if (id === "time_") return "timer.time"
         if (id === "project_") return "guide_title.project"
         if (id === "show_") return "guide_title.show"
@@ -166,7 +177,7 @@
             let lines = items[edit.items?.[0]]?.lines || []
             if (isStage) lines = items?.lines || []
 
-            lines[caret.line].text.forEach((text) => {
+            lines[caret.line]?.text?.forEach((text) => {
                 if (replaced) return
 
                 let value = text.value
@@ -200,7 +211,7 @@
     }
 
     // custom ref
-    const ref = { showId: $activeShow?.id, layoutId: _show().get("settings.activeLayout"), slideIndex: $activeEdit.slide, type: $activePage === "stage" ? "stage" : $activeEdit.type || "show", id: $activeEdit.id }
+    const ref = { showId: $activeShow?.id, layoutId: _show().get("settings.activeLayout"), slideIndex: $activeEdit.slide, type: $activePage === "stage" ? "stage" : $activeEdit.type || "show", id: $activeEdit.id, mode }
 
     // UPDATE DYNAMIC VALUES e.g. {time_} EVERY SECOND
     let updateDynamic = 0
@@ -212,7 +223,9 @@
 
 <svelte:window on:keydown={applyValue} />
 
-<MaterialButton class="popup-options" icon="edit" iconSize={1.1} title="create_show.more_options" on:click={() => activePopup.set("manage_dynamic_values")} white />
+<MaterialButton class="popup-reset" icon="edit" iconSize={1.1} title="create_show.more_options" on:click={() => activePopup.set("manage_dynamic_values")} white />
+
+<MaterialButton class="popup-options {showAll ? 'active' : ''}" icon={showAll ? "eye" : "hide"} iconSize={1.3} title={showAll ? "actions.close" : "create_show.more_options"} on:click={toggleShowAll} white />
 
 {#key resetInput}
     <MaterialTextInput label="main.search" value="" on:input={(e) => search(e.detail)} autofocus />
@@ -229,14 +242,7 @@
                 <div class="grid">
                     {#each values as value, i}
                         {@const preview = replaceDynamicValues(`{${value.id}}`, ref, updateDynamic)}
-                        <div
-                            class="value"
-                            class:active={searchValue.length > 1 && i === 0 ? "border: 2px solid var(--secondary-opacity);" : ""}
-                            role="button"
-                            tabindex="0"
-                            on:click={(e) => applyValue(e, value.id)}
-                            on:keydown={triggerClickOnEnterSpace}
-                        >
+                        <div class="value" class:active={searchValue.length > 1 && i === 0 ? "border: 2px solid var(--secondary-opacity);" : ""} role="button" tabindex="0" on:click={(e) => applyValue(e, value.id)} on:keydown={triggerClickOnEnterSpace}>
                             <p class="preview">
                                 {#if preview}{@html preview}{:else}—{/if}
                             </p>

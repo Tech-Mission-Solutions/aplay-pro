@@ -99,10 +99,10 @@ function isConditionMet(condition: Condition | undefined, itemsText: string) {
     }
 
     // outerOr
-    const conditionMet = condition.some(outerAnd => {
-        return outerAnd.every(innerOr => {
-            return innerOr.some(innerAnd => {
-                return innerAnd.every(content => {
+    const conditionMet = condition.some((outerAnd) => {
+        return outerAnd.every((innerOr) => {
+            return innerOr.some((innerAnd) => {
+                return innerAnd.every((content) => {
                     return checkConditionValue(content, itemsText)
                 })
             })

@@ -59,20 +59,13 @@
     // else backgroundColor = template.settings?.backgroundColor || currentStyle.background || "black"
 
     $: checkered = (!preview || template.items?.length > 0) && !template.settings?.backgroundColor && !thumbnailPath
+
+    $: mode = template?.settings?.mode || "default"
 </script>
 
 <!-- background={transparentOutput && template.items?.length ? "transparent" : backgroundColor}
 checkered={template.items?.length > 0 && transparentOutput} -->
-<Zoomed
-    background={!preview || template.items?.length ? template.settings?.backgroundColor || (preview ? "var(--primary);" : "transparent") : template.color || "var(--primary);"}
-    {checkered}
-    border={!preview && checkered}
-    {resolution}
-    style={width && height ? getStyleResolution(resolution, width, height, "fit", { zoom }) : ""}
-    bind:ratio
-    hideOverflow={!edit}
-    center={edit ? zoom >= 1 : false}
->
+<Zoomed background={!preview || template.items?.length ? template.settings?.backgroundColor || (preview ? "var(--primary);" : "transparent") : template.color || "var(--primary);"} {checkered} border={!preview && checkered} {resolution} style={width && height ? getStyleResolution(resolution, width, height, "fit", { zoom }) : ""} bind:ratio hideOverflow={!edit} center={edit ? zoom >= 1 : false}>
     <!-- background -->
     <!-- WIP !altKeyPressed &&  -->
     {#if thumbnailPath}
@@ -82,7 +75,7 @@ checkered={template.items?.length > 0 && transparentOutput} -->
     {/if}
 
     <!-- slide content -->
-    {#if edit}
+    {#if edit && mode !== "text"}
         <Snaplines bind:lines bind:newStyles bind:mouse {ratio} {active} />
         {#each template.items as item, index}
             <Editbox ref={{ type: "template", id: templateId }} {item} {index} {ratio} bind:mouse />

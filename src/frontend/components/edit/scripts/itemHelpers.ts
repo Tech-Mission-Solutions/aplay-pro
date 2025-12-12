@@ -231,6 +231,8 @@ export function updateSortedStageItems() {
     const stageId = get(activeStage).id || ""
     stageShows.update((a) => {
         const stageLayout = a[stageId]
+        if (!stageLayout) return a
+
         const currentItemIds = Object.keys(stageLayout.items)
         let itemOrder = stageLayout.itemOrder || currentItemIds
 
@@ -251,7 +253,7 @@ export function shouldItemBeShown(item: Item, allItems: Item[] = [], { outputId,
     if (type === "stage") allItems = getTempItems(item, allItems)
 
     if (!allItems.length) allItems = [item]
-    const slideItems = allItems.filter((a) => !a.bindings?.length || a.bindings.includes(outputId))
+    const slideItems = allItems.filter((a) => !a?.bindings?.length || a.bindings.includes(outputId))
     const itemsText = slideItems.reduce((value, currentItem) => (value += getItemText(currentItem)), "")
     // set dynamic values
     // const ref = { showId: get(activeShow)?.id, layoutId: _show().get("settings.activeLayout"), slideIndex: get(activeEdit).slide, type: get(activePage) === "stage" ? "stage" : get(activeEdit).type || "show", id: get(activeEdit).id }
@@ -294,10 +296,10 @@ export function isConditionMet(condition: Condition | undefined, itemsText: stri
     }
 
     // outerOr
-    const conditionMet = !!condition.find(outerAnd => {
-        return outerAnd.every(innerOr => {
-            return !!innerOr.find(innerAnd => {
-                return innerAnd.every(content => {
+    const conditionMet = !!condition.find((outerAnd) => {
+        return outerAnd.every((innerOr) => {
+            return !!innerOr.find((innerAnd) => {
+                return innerAnd.every((content) => {
                     return checkConditionValue(content, itemsText, type)
                 })
             })

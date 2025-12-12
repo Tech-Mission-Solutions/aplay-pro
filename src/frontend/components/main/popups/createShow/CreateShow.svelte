@@ -53,7 +53,7 @@
     // get the selected category
     if ($drawerTabsData.shows?.activeSubTab && $categories[$drawerTabsData.shows.activeSubTab]) selectedCategory = cats.find((a) => a.id === $drawerTabsData.shows.activeSubTab)
     // get the category from the active show
-    else if ($shows[$activeShow?.id || ""]?.category) selectedCategory = cats.find((a) => a.id === $shows[$activeShow?.id || ""]?.category)
+    else if ($shows[$activeShow?.id || ""]?.category && $categories[$shows[$activeShow!.id].category!]) selectedCategory = cats.find((a) => a.id === $shows[$activeShow?.id || ""]?.category)
     // set to "Songs" if it exists & nothing else if selected
     else if ($categories.song) selectedCategory = cats.find((a) => a.id === "song")
     // otherwise set to first category
@@ -70,14 +70,26 @@
     $: resolvedCreateOptions = clone(createOptions).map((a: any) => {
         if (a.id === "text") a.colored = values.text.length
         if (a.id === "web") a.disabled = !values.name?.trim()
+
+        if (a.id === "empty") {
+            if (values.text.length) {
+                // don't create empty if there's text
+                a.name = translateText("new.show")
+                a.title = translateText("new.show [Ctrl+Enter]")
+            } else {
+                a.name = translateText("create_show.empty")
+                a.title = translateText("new.empty_show [Ctrl+Enter]")
+            }
+        }
+
         return a
     })
 
     let selectedOption = ""
     function selectOption(id: string) {
         if (id === "empty") {
-            values.text = ""
-            values.origin = ""
+            // values.text = ""
+            // values.origin = ""
             textToShow()
         } else {
             selectedOption = id
@@ -193,14 +205,7 @@
 {#if !selectedOption}
     <List bottom={20}>
         <MaterialTextInput id="name" label="show.name" autofocus value={values.name} autofill={values.name ? "" : getName(values)} on:input={(e) => changeValue(e, "name")} />
-        <MaterialDropdown
-            label="show.category"
-            value={selectedCategory?.id}
-            options={cats.map((a) => ({ label: translateText(a.name || "main.unnamed"), value: a.id }))}
-            on:change={(e) => (selectedCategory = cats.find((a) => a.id === e.detail))}
-            addNew="new.category"
-            on:new={addNewCategory}
-        />
+        <MaterialDropdown label="show.category" value={selectedCategory?.id} options={cats.map((a) => ({ label: translateText(a.name || "main.unnamed"), value: a.id }))} on:change={(e) => (selectedCategory = cats.find((a) => a.id === e.detail))} addNew="new.category" on:new={addNewCategory} />
     </List>
 
     <MaterialMultiChoice options={resolvedCreateOptions} on:click={(e) => selectOption(e.detail)} />
@@ -224,16 +229,7 @@
         </List>
     {/if}
 
-    <MaterialButton
-        on:click={textToShow}
-        variant="contained"
-        title="timer.create [Ctrl+Enter]"
-        disabled={values.text.trim().length === 0}
-        info={getName(values) || translateText("main.unnamed")}
-        style="width: 100%;margin-top: 20px;"
-        icon="add"
-        data-testid="create.show.popup.new.show"
-    >
+    <MaterialButton on:click={textToShow} variant="contained" title="timer.create [Ctrl+Enter]" disabled={values.text.trim().length === 0} info={getName(values) || translateText("main.unnamed")} style="width: 100%;margin-top: 20px;" icon="add" data-testid="create.show.popup.new.show">
         <T id="timer.create" />
     </MaterialButton>
 {:else if selectedOption === "web"}

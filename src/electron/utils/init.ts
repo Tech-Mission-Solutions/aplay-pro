@@ -11,8 +11,8 @@ export function parseCommandLineArgs() {
     const args = process.argv.slice(1)
     for (const arg of args) {
         // support --profile=Name & -p=Name
-        if (arg.startsWith('--profile=')) result.profile = arg.substring('--profile='.length)
-        else if (arg.startsWith('-p=')) result.profile = arg.substring('-p='.length)
+        if (arg.startsWith("--profile=")) result.profile = arg.substring("--profile=".length)
+        else if (arg.startsWith("-p=")) result.profile = arg.substring("-p=".length)
     }
 
     setAutoProfile(result.profile || "")

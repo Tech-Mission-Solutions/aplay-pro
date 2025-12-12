@@ -2,7 +2,7 @@
     import { AudioPlayer } from "../../../audio/audioPlayer"
     import { AudioPlaylist } from "../../../audio/audioPlaylist"
     import { addProjectItem } from "../../../converters/project"
-    import { activeShow, media, outLocked, playingAudio } from "../../../stores"
+    import { activePlaylist, activeShow, media, outLocked, playingAudio } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
     import { joinTime, secondsToTime } from "../../helpers/time"
     import Button from "../../inputs/Button.svelte"
@@ -16,7 +16,7 @@
     export let index = -1
     export let fileOver = false
 
-    $: outline = !!$playingAudio[path]
+    $: outline = !!$playingAudio[path] && $activePlaylist?.index === index
 </script>
 
 <SelectElem id="audio" data={{ path, name, index }} {fileOver} borders={playlist ? "edges" : "all"} trigger={playlist ? "column" : null} draggable>
@@ -31,7 +31,7 @@
         on:click={(e) => {
             if ($outLocked || e.ctrlKey || e.metaKey || e.shiftKey) return
 
-            if (playlist) AudioPlaylist.start(active || "", path, { pauseIfPlaying: true })
+            if (playlist) AudioPlaylist.start(active || "", path, index, { pauseIfPlaying: true })
             else AudioPlayer.start(path, { name }, { playMultiple: e.altKey })
         }}
         on:dblclick={(e) => {
@@ -43,11 +43,7 @@
             {#await AudioPlayer.getDuration(path)}
                 <Icon id="music" white right />
             {:then duration}
-                <Icon
-                    id={$playingAudio[path]?.paused === true ? "play" : $playingAudio[path]?.paused === false ? "pause" : $media[path]?.favourite === true && active !== "favourites" ? "star" : AudioPlayer.getAudioType(path, duration)}
-                    white={$playingAudio[path]?.paused === true || (!$playingAudio[path] && ($media[path]?.favourite !== true || active === "favourites"))}
-                    right
-                />
+                <Icon id={$playingAudio[path]?.paused === true ? "play" : $playingAudio[path]?.paused === false ? "pause" : $media[path]?.favourite === true && active !== "favourites" ? "star" : AudioPlayer.getAudioType(path, duration)} white={$playingAudio[path]?.paused === true || (!$playingAudio[path] && ($media[path]?.favourite !== true || active === "favourites"))} right />
             {/await}
             <p>{name.slice(0, name.lastIndexOf("."))}</p>
         </span>

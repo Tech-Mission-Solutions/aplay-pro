@@ -155,7 +155,7 @@ export function save(closeWhenFinished = false, customTriggers: SaveActions = {}
         eqPresets: get(eqPresets),
         effectsLibrary: get(effectsLibrary),
         special: get(special),
-        contentProviderData: get(contentProviderData),
+        contentProviderData: get(contentProviderData)
     }
 
     // settings exclusive to the local machine (path names that shouldn't be synced with cloud)

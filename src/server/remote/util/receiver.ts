@@ -1,7 +1,35 @@
 import type { Item, Show } from "../../../types/Show"
+import { sanitizeVerseText } from "../../../common/scripture/sanitizeVerseText"
 import { setError, translate } from "./helpers"
 import { send } from "./socket"
-import { _, _get, _set, _update, currentScriptureState, overlays, scriptures, scriptureCache } from "./stores"
+import { _, _get, _set, _update, currentScriptureState, overlays, scriptures, scriptureCache, timers, triggers, activeTimers, runningActions } from "./stores"
+
+function sanitizeBiblePayload(bible: any) {
+    if (!bible || !Array.isArray(bible.books)) return bible
+
+    const books = bible.books.map((book: any) => ({
+        ...book,
+        chapters: Array.isArray(book.chapters)
+            ? book.chapters.map((chapter: any) => ({
+                  ...chapter,
+                  verses: sanitizeChapterVerses(chapter.verses)
+              }))
+            : book.chapters
+    }))
+
+    return { ...bible, books }
+}
+
+function sanitizeChapterVerses(verses: any) {
+    if (!Array.isArray(verses)) return verses
+
+    return verses.map((verse: any, index: number) => {
+        const sanitizedVerse = { ...verse }
+        sanitizedVerse.number = sanitizedVerse.number || index + 1
+        sanitizedVerse.text = sanitizeVerseText(sanitizedVerse.text || sanitizedVerse.value || "")
+        return sanitizedVerse
+    })
+}
 
 export type ReceiverKey = keyof typeof receiver
 export const receiver = {
@@ -99,14 +127,11 @@ export const receiver = {
     PROJECTS: (data: any) => {
         if (!_get("isConnected")) return
 
-        _set("projects", data)
-        // newest first
-        _set(
-            "projects",
-            _get("projects").sort((a, b) => b.created - a.created)
-        )
+        // Sort once before setting to avoid double store update
+        const sortedProjects = [...data].sort((a: any, b: any) => b.created - a.created)
+        _set("projects", sortedProjects)
 
-        const project = data.find((a: any) => a.id === _get("project"))
+        const project = sortedProjects.find((a: any) => a.id === _get("project"))
         if (project) _set("activeProject", project)
     },
     PROJECT: (data: any) => {
@@ -121,6 +146,9 @@ export const receiver = {
     },
     SCRIPTURE: (data: any) => {
         scriptures.set(data)
+    },
+    CATEGORIES: (data: any) => {
+        _.categories.set(data)
     },
     ACTIVE_SCRIPTURE: (data: any) => {
         const source: any = data?.api || data?.bible || data || {}
@@ -152,11 +180,9 @@ export const receiver = {
             // Sanitize, dedupe and sort verses to make "latest" deterministic
             activeVerses: (() => {
                 const raw = Array.isArray(source.activeVerses) ? source.activeVerses : []
-                const nums: number[] = raw
-                    .map((v: any) => parseInt(v, 10))
-                    .filter((n: number): n is number => Number.isFinite(n) && n > 0)
+                const nums: number[] = raw.map((v: any) => parseInt(v, 10)).filter((n: number): n is number => Number.isFinite(n) && n > 0)
                 return Array.from(new Set<number>(nums)).sort((a: number, b: number) => a - b)
-            })(),
+            })()
         }
 
         currentScriptureState.set(normalized)
@@ -165,7 +191,7 @@ export const receiver = {
         if (!data) return
 
         if (data.bible) {
-            _update("scriptureCache", data.id, data.bible)
+            _update("scriptureCache", data.id, sanitizeBiblePayload(data.bible))
             return
         }
 
@@ -204,7 +230,7 @@ export const receiver = {
                 const chapter = chaptersArr[chapterIndex] || { verses: [] }
                 chapter.verses = (verses || []).map((v: any, i: number) => ({
                     number: v.number || i + 1,
-                    text: v.text || v.value || ""
+                    text: sanitizeVerseText(v.text || v.value || "")
                 }))
                 chaptersArr[chapterIndex] = chapter
                 book.chapters = chaptersArr
@@ -214,46 +240,7 @@ export const receiver = {
             })
         }
     },
-    SCRIPTURE_CHAPTERS: (data: any) => {
-        const { id, bookIndex, chapters } = data || {}
-        if (!id || typeof bookIndex !== "number" || !Array.isArray(chapters)) return
-
-        scriptureCache.update((cache) => {
-            const bible = cache[id] || { books: [] as any[] }
-            const books = Array.isArray(bible.books) ? bible.books : []
-            const book = books[bookIndex] || {}
-            book.chapters = (chapters || []).map((c: any) => ({
-                number: c.number,
-                keyName: c.keyName,
-                verses: []
-            }))
-            books[bookIndex] = book
-            cache[id] = { ...bible, books }
-            return cache
-        })
-    },
-
-    SCRIPTURE_VERSES: (data: any) => {
-        const { id, bookIndex, chapterIndex, verses } = data || {}
-        if (!id || typeof bookIndex !== "number" || typeof chapterIndex !== "number" || !Array.isArray(verses)) return
-
-        scriptureCache.update((cache) => {
-            const bible = cache[id] || { books: [] as any[] }
-            const books = Array.isArray(bible.books) ? bible.books : []
-            const book = books[bookIndex] || { chapters: [] as any[] }
-            const chaptersArr = Array.isArray(book.chapters) ? book.chapters : []
-            const chapter = chaptersArr[chapterIndex] || { verses: [] }
-            chapter.verses = (verses || []).map((v: any, i: number) => ({
-                number: v.number || i + 1,
-                text: v.text || v.value || ""
-            }))
-            chaptersArr[chapterIndex] = chapter
-            book.chapters = chaptersArr
-            books[bookIndex] = book
-            cache[id] = { ...bible, books }
-            return cache
-        })
-    },
+    // SCRIPTURE_CHAPTERS and SCRIPTURE_VERSES are handled by GET_SCRIPTURE's bibleUpdate handling
     SEARCH_SCRIPTURE: (data: any) => {
         // Store search results for the search component to use
         if (data.searchResults !== undefined) {
@@ -262,6 +249,58 @@ export const receiver = {
     },
     OVERLAYS: (data: any) => {
         overlays.set(data)
+    },
+    OVERLAY_CATEGORIES: (data: any) => {
+        _set("overlayCategories", data)
+    },
+    TEMPLATES: (data: any) => {
+        _set("templates", data)
+    },
+    TEMPLATE_CATEGORIES: (data: any) => {
+        _set("templateCategories", data)
+    },
+    ACTIONS: (data: any) => {
+        _set("actions", data)
+    },
+    ACTION_TAGS: (data: any) => {
+        _set("actionTags", data)
+    },
+    VARIABLES: (data: any) => {
+        _set("variables", data)
+    },
+    VARIABLE_TAGS: (data: any) => {
+        _set("variableTags", data)
+    },
+    TIMERS: (data: any) => {
+        timers.set(data)
+    },
+    TRIGGERS: (data: any) => {
+        triggers.set(data)
+    },
+    ACTIVE_TIMERS: (data: any) => {
+        activeTimers.set(data)
+    },
+    RUNNING_ACTIONS: (data: any) => {
+        runningActions.set(data)
+    },
+
+    GET_OVERLAYS: (data: any) => {
+        overlays.set(data.overlays)
+        _set("overlayCategories", data.categories)
+    },
+    GET_TEMPLATES: (data: any) => {
+        _set("templates", data.templates)
+        _set("templateCategories", data.categories)
+    },
+    GET_FUNCTIONS: (data: any) => {
+        _set("actions", data.actions)
+        _set("actionTags", data.actionTags)
+        _set("variables", data.variables)
+        _set("variableTags", data.variableTags)
+        timers.set(data.timers)
+        triggers.set(data.triggers)
+        activeTimers.set(data.activeTimers)
+        runningActions.set(data.runningActions)
     },
 
     /////
@@ -296,7 +335,7 @@ export const receiver = {
         send("SHOW", data.id)
         _set("active", { id: data.id, type: "show" })
         _set("activeTab", "show")
-    },
+    }
 }
 
 function getShowFromItems(items: Item[], nextSlideItems: Item[] | undefined) {
@@ -304,7 +343,7 @@ function getShowFromItems(items: Item[], nextSlideItems: Item[] | undefined) {
         name: "",
         settings: {
             activeLayout: "default",
-            template: null,
+            template: null
         },
         category: null,
         timestamps: { created: 0, modified: null, used: null },
@@ -316,10 +355,10 @@ function getShowFromItems(items: Item[], nextSlideItems: Item[] | undefined) {
                 color: "",
                 settings: {},
                 notes: "",
-                items: items,
-            },
+                items: items
+            }
         },
-        layouts: { default: { name: "", notes: "", slides: [{ id: "one" }] } },
+        layouts: { default: { name: "", notes: "", slides: [{ id: "one" }] } }
     }
 
     if (nextSlideItems) {
@@ -328,7 +367,7 @@ function getShowFromItems(items: Item[], nextSlideItems: Item[] | undefined) {
             color: "",
             settings: {},
             notes: "",
-            items: nextSlideItems,
+            items: nextSlideItems
         }
         show.layouts.default.slides.push({ id: "two" })
     }

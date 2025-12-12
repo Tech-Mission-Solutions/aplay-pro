@@ -83,7 +83,7 @@ async function convertDynamicValues(data: NowPlayingData) {
 
                 if (!doesPathExist(coverFilePath)) return ""
                 const pngBuffer = readFile(coverFilePath)
-                const base64String = Buffer.from(pngBuffer).toString('base64')
+                const base64String = Buffer.from(pngBuffer).toString("base64")
                 return pngBuffer ? `data:image/png;base64,${base64String}` : ""
             case "{duration}":
             case "{duration_s}":
@@ -99,7 +99,6 @@ async function convertDynamicValues(data: NowPlayingData) {
         }
     }
 }
-
 
 // same as frontend function
 function getArtist(metadata: ICommonTagsResult) {

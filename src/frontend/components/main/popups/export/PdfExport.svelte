@@ -43,12 +43,7 @@
         }
     }
 
-    $: pdfTypeOptions = [
-        { value: "default", label: translateText("example.default") },
-        { value: "text", label: translateText("export.text") },
-        { value: "slides", label: translateText("export.slides") },
-        ...(showHasChords(previewShow) ? [{ value: "chordSheet", label: "Chord Sheet" }] : [])
-    ]
+    $: pdfTypeOptions = [{ value: "default", label: translateText("example.default") }, { value: "text", label: translateText("export.text") }, { value: "slides", label: translateText("export.slides") }, ...(showHasChords(previewShow) ? [{ value: "chordSheet", label: "Chord Sheet" }] : [])]
 
     function showHasChords(show: Show | null): boolean {
         if (!show) return false

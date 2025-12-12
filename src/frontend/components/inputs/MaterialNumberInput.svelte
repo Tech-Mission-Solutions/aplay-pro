@@ -143,25 +143,7 @@
     <div class="background" />
 
     <div class="input-wrapper">
-        <input
-            bind:this={inputElem}
-            value={rawInput}
-            type="text"
-            {id}
-            {placeholder}
-            {disabled}
-            {autofocus}
-            {step}
-            {min}
-            {max}
-            class="input edit"
-            class:noValue={hideWhenZero && !padLength && !numberValue}
-            on:keydown={handleKeyDown}
-            on:input={handleInput}
-            on:change={handleChange}
-            inputmode="decimal"
-            autocomplete="off"
-        />
+        <input bind:this={inputElem} value={rawInput} type="text" {id} {placeholder} {disabled} {autofocus} {step} {min} {max} class="input edit" class:noValue={hideWhenZero && !padLength && !numberValue} on:keydown={handleKeyDown} on:input={handleInput} on:change={handleChange} inputmode="decimal" autocomplete="off" />
 
         <div class="buttons">
             <button type="button" class="inc" on:click={(e) => increment(e.shiftKey ? step * 10 : step)} tabindex="-1" disabled={disabled || (max !== null && numberValue >= max)}>

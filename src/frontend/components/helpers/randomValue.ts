@@ -76,16 +76,16 @@ async function animateValue(id: string, chars: number, finalValue: { name: strin
 
     for (let i = 0; i < steps; i++) {
         let randomNumber = start
-            ;[...Array(chars - currentStep)].forEach((_, step) => {
-                // never display the same int twice in a row
-                let num = -1
-                do {
-                    num = Math.floor(Math.random() * 10) // 0-9
-                } while (lastNums[step] === num)
+        ;[...Array(chars - currentStep)].forEach((_, step) => {
+            // never display the same int twice in a row
+            let num = -1
+            do {
+                num = Math.floor(Math.random() * 10) // 0-9
+            } while (lastNums[step] === num)
 
-                lastNums[step] = num
-                randomNumber += num
-            })
+            lastNums[step] = num
+            randomNumber += num
+        })
 
         updateVariable(id, "number", Number(randomNumber))
 

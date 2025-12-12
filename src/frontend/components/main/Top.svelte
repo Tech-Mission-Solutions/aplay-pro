@@ -126,30 +126,16 @@
       <TopButton id="settings" hideLabel />
     {/if}
 
-    <Button
-      id="output_window_button"
-      title={translateText(
-        `menu.${$outputDisplay ? (confirm ? "again_confirm" : "_title_display_stop") : "_title_display"} [Ctrl+O]`,
-        $dictionary
-      )}
-      style={$outputDisplay || disableClick
-        ? ""
-        : "border-bottom: 2px solid var(--secondary);"}
-      on:click={toggleOutput}
-      class="context #output display {$outputDisplay ? 'on' : 'off'}"
-      red={$outputDisplay}
-      disabled={(!$outputDisplay && !physicalOutputWindows.length) ||
-        disableClick}
-    >
-      {#if $outputDisplay}
-        {#if confirm}
-          <Icon id="close" size={1.6} white />
-        {:else}
-          <Icon id="cancelDisplay" size={1.6} white />
-        {/if}
-      {:else}
-        <Icon id="outputs" size={1.6} white />
-      {/if}
+        <Button id="output_window_button" title={translateText(`menu.${$outputDisplay ? (confirm ? "again_confirm" : "_title_display_stop") : "_title_display"} [Ctrl+O]`, $dictionary)} style={$outputDisplay || disableClick ? "" : "border-bottom: 2px solid var(--secondary);"} on:click={toggleOutput} class="context #output display {$outputDisplay ? 'on' : 'off'}" red={$outputDisplay} disabled={(!$outputDisplay && !physicalOutputWindows.length) || disableClick}>
+            {#if $outputDisplay}
+                {#if confirm}
+                    <Icon id="close" size={1.6} white />
+                {:else}
+                    <Icon id="cancelDisplay" size={1.6} white />
+                {/if}
+            {:else}
+                <Icon id="outputs" size={1.6} white />
+            {/if}
 
       {#if $outputDisplay && confirm}
         <div class="click_again" transition:slide>

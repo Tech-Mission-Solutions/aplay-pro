@@ -49,6 +49,11 @@
         else selection = getSelectionRange() // range
     }
 
+    function mousedown(e: any) {
+        // store if going to a text input in the tools
+        if (e.target.closest(".tools")) getTextSelection(e)
+    }
+
     function keyup(e: KeyboardEvent) {
         if (e.key.includes("Arrow") || e.key.toUpperCase() === "A") getTextSelection(e)
     }
@@ -114,7 +119,7 @@
 
     $: if (box?.sections?.font) {
         setBoxInputValue(box, "font", "font-size", "disabled", item?.textFit !== "none")
-        setBoxInputValue(box, "font", "textFit", "value", item?.textFit || "growToFit")
+        setBoxInputValue(box, "font", "textFit", "value", item?.textFit || "growToFit") // other items (like clock, timer)
         // setBoxInputValue(box2, "font", "auto", "value", item.auto ?? true)
     }
 
@@ -123,6 +128,10 @@
         // setBoxInputValue(box2, "default", "textFit", "hidden", !item?.auto)
         setBoxInputValue(box, "text", "nowrap", "value", !!styles["white-space"]?.includes("nowrap"))
         setBoxInputValue(box, "lines", "specialStyle.lineRadius", "hidden", !item?.specialStyle?.lineRadius && !item?.specialStyle?.lineBg)
+
+        setBoxInputValue(box, "default", "textFit", "value", item?.auto ? "shrinkToFit" : "none") // text items
+        // WIP disabled auto size -- don't disable if all text is selected
+        // setBoxInputValue(box, "default", "font-size", "disabled", selection?.length)
     }
 
     $: if (id === "media" && item) {
@@ -177,6 +186,7 @@
         if (input.id.includes(".")) {
             let splitted = input.id.split(".")
             let item = getSelectedItem()
+            if (!item) return
 
             input.id = splitted[0]
             value = item[splitted[0]] || {}
@@ -256,6 +266,12 @@
         let input = e.detail
         console.log("BOX INPUT:", input)
 
+        // does not work for partial text when auto size is enabled
+        // WIP doesn't need to show if disabled works correctly
+        if (id === "text" && input.key === "font-size" && selection?.length && item?.textFit !== "none") {
+            newToast("edit.auto_size settings.enabled!")
+        }
+
         let allItems: number[] = $activeEdit.items
         // update all items if nothing is selected
         if (!allItems.length) allSlideItems.forEach((_item, i) => allItems.push(i))
@@ -288,7 +304,7 @@
         let showSlides = $showsCache[$activeShow?.id || ""]?.slides || {}
 
         // get all selected slides
-        if (slides[0] && $selected.id === "slide") {
+        if (slides[0] && $selected.id === "slide" && Array.isArray($selected.data)) {
             let selectedSlides = $selected.data.filter(({ index }) => index !== $activeEdit.slide!)
             slides.push(...selectedSlides.map(({ index }) => ref[index]?.id))
 
@@ -315,7 +331,7 @@
 
         let values: { [key: string]: any[] } = {}
         slides.forEach((slide, i) => {
-            if (!slideItems[i].length) return
+            if (!slideItems[i]?.length) return
             values[slide] = []
             slideItems[i].forEach((i) => getNewItemValues(clone(showSlides[slide]?.items?.[i] || allSlideItems[i]), slide))
         })
@@ -333,9 +349,9 @@
 
             if (input.key === "text-align") {
                 let newAligns: any[] = []
-                currentSlideItem.lines?.forEach((_a, line) => {
-                    if (!selection?.length || selection[line]?.start !== undefined) newAligns.push(`${input.key}: ${input.value};`)
-                    else newAligns.push(currentSlideItem.lines![line].align)
+                currentSlideItem.lines?.forEach((line, linePos) => {
+                    if (!selection?.length || selection[linePos]?.start !== undefined) newAligns.push(`${input.key}: ${input.value};`)
+                    else newAligns.push(line.align)
                 })
                 values[slideId].push(newAligns)
             } else if (currentSlideItem.lines) {
@@ -472,7 +488,7 @@
     })
 </script>
 
-<svelte:window on:keyup={keyup} on:keydown={keydown} on:mouseup={getTextSelection} />
+<svelte:window on:keyup={keyup} on:keydown={keydown} on:mouseup={getTextSelection} on:mousedown={mousedown} />
 
 {#if loaded}
     <EditValues sections={boxSections} {item} {styles} {customValues} on:change={updateValue2} />

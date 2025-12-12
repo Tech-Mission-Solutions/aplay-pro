@@ -100,7 +100,7 @@ async function updateSlideContent(newSlideId, newIndex) {
             paused: currentVideo.paused,
             muted: currentVideo.muted,
             loop: currentVideo.loop,
-            volume: currentVideo.volume,
+            volume: currentVideo.volume
         }
     }
 
@@ -157,7 +157,7 @@ async function updateSlideContent(newSlideId, newIndex) {
     window.history.pushState(
         {
             slideId: newSlideId,
-            index: newIndex,
+            index: newIndex
         },
         "",
         newUrl
@@ -247,7 +247,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window.history.replaceState(
         {
             slideId: slideIds[currentIndex],
-            index: currentIndex,
+            index: currentIndex
         },
         "",
         window.location.href

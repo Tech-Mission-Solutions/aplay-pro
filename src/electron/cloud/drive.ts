@@ -44,7 +44,7 @@ export async function listFolders(pageSize = 20, sort = "modified") {
             q: "mimeType='application/vnd.google-apps.folder'",
             fields: "nextPageToken, files(id, name, modifiedTime)",
             supportsAllDrives: true,
-            includeItemsFromAllDrives: true,
+            includeItemsFromAllDrives: true
         })
     } catch (err) {
         console.error(err)
@@ -74,7 +74,7 @@ export async function listFiles(pageSize = 50, query = "") {
             q: query,
             fields: "nextPageToken, files(id, name, mimeType)",
             supportsAllDrives: true,
-            includeItemsFromAllDrives: true,
+            includeItemsFromAllDrives: true
         })
     } catch (err) {
         console.error(err)
@@ -89,7 +89,7 @@ export const types = {
     png: "image/png",
     json: "application/json",
     txt: "application/txt",
-    folder: "application/vnd.google-apps.folder",
+    folder: "application/vnd.google-apps.folder"
 }
 
 export function createFile(parent: string, { type, name }: { type: keyof typeof types; name: string }, body: string) {
@@ -205,10 +205,12 @@ export async function syncDataDrive(data: DriveData) {
     let bibles: { [key: string]: BibleCategories } | null = null
 
     // CONFIGS
-    await Promise.all(Object.entries(storeFilesData).map(([id, data]) => {
-        if (!data.portable) return
-        syncStores(id as keyof typeof _store)
-    }))
+    await Promise.all(
+        Object.entries(storeFilesData).map(([id, data]) => {
+            if (!data.portable) return
+            syncStores(id as keyof typeof _store)
+        })
+    )
 
     // SCRIPTURE
     if (bibles === null) bibles = getStore("SYNCED_SETTINGS")?.scriptures
@@ -251,7 +253,7 @@ export async function syncDataDrive(data: DriveData) {
             const project = () => ({
                 projects: combineFiles(driveContent?.projects, storeData.projects, newest),
                 folders: combineFiles(driveContent?.folders, storeData.folders, newest),
-                projectTemplates: combineFiles(driveContent?.projectTemplates, storeData.projectTemplates, newest),
+                projectTemplates: combineFiles(driveContent?.projectTemplates, storeData.projectTemplates, newest)
             })
             const combined = id === "PROJECTS" ? project() : combineFiles(driveContent, storeData, newest)
 

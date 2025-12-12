@@ -100,7 +100,7 @@ export const receiver = {
             })
             return a
         })
-    },
+    }
 
     /////
 

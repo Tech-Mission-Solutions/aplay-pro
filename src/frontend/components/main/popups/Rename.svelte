@@ -12,9 +12,11 @@
     let list: string[] = []
     $: {
         list = []
+        let selectionData = $selected.data
+        if (!Array.isArray(selectionData)) selectionData = []
 
         if (($activeShow && $selected.id === "slide") || $selected.id === "group") {
-            $selected.data.forEach((a, i) => {
+            selectionData.forEach((a, i) => {
                 let slide = a.id ? a : getLayoutRef()[a.index]
                 if (!slide) return
 
@@ -27,15 +29,15 @@
             })
             list = removeDuplicates(list)
         } else if ($selected.id === "chord") {
-            groupName = $selected.data?.[0]?.chord?.key || ""
+            groupName = selectionData[0]?.chord?.key || ""
         } else if ($selected.id === "bible_book") {
             const scriptureId = $drawerTabsData.scripture?.activeSubTab || ""
             const activeBible = $scripturesCache[scriptureId]
-            const bookIndex = $selected.data[0]?.index - 1
+            const bookIndex = selectionData[0]?.index - 1
             const book = activeBible.books?.[bookIndex] || {}
             groupName = (book as any).customName || book.name || ""
-        } else if ($selected.data?.[0]?.name) {
-            groupName = $selected.data[0].name
+        } else if (selectionData[0]?.name) {
+            groupName = selectionData[0].name
         }
     }
 
@@ -75,8 +77,7 @@
                 const slideId = ref.id
 
                 // remove global group if active
-                if ($activeShow && $showsCache[$activeShow.id].slides[slideId].globalGroup)
-                    history({ id: "UPDATE", newData: { data: null, key: "slides", keys: [slideId], subkey: "globalGroup" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
+                if ($activeShow && $showsCache[$activeShow.id].slides[slideId].globalGroup) history({ id: "UPDATE", newData: { data: null, key: "slides", keys: [slideId], subkey: "globalGroup" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
 
                 history({ id: "UPDATE", newData: { data: groupName, key: "slides", keys: [slideId], subkey: "group" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
 
@@ -123,8 +124,7 @@
                 const slideId = a.id
 
                 // remove global group if active
-                if ($activeShow && $showsCache[$activeShow.id].slides[slideId].globalGroup)
-                    history({ id: "UPDATE", newData: { data: null, key: "slides", keys: [slideId], subkey: "globalGroup" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
+                if ($activeShow && $showsCache[$activeShow.id].slides[slideId].globalGroup) history({ id: "UPDATE", newData: { data: null, key: "slides", keys: [slideId], subkey: "globalGroup" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
 
                 history({ id: "UPDATE", newData: { data: groupName, key: "slides", keys: [slideId], subkey: "group" }, oldData: { id: $activeShow?.id }, location: { page: "show", id: "show_key" } })
             })
@@ -175,7 +175,7 @@
     }
 
     function rename() {
-        if ($selected.id) renameAction[$selected.id]()
+        if ($selected.id && renameAction[$selected.id]) renameAction[$selected.id]()
         activePopup.set(null)
         groupName = ""
         selected.set({ id: null, data: [] })

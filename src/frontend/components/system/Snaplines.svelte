@@ -24,8 +24,7 @@
         // TODO: move multiple!
 
         let control = mouse.e.ctrlKey || mouse.e.metaKey
-        let moveCondition: boolean =
-            mouse.e.target.closest(".line") || ((!mouse.e.target.closest(".edit") || notTextBox || mouse.e.altKey) && !mouse.e.target.closest(".square")) || (control && !mouse.e.target.closest(".square")) || mouse.e.buttons === 4
+        let moveCondition: boolean = mouse.e.target.closest(".line") || ((!mouse.e.target.closest(".edit") || notTextBox || mouse.e.altKey) && !mouse.e.target.closest(".square")) || (control && !mouse.e.target.closest(".square")) || mouse.e.buttons === 4
 
         let keepAspectRatio = e.shiftKey
         const square = mouse.item.type === "icon"

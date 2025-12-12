@@ -44,6 +44,6 @@ function getPixabayCredits(media) {
         artist: media.user,
         artistUrl: `https://pixabay.com/users/${media.user}-${media.user_id}/`,
         downloadUrl: media.largeImageURL,
-        homepage: "https://pixabay.com/",
+        homepage: "https://pixabay.com/"
     }
 }

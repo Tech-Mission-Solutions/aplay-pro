@@ -157,15 +157,7 @@
     {:else if emitter?.type === "midi"}
         <MidiValues value={{ ...emitter.signal, values: typeof customTemplateInputs[0]?.value === "object" ? customTemplateInputs[0].value : {} }} on:change={(e) => setMidiTemplateValue(e)} type="emitter" />
     {:else}
-        <DynamicList
-            addDisabled={!!customTemplateInputs?.find((a) => !a.name && !a.value)}
-            items={customTemplateInputs}
-            let:item={input}
-            on:add={createTemplateValue}
-            on:delete={(e) => removeTemplateValue(e.detail)}
-            allowOpen={false}
-            nothingText={false}
-        >
+        <DynamicList addDisabled={!!customTemplateInputs?.find((a) => !a.name && !a.value)} items={customTemplateInputs} let:item={input} on:add={createTemplateValue} on:delete={(e) => removeTemplateValue(e.detail)} allowOpen={false} nothingText={false}>
             <div style="display: flex;width: 100%;">
                 <MaterialTextInput label="inputs.name" value={input.name} on:change={(e) => setTemplateValue(input.id, e, "name")} style="width: 50%;" />
                 <MaterialTextInput label="variables.value" value={input.value} on:change={(e) => setTemplateValue(input.id, e, "value")} style="width: 50%;" />

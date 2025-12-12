@@ -22,45 +22,24 @@ import { getPresentationApplications, presentationControl, startSlideshow } from
 import { closeServers, startServers, updateServerData } from "../servers"
 import { apiReturnData, emitOSC, startWebSocketAndRest, stopApiListener } from "../utils/api"
 import { closeMain } from "../utils/close"
-import {
-    bundleMediaFiles,
-    getDataFolderPath,
-    getDataFolderRoot,
-    getFileInfo,
-    getFolderContent,
-    getFoldersContent,
-    getMediaCodec,
-    getMediaTracks,
-    getPaths,
-    getSimularPaths,
-    getTempPaths,
-    loadFile,
-    loadShows,
-    locateMediaFile,
-    openInSystem,
-    readExifData,
-    readFile,
-    selectFiles,
-    selectFilesDialog,
-    selectFolder,
-    writeFile
-} from "../utils/files"
+import { bundleMediaFiles, getDataFolderPath, getDataFolderRoot, getFileInfo, getFolderContent, getFoldersContent, getMediaCodec, getMediaTracks, getPaths, getSimularPaths, loadFile, loadShows, locateMediaFile, openInSystem, readExifData, readFile, selectFiles, selectFilesDialog, selectFolder, writeFile } from "../utils/files"
 import { LyricSearch } from "../utils/LyricSearch"
 import { closeMidiInPorts, getMidiInputs, getMidiOutputs, receiveMidi, sendMidi } from "../utils/midi"
 import { deleteShows, deleteShowsNotIndexed, getAllShows, getEmptyShows, refreshAllShows } from "../utils/shows"
 import { correctSpelling } from "../utils/spellcheck"
 import checkForUpdates from "../utils/updater"
+import { getLocalIPs } from "../data/bonjour"
 
 export const mainResponses: MainResponses = {
     // DEV
     [Main.LOG]: (data) => console.info(data),
     [Main.IS_DEV]: () => !isProd,
-    [Main.GET_TEMP_PATHS]: () => getTempPaths(),
+    [Main.GET_CACHE_PATH]: () => getThumbnailFolderPath(),
     // APP
     [Main.VERSION]: () => getVersion(),
     [Main.GET_OS]: () => getOS(),
     [Main.DEVICE_ID]: () => getMachineId(),
-    [Main.IP]: () => os.networkInterfaces(),
+    [Main.IP]: () => getLocalIPs(),
     [Main.CHECK_RAM_USAGE]: () => checkRamUsage(),
     // STORES
     [Main.SETTINGS]: () => getStore("SETTINGS"),
@@ -165,6 +144,7 @@ export const mainResponses: MainResponses = {
     [Main.SEARCH_LYRICS]: (data) => searchLyrics(data),
     // FILES
     [Main.RESTORE]: (data) => restoreFiles(data),
+    [Main.RECORDER]: (data) => saveRecording(data),
     [Main.SYSTEM_OPEN]: (data) => openInSystem(data),
     [Main.LOCATE_MEDIA_FILE]: (data) => locateMediaFile(data),
     [Main.GET_SIMILAR]: (data) => getSimularPaths(data),
@@ -189,7 +169,7 @@ export const mainResponses: MainResponses = {
     // Content Library
     [Main.GET_CONTENT_PROVIDERS]: () => {
         const providers = ContentProviderRegistry.getAvailableProviders()
-        return providers.map(providerId => {
+        return providers.map((providerId) => {
             const provider = ContentProviderRegistry.getProvider(providerId)
             return {
                 providerId,
@@ -273,8 +253,17 @@ export function loadShow(msg: { id: string; name: string }) {
     return show
 }
 
-export function getMachineId() {
-    return machineIdSync() as string
+export function getMachineId(): string {
+    try {
+        return machineIdSync()
+    } catch (err) {
+        console.warn("Could not get machine ID:", err)
+
+        // fallback to a hash of hostname + username + platform
+        const crypto = require("crypto")
+        const fallbackId = `${os.hostname()}-${os.userInfo().username}-${os.platform()}`
+        return crypto.createHash("sha256").update(fallbackId).digest("hex")
+    }
 }
 
 function getVersion() {
@@ -353,13 +342,13 @@ function getScreens(type: "window" | "screen" = "screen"): Promise<{ name: strin
         OutputHelper.getAllOutputs().forEach((output) => {
             if (output.window) windows.push(output.window)
         })
-            ;[mainWindow!, ...windows].forEach((window) => {
-                const mediaId = window?.getMediaSourceId()
-                const windowsAlreadyExists = sources.find((a) => a.id === mediaId)
-                if (windowsAlreadyExists) return
+        ;[mainWindow!, ...windows].forEach((window) => {
+            const mediaId = window?.getMediaSourceId()
+            const windowsAlreadyExists = sources.find((a) => a.id === mediaId)
+            if (windowsAlreadyExists) return
 
-                screens.push({ name: window?.getTitle(), id: mediaId })
-            })
+            screens.push({ name: window?.getTitle(), id: mediaId })
+        })
 
         return screens
     }
@@ -368,11 +357,11 @@ function getScreens(type: "window" | "screen" = "screen"): Promise<{ name: strin
 // RECORDER
 // only open once per session
 let systemOpened = false
-export function saveRecording(_: Electron.IpcMainEvent, msg: any) {
+export function saveRecording(data: { blob: ArrayBuffer; name: string }) {
     const folder = getDataFolderPath("recordings")
-    const filePath = path.join(folder, msg.name)
+    const filePath = path.join(folder, data.name)
 
-    const buffer = Buffer.from(msg.blob)
+    const buffer = Buffer.from(data.blob)
     writeFile(filePath, buffer)
 
     if (!systemOpened) {
@@ -399,7 +388,11 @@ export function logError(log: ErrorLog, key: "main" | "renderer" | "request" = "
 }
 
 const ERROR_FILTER = [
-    "ENOENT: no such file or directory" // file/folder does not exist
+    "ENOENT: no such file or directory", // file/folder does not exist
+    "::internal::", // internal errors (v8 / partition_alloc)
+    "crash_reporter::DumpWithoutCrashing", // chromium crashes
+    "ERR_INTERNET_DISCONNECTED", // internet disconnected
+    "First argument to DataView constructor must be an ArrayBuffer" // mp4box issue
 ]
 export function catchErrors() {
     process.on("uncaughtException", (err) => {
@@ -422,6 +415,7 @@ export function createLog(err: Error) {
 
 export function autoErrorReport() {
     if (!isProd) return
+    if (config.get("autoErrorReporting") === false) return
 
     Sentry.init({
         dsn: "https://5d1069c3cb6faaa6e7ad0d9dc0145361@o4510419080445952.ingest.us.sentry.io/4510419082346496",
@@ -430,7 +424,7 @@ export function autoErrorReport() {
             const errorMessage = event.exception?.values?.[0]?.value || ""
             const shouldFilter = ERROR_FILTER.some((filter) => errorMessage.includes(filter))
             return shouldFilter ? null : event
-        },
+        }
     })
 }
 

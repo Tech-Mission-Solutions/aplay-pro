@@ -61,6 +61,10 @@ export function convertSoftProjector(data: any) {
         show.meta = {
             number: song.number || "",
             title: song.title || "",
+            author: song.words || "",
+            composer: song.music || "",
+            note: song.notes || "",
+            key: song.tune || ""
         }
         if (show.meta.number !== undefined) show.quickAccess = { number: show.meta.number }
 
@@ -92,8 +96,8 @@ function createSlides(song: Song) {
         const items = [
             {
                 style: DEFAULT_ITEM_STYLE,
-                lines: lines.map((text: any) => ({ align: "", text: [{ style: "", value: text }] })),
-            },
+                lines: lines.map((text: any) => ({ align: "", text: [{ style: "", value: text }] }))
+            }
         ]
 
         slides[id] = {
@@ -101,7 +105,7 @@ function createSlides(song: Song) {
             color: null,
             settings: {},
             notes: "",
-            items,
+            items
         }
 
         const globalGroup = getGlobalGroup(groupName)

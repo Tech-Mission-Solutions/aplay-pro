@@ -271,14 +271,7 @@
             <MaterialToggleSwitch label="timer.overflow_blink" disabled={!timer.overflow} checked={timer.overflowBlink} defaultValue={false} on:change={(e) => (timer.overflowBlink = e.detail)} />
             {#if timer.overflowBlink}
                 <!-- conditions.seconds -->
-                <MaterialNumberInput
-                    label="timer.overflow_blink_offset"
-                    disabled={!timer.overflow}
-                    value={timer.overflowBlinkOffset || 0}
-                    defaultValue={0}
-                    max={Math.abs((timer.start ?? 300) - (timer.end || 0))}
-                    on:change={(e) => (timer.overflowBlinkOffset = e.detail)}
-                />
+                <MaterialNumberInput label="timer.overflow_blink_offset" disabled={!timer.overflow} value={timer.overflowBlinkOffset || 0} defaultValue={0} max={Math.abs((timer.start ?? 300) - (timer.end || 0))} on:change={(e) => (timer.overflowBlinkOffset = e.detail)} />
             {/if}
         </div>
     </InputRow>

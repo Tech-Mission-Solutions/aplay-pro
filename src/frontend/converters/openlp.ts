@@ -162,7 +162,7 @@ function formatText(text: string) {
 
 // WIP import song books as categories
 function sqliteConvert(content: any) {
-    const songs: any[] = content.songs.map((song) => getSong(song, content))
+    const songs: any[] = (content?.songs || []).map((song) => getSong(song, content))
 
     return songs
 }
@@ -215,16 +215,7 @@ function XMLtoObject(xml: string) {
     let lyrics = song.lyrics || {}
     const properties = song.properties || {}
 
-    const notes =
-        song["#comment"] ||
-        (Array.isArray(properties.comments)
-            ? properties.comments?.map((comment) => comment["#text"] || "").join("\n")
-            : typeof properties.comments?.comment === "string"
-                ? properties.comments.comment
-                : typeof properties.comments === "string"
-                    ? properties.comments
-                    : "") ||
-        ""
+    const notes = song["#comment"] || (Array.isArray(properties.comments) ? properties.comments?.map((comment) => comment["#text"] || "").join("\n") : typeof properties.comments?.comment === "string" ? properties.comments.comment : typeof properties.comments === "string" ? properties.comments : "") || ""
 
     const newSong: Song = {
         title: getTitle(),
@@ -285,6 +276,7 @@ function XMLtoObject(xml: string) {
 
     function getLines(lines: string | any) {
         if (lines.tag) lines = lines.tag.tag?.["#text"]
+        if (!lines) return { lines: [], chords: [] }
 
         // might be <lines break="optional">
         if (lines["#text"]) lines = lines["#text"]

@@ -118,7 +118,7 @@ export class ChurchAppsConnect {
                     code,
                     client_id: this.clientId,
                     client_secret: this.clientSecret,
-                    redirect_uri,
+                    redirect_uri
                 }
 
                 httpsRequest(CHURCHAPPS_API_URL, "/membership/oauth/token", "POST", {}, params, (err, data: ChurchAppsAuthData) => {
@@ -163,7 +163,7 @@ export class ChurchAppsConnect {
                 grant_type: "refresh_token",
                 client_id: this.clientId,
                 client_secret: this.clientSecret,
-                refresh_token: access.refresh_token,
+                refresh_token: access.refresh_token
             }
 
             httpsRequest(CHURCHAPPS_API_URL, "/membership/oauth/token", "POST", {}, params, (err, data: ChurchAppsAuthData) => {

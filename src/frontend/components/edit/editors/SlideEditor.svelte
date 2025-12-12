@@ -2,26 +2,7 @@
     import { onMount } from "svelte"
     import type { MediaStyle } from "../../../../types/Main"
     import type { ItemType } from "../../../../types/Show"
-    import {
-        activeEdit,
-        activePage,
-        activePopup,
-        activeShow,
-        activeTriggerFunction,
-        alertMessage,
-        driveData,
-        focusMode,
-        labelsDisabled,
-        media,
-        outputs,
-        overlays,
-        refreshEditSlide,
-        showsCache,
-        special,
-        styles,
-        templates,
-        textEditActive
-    } from "../../../stores"
+    import { activeEdit, activePage, activePopup, activeShow, activeTriggerFunction, alertMessage, driveData, focusMode, labelsDisabled, media, outputs, overlays, refreshEditSlide, showsCache, special, styles, templates, textEditActive } from "../../../stores"
     import { transposeText } from "../../../utils/chordTranspose"
     import { triggerFunction } from "../../../utils/common"
     import { translateText } from "../../../utils/language"
@@ -132,7 +113,7 @@
         //     updateStyles()
         // }, CHANGE_POS_TIME)
 
-        let items = currentShow?.slides[ref[$activeEdit.slide!]?.id].items
+        let items = currentShow?.slides[ref[$activeEdit.slide || 0]?.id].items
         let values: string[] = []
         active.forEach((id) => {
             let item = items[id]
@@ -147,7 +128,9 @@
             }
         })
 
-        let slideId = ref[$activeEdit.slide!].id
+        let slideId = ref[$activeEdit.slide || 0]?.id
+        if (!slideId) return
+
         let activeItems = [...active]
 
         let historyShow = $activeShow
@@ -331,12 +314,12 @@
 
 <svelte:window on:keydown={keydown} on:keyup={keyup} on:blur={blurred} on:paste={paste} />
 
-{#if template}
+{#if template && !chordsMode && !widthOrHeight.includes("height") && !$focusMode && !isLocked}
     <div class="default" data-title={translateText(`info.template: ${$templates[template]?.name || "—"}`)}>
         <MaterialButton
             style="border-radius: 50%;"
             on:click={() => {
-                activeEdit.set({ type: "template", id: currentShow.settings.template || "", items: [] })
+                activeEdit.set({ type: "template", id: template, items: [] })
                 activePage.set("edit")
             }}
         >
@@ -349,16 +332,7 @@
     <div class="parent" class:noOverflow={zoom >= 1} bind:this={scrollElem} bind:offsetWidth={width} bind:offsetHeight={height}>
         {#if Slide}
             <DropArea id="edit" file>
-                <Zoomed
-                    background={(transparentOutput || $special.transparentSlides) && !background ? "transparent" : background ? "black" : Slide?.settings?.color || currentStyle.background || "black"}
-                    {checkered}
-                    border={checkered}
-                    {resolution}
-                    style={widthOrHeight}
-                    bind:ratio
-                    {hideOverflow}
-                    center={zoom >= 1}
-                >
+                <Zoomed background={(transparentOutput || $special.transparentSlides) && !background ? "transparent" : background ? "black" : Slide?.settings?.color || currentStyle.background || "black"} {checkered} border={checkered} {resolution} style={widthOrHeight} bind:ratio {hideOverflow} center={zoom >= 1}>
                     <!-- <div class="chordsButton" style="zoom: {1 / ratio};">
                         <Button on:click={toggleChords}>
                             <Icon id="chords" white={!chordsMode} />

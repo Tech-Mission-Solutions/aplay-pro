@@ -66,7 +66,7 @@ export async function ondrop(e: any, id: string) {
     if (dropActions[id]) {
         const dropData = { drag: sel, drop: dropdata }
 
-        const hist = await dropActions[id](dropData, h, keys) as History | undefined
+        const hist = (await dropActions[id](dropData, h, keys)) as History | undefined
         if (hist && hist.id) history(hist)
         deselect()
         return

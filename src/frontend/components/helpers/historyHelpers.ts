@@ -2,40 +2,7 @@ import { get } from "svelte/store"
 import { uid } from "uid"
 import { REMOTE } from "../../../types/Channels"
 import { ShowObj } from "../../classes/Show"
-import {
-    activeDrawerTab,
-    activeEdit,
-    activeProject,
-    activeRename,
-    activeShow,
-    activeStage,
-    activeTagFilter,
-    audioPlaylists,
-    currentOutputSettings,
-    dictionary,
-    drawerTabsData,
-    effects,
-    events,
-    focusMode,
-    folders,
-    globalTags,
-    groups,
-    notFound,
-    openedFolders,
-    overlays,
-    playerVideos,
-    profiles,
-    projects,
-    projectTemplates,
-    projectView,
-    shows,
-    showsCache,
-    special,
-    stageShows,
-    styles,
-    theme,
-    themes
-} from "../../stores"
+import { activeDrawerTab, activeEdit, activeProject, activeRename, activeShow, activeStage, activeTagFilter, audioPlaylists, currentOutputSettings, dictionary, drawerTabsData, effects, events, focusMode, folders, globalTags, groups, notFound, openedFolders, overlays, playerVideos, profiles, projects, projectTemplates, projectView, shows, showsCache, special, stageShows, styles, theme, themes } from "../../stores"
 import { translateText } from "../../utils/language"
 import { updateThemeValues } from "../../utils/updateSettings"
 import { EMPTY_CATEGORY, EMPTY_EFFECT, EMPTY_EVENT, EMPTY_LAYOUT, EMPTY_PLAYER_VIDEO, EMPTY_PROJECT, EMPTY_PROJECT_FOLDER, EMPTY_SECTION, EMPTY_SLIDE, EMPTY_STAGE, EMPTY_TAG } from "../../values/empty"
@@ -452,7 +419,7 @@ export const _updaters = {
             if (get(activeShow)?.index !== undefined && get(activeProject) && get(projects)[get(activeProject)!]?.shows?.[get(activeShow)!.index!]) {
                 projects.update((a) => {
                     a[get(activeProject)!].shows[get(activeShow)!.index!].layout = subkey
-                    a[get(activeProject)!].shows[get(activeShow)!.index!].layoutInfo = { name: _show(id).get("layouts")[subkey]?.name || "" }
+                    a[get(activeProject)!].shows[get(activeShow)!.index!].layoutInfo = { name: _show(id).get("layouts")?.[subkey]?.name || "" }
                     return a
                 })
             }
@@ -573,7 +540,7 @@ export const _updaters = {
 
 function updateTransparentColors(id: string) {
     themes.update((a) => {
-        Object.entries(a[id].colors).forEach(([subId, color]: any) => {
+        Object.entries(a[id]?.colors || {}).forEach(([subId, color]: any) => {
             if (!converts[subId]) return
             const transparentColors: any[] = converts[subId]
 
@@ -604,10 +571,10 @@ function hexToRgb(hex: string) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
     return result
         ? {
-            r: parseInt(result[1], 16),
-            g: parseInt(result[2], 16),
-            b: parseInt(result[3], 16)
-        }
+              r: parseInt(result[1], 16),
+              g: parseInt(result[2], 16),
+              b: parseInt(result[3], 16)
+          }
         : null
 }
 
@@ -639,18 +606,18 @@ export function getDefaultProjectName() {
 
         const format = parts.reduce((acc, part) => {
             switch (part.type) {
-                case 'day':
-                    return acc + '{DD}'
-                case 'month':
-                    return acc + '{MM}'
-                case 'year':
-                    return acc + '{YY}'
-                case 'literal':
+                case "day":
+                    return acc + "{DD}"
+                case "month":
+                    return acc + "{MM}"
+                case "year":
+                    return acc + "{YY}"
+                case "literal":
                     return acc + part.value
                 default:
                     return ""
             }
-        }, '')
+        }, "")
 
         return format || DEFAULT_PROJECT_NAME
     } catch {

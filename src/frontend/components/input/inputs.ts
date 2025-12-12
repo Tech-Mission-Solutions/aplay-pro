@@ -19,7 +19,7 @@ export const commonInputs = {
     time: MaterialTimePicker,
 
     midi: MidiValues,
-    rest: RestValues,
+    rest: RestValues
 }
 
 // get values

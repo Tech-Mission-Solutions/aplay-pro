@@ -136,7 +136,7 @@ function convertToShow(song: MediaShout5Song, { name, categoryId }) {
         title: name,
         author: song.Author,
         copyright: song.Copyright,
-        CCLI: song.CCLI,
+        CCLI: song.CCLI
     })
 
     return show
@@ -161,7 +161,7 @@ function convertToSlides(song: MediaShout5Song) {
 function convertItem(text: string) {
     const newItem: Item = {
         style: DEFAULT_ITEM_STYLE,
-        lines: text.split("\n").map(getLine),
+        lines: text.split("\n").map(getLine)
     }
 
     return newItem
@@ -231,7 +231,7 @@ function getSong(song: MDBSong, content: MDBContents, categoryId: string) {
         title: song.Title,
         author: song.Author,
         copyright: song.Copyright,
-        CCLI: song.CCLI,
+        CCLI: song.CCLI
     }
 
     const DBnum = song.Record

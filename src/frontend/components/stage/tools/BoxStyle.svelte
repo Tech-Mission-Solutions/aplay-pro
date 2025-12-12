@@ -20,8 +20,7 @@
     $: type = item?.type || ""
     $: {
         if (activeItemId.includes("tracker")) type = "slide_tracker"
-        else if (item?.type === "slide_text" || item?.type === "slide_notes" || item?.type === "variable" || activeItemId.includes("text") || activeItemId.includes("slide") || activeItemId.includes("notes") || activeItemId.includes("variable"))
-            type = "text"
+        else if (item?.type === "slide_text" || item?.type === "slide_notes" || item?.type === "variable" || activeItemId.includes("text") || activeItemId.includes("slide") || activeItemId.includes("notes") || activeItemId.includes("variable")) type = "text"
         else if (activeItemId.includes("clock")) type = "clock"
         else if (activeItemId.includes("timer")) type = "timer"
     }
@@ -35,7 +34,10 @@
         delete stageSections.scrolling
     }
     $: if (isSlideText) {
-        stageSections = clone(item?.keepStyle ? { default: slideTextSections.default } : slideTextSections)
+        stageSections = clone(item?.keepStyle ? { default: slideTextSections.default, chords: slideTextSections.chords, special: slideTextSections.special } : slideTextSections)
+
+        // line height
+        if (stageSections.text) stageSections.text = { inputs: [...stageSections.text.inputs, [{ id: "style", key: "line-height", type: "number", value: 1.1, multiplier: 10, extension: "em", values: { label: "edit.line_height", max: 50 } }]] }
 
         // setBoxInputValue(stageSections, "font", "font-weight", "default", "bold")
     }

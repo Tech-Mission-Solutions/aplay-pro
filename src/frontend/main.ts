@@ -14,7 +14,7 @@ Sentry.init({
         const errorMessage = event.exception?.values?.[0]?.value || ""
         const shouldFilter = ERROR_FILTER.some((filter) => errorMessage.includes(filter))
         return shouldFilter ? null : event
-    },
+    }
 })
 
 const app = new App({ target: document.body })

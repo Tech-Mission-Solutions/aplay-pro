@@ -25,8 +25,8 @@ type PCORequestData = {
 }
 
 type SongSection = {
-    label: string,
-    lyrics: string,
+    label: string
+    lyrics: string
     breaks_at?: number
 }
 
@@ -290,10 +290,13 @@ async function processSongItem(item: ProjectItem, itemsEndpoint: string) {
     const song = songArrangement.attributes
     const sequence = item.custom_arrangement_sequence || song.sequence || []
 
-    let sections: SongSection[] = (await pcoRequest({
-        scope: "services",
-        endpoint: `${arrangementEndpoint}/sections`
-    }))[0]?.attributes.sections || []
+    let sections: SongSection[] =
+        (
+            await pcoRequest({
+                scope: "services",
+                endpoint: `${arrangementEndpoint}/sections`
+            })
+        )[0]?.attributes.sections || []
 
     if (!sections.length) {
         sections = sequence.map((id: any) => ({ label: id, lyrics: "" }))
