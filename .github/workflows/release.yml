@@ -2,7 +2,7 @@ name: Release
 on:
   push:
     branches:
-      - "aplay-pro-build-win"
+      - "aplay-pro-win-build"
     tags:
       - "v*"
   workflow_dispatch:
