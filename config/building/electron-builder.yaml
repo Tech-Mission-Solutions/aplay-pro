@@ -23,19 +23,16 @@ extraResources:
 
 win:
   target:
-    - portable
-    - nsis
-  icon: build/public/icon.png
-  # Code signing certificate (optional - app works without it)
-  # certificateFile: ${CERT_FILE}
-  # certificatePassword: ${CERT_PASSWORD}
-
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
-  createStartMenuShortcut: true
-  shortcutName: APlayPro
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+    - target: portable
+      arch:
+        - x64
+        - arm64
+  signingHashAlgorithms:
+    - sha256
 
 # linux
 
