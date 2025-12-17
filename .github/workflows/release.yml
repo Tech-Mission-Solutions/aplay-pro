@@ -32,7 +32,9 @@ jobs:
       - name: Build Windows App
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: npm run release
+          ELECTRON_BUILDER_HTTP_TIMEOUT: 600000
+          ELECTRON_BUILDER_HTTP_RETRY: 5
+        run: npm run release:win
         
       - name: Sign Windows Artifacts (Trusted Signing)
         run: |
