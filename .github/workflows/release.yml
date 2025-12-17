@@ -30,6 +30,8 @@ jobs:
         
       # Build Windows artifacts
       - name: Build Windows App
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: npm run release
         
       - name: Sign Windows Artifacts (Trusted Signing)
