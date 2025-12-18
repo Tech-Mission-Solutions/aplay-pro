@@ -22,6 +22,7 @@ extraResources:
 # windows
 
 win:
+  icon: build/public/icon.png
   target:
     - target: nsis
       arch:
@@ -29,6 +30,7 @@ win:
     - target: portable
       arch:
         - x64
+publish: null
         
 # linux
 
