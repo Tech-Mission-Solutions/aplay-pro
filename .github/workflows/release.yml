@@ -54,6 +54,7 @@ jobs:
         run: |
           AzureSignTool sign `
             -kvc APlayPro `
+            -kvu https://aplayprokeyvault.vault.azure.net `
             -kvm `
             -tr http://timestamp.digicert.com `
             -v dist/*.exe
