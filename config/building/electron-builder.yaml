@@ -36,8 +36,14 @@ win:
     endpoint: "https://eus.codesigning.azure.net"
     publisherName: “Amazinglife"
 
+  publish:
+    - provider: github
+      owner: Tech-Mission-Solutions
+      repo: aplay-pro
+      draft: true
+
 #    timestampServer: "http://timestamp.digicert.com" 
-  publish: always
+#  publish: always
         
 # linux
 
