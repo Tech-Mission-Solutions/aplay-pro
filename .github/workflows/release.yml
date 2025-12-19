@@ -73,6 +73,25 @@ jobs:
 #          echo "AZURE_FEDERATED_TOKEN_FILE=$env:AZURE_FEDERATED_TOKEN_FILE"
 #          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
 
+       - name: Delete existing draft release
+         uses: actions/github-script@v7
+         with:
+           script: |
+             const { data: releases } = await github.rest.repos.listReleases({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+             });
+       
+             const draft = releases.find(r => r.draft && r.tag_name === context.ref.replace('refs/tags/', ''));
+             if (draft) {
+               await github.rest.repos.deleteRelease({
+                 owner: context.repo.owner,
+                 repo: context.repo.repo,
+                 release_id: draft.id,
+               });
+               console.log('Deleted existing draft release');
+             }
+
       # Build Windows artifacts
       - name: Build Windows App
         env:

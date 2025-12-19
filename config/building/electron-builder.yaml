@@ -36,6 +36,15 @@ win:
     endpoint: "https://eus.codesigning.azure.net/"
     publisherName: “Amazinglife"
 
+#nsis:
+#  oneClick: false
+#  perMachine: false
+#  allowElevation: true
+#  allowToChangeInstallationDirectory: true
+#  createDesktopShortcut: true
+#  createStartMenuShortcut: true
+#  shortcutName: APlayPro
+
 #  publish:
 #    - provider: github
 #      owner: Tech-Mission-Solutions
