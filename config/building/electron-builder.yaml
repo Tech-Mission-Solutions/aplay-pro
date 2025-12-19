@@ -30,6 +30,9 @@ win:
     - target: portable
       arch:
         - x64
+  azureSignOptions:
+    trustedSigningAccountName: "AmazingLife"
+    certificateProfileName: "APlayPro"
 publish: null
         
 # linux
