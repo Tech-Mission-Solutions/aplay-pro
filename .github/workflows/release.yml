@@ -61,14 +61,14 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem Env:AZURE*
-          echo "Federated token file:"
+#          echo "Federated token file:"
 #          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
 
-      - name: Verify federated token
-        shell: pwsh
-        run: |
-          echo "AZURE_FEDERATED_TOKEN_FILE=$env:AZURE_FEDERATED_TOKEN_FILE"
-          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
+#      - name: Verify federated token
+#        shell: pwsh
+#        run: |
+#          echo "AZURE_FEDERATED_TOKEN_FILE=$env:AZURE_FEDERATED_TOKEN_FILE"
+#          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
 
       # Build Windows artifacts
       - name: Build Windows App
