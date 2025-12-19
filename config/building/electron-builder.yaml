@@ -33,7 +33,11 @@ win:
   azureSignOptions:
     trustedSigningAccountName: "AmazingLife"
     certificateProfileName: "APlayPro"
-publish: null
+    endpoint: "https://eus.codesigning.azure.net"
+    publisherName: “Amazinglife"
+
+#    timestampServer: "http://timestamp.digicert.com"
+#publish: null
         
 # linux
 
