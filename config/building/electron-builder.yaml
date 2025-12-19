@@ -27,14 +27,14 @@ win:
     - target: nsis
       arch:
         - x64
-    - target: portable
-      arch:
-        - x64
+#    - target: portable
+#      arch:
+#        - x64
   azureSignOptions:
-    codeSigningAccountName: "AmazingLife"
-    certificateProfileName: "APlayPro"
-    endpoint: "https://eus.codesigning.azure.net/"
-    publisherName: “Amazinglife"
+    codeSigningAccountName: AmazingLife
+    certificateProfileName: APlayPro
+    endpoint: https://eus.codesigning.azure.net/
+    publisherName: Amazinglife
 
 #nsis:
 #  oneClick: false
