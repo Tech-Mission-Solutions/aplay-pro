@@ -32,6 +32,7 @@ win:
         - x64
   azureSignOptions:
     trustedSigningAccountName: "AmazingLife"
+    codeSigningAccountName: "AmazingLife"
     certificateProfileName: "APlayPro"
     endpoint: "https://eus.codesigning.azure.net"
     publisherName: “Amazinglife"
