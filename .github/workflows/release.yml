@@ -12,7 +12,7 @@ jobs:
     name: "Publish Windows"
     runs-on: windows-latest
     permissions:
-      contents: write
+      contents: read
       id-token: write   # REQUIRED for Azure OIDC
 
     steps:
@@ -42,6 +42,12 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify Azure env vars
+        shell: pwsh
+        run: |
+          Get-ChildItem Env:AZURE*
+
 
       # Build Windows artifacts
       - name: Build Windows App
