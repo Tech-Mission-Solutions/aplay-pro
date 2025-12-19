@@ -43,7 +43,6 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: true
-          auth-type: OIDC
 
       - name: Export Azure env vars for Trusted Signing
         shell: pwsh
@@ -52,11 +51,22 @@ jobs:
           echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $env:GITHUB_ENV
           echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $env:GITHUB_ENV
 
+      - name: Debug GitHub context
+        run: |
+          echo "Ref: $GITHUB_REF"
+          echo "Repository: $GITHUB_REPOSITORY"
+
       - name: Verify Azure env vars
         shell: pwsh
         run: |
           Get-ChildItem Env:AZURE*
           echo "Federated token file:"
+#          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
+
+      - name: Verify federated token
+        shell: pwsh
+        run: |
+          echo "AZURE_FEDERATED_TOKEN_FILE=$env:AZURE_FEDERATED_TOKEN_FILE"
           Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
 
       # Build Windows artifacts
