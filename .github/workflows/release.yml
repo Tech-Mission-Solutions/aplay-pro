@@ -36,6 +36,8 @@ jobs:
             ~/.cache/electron-builder
           key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
 
+      - run: az logout || true
+
       - name: Azure Login (OIDC)   
         uses: azure/login@v2
         with:
