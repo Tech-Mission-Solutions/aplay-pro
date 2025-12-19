@@ -33,14 +33,14 @@ win:
   azureSignOptions:
     codeSigningAccountName: "AmazingLife"
     certificateProfileName: "APlayPro"
-    endpoint: "https://eus.codesigning.azure.net"
+    endpoint: "https://eus.codesigning.azure.net/"
     publisherName: “Amazinglife"
 
-  publish:
-    - provider: github
-      owner: Tech-Mission-Solutions
-      repo: aplay-pro
-      draft: true
+#  publish:
+#    - provider: github
+#      owner: Tech-Mission-Solutions
+#      repo: aplay-pro
+#      draft: true
 
 #    timestampServer: "http://timestamp.digicert.com" 
 #  publish: always

@@ -79,7 +79,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           ELECTRON_BUILDER_HTTP_TIMEOUT: 600000
           ELECTRON_BUILDER_HTTP_RETRY: 5
-        run: npm run release:win
+        run: npm run release
 
 #      - name: Install AzureSignTool
 #        run: dotnet tool install --global AzureSignTool
