@@ -36,8 +36,8 @@ win:
     endpoint: "https://eus.codesigning.azure.net"
     publisherName: “Amazinglife"
 
-#    timestampServer: "http://timestamp.digicert.com"
-#publish: null
+#    timestampServer: "http://timestamp.digicert.com" 
+  publish: always
         
 # linux
 
