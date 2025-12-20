@@ -1,30 +1,33 @@
 name: Release
 on:
   push:
+    branches:
+      - aplay-pro-pre-release
+      - aplay2-backup
     tags:
       - "v*"
   workflow_dispatch:
 
 jobs:
-  check_branch:
-    name: "Check if tag is on aplay2-backup branch"
-    runs-on: ubuntu-latest
-    outputs:
-      is_correct_branch: ${{ steps.check.outputs.result }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Check if tag is on aplay2-backup branch
-        id: check
-        run: |
-          if git branch -r --contains ${{ github.ref }} | grep -q "origin/aplay2-backup"; then
-            echo "result=true" >> $GITHUB_OUTPUT
-          else
-            echo "result=false" >> $GITHUB_OUTPUT
-          fi
+#  check_branch:
+#    name: "Check if tag is on aplay2-backup branch"
+#    runs-on: ubuntu-latest
+#    outputs:
+#      is_correct_branch: ${{ steps.check.outputs.result }}
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0
+#
+#      - name: Check if tag is on aplay2-backup branch
+#        id: check
+#        run: |
+#          if git branch -r --contains ${{ github.ref }} | grep -q "origin/aplay2-backup"; then
+#            echo "result=true" >> $GITHUB_OUTPUT
+#          else
+#            echo "result=false" >> $GITHUB_OUTPUT
+#          fi
   publish_windows:
     name: "Publish Windows"
     runs-on: windows-latest
@@ -53,16 +56,24 @@ jobs:
             ~/.cache/electron-builder
           key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
 
-      - run: az logout || true
+#      - run: az logout || true
 
-      - name: Azure Login (OIDC)
+#      - name: Azure Login (OIDC)
+#        uses: azure/login@v2
+#        with:
+#          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+#          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+#          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+#      #   enable-AzPSSession: true
+
+      - name: Azure Login (Service Principal)             
         uses: azure/login@v2
         with:
+          auth-type: SERVICE_PRINCIPAL
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-      #          enable-AzPSSession: true
 
       - name: Export Azure env vars for Trusted Signing
         shell: pwsh
@@ -81,14 +92,10 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem Env:AZURE*
+
       #          echo "Federated token file:"
       #          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
 
-      #      - name: Verify federated token
-      #        shell: pwsh
-      #        run: |
-      #          echo "AZURE_FEDERATED_TOKEN_FILE=$env:AZURE_FEDERATED_TOKEN_FILE"
-      #          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
 
       # Build Windows artifacts
       - name: Build Windows App
@@ -100,7 +107,7 @@ jobs:
 
   #      - name: Install AzureSignTool
   #        run: dotnet tool install --global AzureSignTool
-
+  #
   #      - name: Add dotnet tools to PATH
   #        run: echo "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
   #
@@ -118,79 +125,79 @@ jobs:
   #        with:
   #          files: dist/*.exe
 
-  publish_linux:
-    name: "Publish Linux x64"
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v4
-
-      - name: Install Node.js and NPM
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install libraries
-        run: sudo apt-get install libfontconfig1-dev --fix-missing
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build and release app
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
-
-  # This needs it's own build
-  # https://github.com/ChurchApps/FreeShow/issues/562
-  publish_linux_arm:
-    name: "Publish Linux arm64"
-    runs-on: ubuntu-24.04-arm
-
-    steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v4
-
-      - name: Install Node.js and NPM
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install libraries
-        run:
-          |
-          sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev uuid-dev --fix-missing
-
-      # WIDEVINE
-      # - name: Use stock Electron on ARM64
-      #   run: npm run replace-electron
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install FPM
-        run:
-          |
-          sudo apt-get install ruby ruby-dev build-essential
-          sudo gem install --no-document fpm
-
-      # wait because this will only publish if the draft exists
-      - name: Sleep for 1.5 minute
-        run: sleep 90s
-        shell: bash
-
-      - name: Build and release app
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          USE_SYSTEM_FPM: true
-        run: npm run release:arm64
+#  publish_linux:
+#    name: "Publish Linux x64"
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#      - name: Check out Git repository
+#        uses: actions/checkout@v4
+#
+#      - name: Install Node.js and NPM
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: 22
+#
+#      - name: Install libraries
+#        run: sudo apt-get install libfontconfig1-dev --fix-missing
+#
+#      - name: Install dependencies
+#        run: npm install
+#
+#      - name: Build and release app
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+#        run: npm run release
+#
+#  # This needs it's own build
+#  # https://github.com/ChurchApps/FreeShow/issues/562
+#  publish_linux_arm:
+#    name: "Publish Linux arm64"
+#    runs-on: ubuntu-24.04-arm
+#
+#    steps:
+#      - name: Check out Git repository
+#        uses: actions/checkout@v4
+#
+#      - name: Install Node.js and NPM
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: 22
+#
+#      - name: Install libraries
+#        run:
+#          |
+#          sudo apt-get update
+#          sudo apt-get install -y libfontconfig1-dev uuid-dev --fix-missing
+#
+#      # WIDEVINE
+#      # - name: Use stock Electron on ARM64
+#      #   run: npm run replace-electron
+#
+#      - name: Install dependencies
+#        run: npm install
+#
+#      - name: Install FPM
+#        run:
+#          |
+#          sudo apt-get install ruby ruby-dev build-essential
+#          sudo gem install --no-document fpm
+#
+#      # wait because this will only publish if the draft exists
+#      - name: Sleep for 1.5 minute
+#        run: sleep 90s
+#        shell: bash
+#
+#      - name: Build and release app
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+#          USE_SYSTEM_FPM: true
+#        run: npm run release:arm64
 
   publish_mac:
     name: "Publish MacOS"
-    needs: check_branch
-    if: needs.check_branch.outputs.is_correct_branch == 'true'
+#    needs: check_branch
+#    if: needs.check_branch.outputs.is_correct_branch == 'true'
     runs-on: macos-latest
 
     steps:
