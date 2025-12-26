@@ -5,7 +5,7 @@
     "main": "build/electron/index.js",
     "description": "APlay Pro is a user-friendly presenter software customized for Amazing Life.",
     "repository": "git@github.com:Tech-Mission-Solutions/aplay-pro.git",
-    "author": "AmazingLife",
+    "author": "AmazingLife <ci@amazinglife.local>",
     "license": "GPL-3.0",
     "scripts": {
         "postinstall": "electron-builder install-app-deps",
