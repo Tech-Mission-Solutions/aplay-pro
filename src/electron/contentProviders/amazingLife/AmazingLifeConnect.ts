@@ -88,36 +88,33 @@ export class AmazingLifeConnect {
     return this.AMAZING_LIFE_ACCESS?.access_token || null
   }
 
-  /**
-   * Ensures the current token is valid, refreshing if necessary
-   * Returns the valid access token or null if unable to get one
-   */
-  public static async ensureValidToken(scope: AmazingLifeScopes = "openid profile email"): Promise<string | null> {
-    if (!this.AMAZING_LIFE_ACCESS) {
-      console.warn("APlay: No active session. Please connect first.")
-      return null
-    }
-
-    // Check if token is expired or about to expire (within 5 minutes)
-    const bufferTime = 5 * 60 * 1000 // 5 minutes in milliseconds
-    const now = Date.now()
-    const expiresAt = (this.AMAZING_LIFE_ACCESS.created_at + this.AMAZING_LIFE_ACCESS.expires_in) * 1000
-
-    if (now + bufferTime >= expiresAt) {
-      console.info("APlay: Token expired or expiring soon, refreshing...")
-      const refreshed = await this.refreshToken(scope)
-      if (!refreshed) {
-        console.error("APlay: Failed to refresh token")
-        return null
-      }
-      return refreshed.access_token
-    }
-
-    return this.AMAZING_LIFE_ACCESS.access_token
-  }
-
   private static isTokenExpired(access: AmazingLifeAuthData): boolean {
-    return (access.created_at + access.expires_in) * 1000 < Date.now()
+    try {
+        
+      // Decode JWT token to get expiration time
+      const tokenParts = access.access_token.split(".")
+      if (tokenParts.length !== 3) {
+        console.warn("Invalid JWT token format")
+        return true
+      }
+
+      // Decode the payload (second part of JWT)
+      const payload = JSON.parse(Buffer.from(tokenParts[1], "base64").toString("utf-8"))
+
+      if (!payload.exp) {
+        console.warn("No exp claim found in JWT token")
+        return true
+      }
+
+      // exp is in seconds, Date.now() is in milliseconds
+      const isExpired = payload.exp * 1000 < Date.now()
+      console.log(`APlay: Token ${isExpired ? "expired" : "valid"} (exp: ${new Date(payload.exp * 1000).toISOString()})`)
+
+      return isExpired
+    } catch (error) {
+      console.error("Failed to decode JWT token:", error)
+      return true
+    }
   }
 
   private static async refreshToken(scope: AmazingLifeScopes): Promise<AmazingLifeAuthData | null> {
