@@ -1,27 +1,28 @@
 <script lang="ts">
-  import { OUTPUT } from "../../../../types/Channels"
-  import { Main } from "../../../../types/IPC/Main"
-  import type { Media, MediaType, SlideAction } from "../../../../types/Show"
-  import { requestMain } from "../../../IPC/main"
-  import { AudioMicrophone } from "../../../audio/audioMicrophone"
-  import { AudioPlayer } from "../../../audio/audioPlayer"
-  import { activePopup, activeShow, alertMessage, driveData, media, outLocked, outputs, playingAudio, showsCache, styles } from "../../../stores"
-  import { translateText } from "../../../utils/language"
-  import { getAccess } from "../../../utils/profile"
-  import { send } from "../../../utils/request"
-  import { actionData } from "../../actions/actionData"
-  import { getActionName, getActionTriggerId, runAction } from "../../actions/actions"
-  import MediaLoader from "../../drawer/media/MediaLoader.svelte"
-  import Icon from "../../helpers/Icon.svelte"
-  import T from "../../helpers/T.svelte"
-  import { clone, sortByName } from "../../helpers/array"
-  import { getExtension, getMediaStyle, getMediaType, isMediaExtension, loadThumbnail, mediaSize } from "../../helpers/media"
-  import { findMatchingOut, getActiveOutputs, getCurrentStyle, setOutput } from "../../helpers/output"
-  import { _show } from "../../helpers/shows"
-  import Button from "../../inputs/Button.svelte"
-  import HoverButton from "../../inputs/HoverButton.svelte"
-  import Center from "../../system/Center.svelte"
-  import SelectElem from "../../system/SelectElem.svelte"
+    import { OUTPUT } from "../../../../types/Channels"
+    import { Main } from "../../../../types/IPC/Main"
+    import type { MediaStyle } from "../../../../types/Main"
+    import type { Media, MediaType, SlideAction } from "../../../../types/Show"
+    import { requestMain } from "../../../IPC/main"
+    import { AudioMicrophone } from "../../../audio/audioMicrophone"
+    import { AudioPlayer } from "../../../audio/audioPlayer"
+    import { activePopup, activeShow, alertMessage, media, outLocked, outputs, playingAudio, showsCache, styles } from "../../../stores"
+    import { translateText } from "../../../utils/language"
+    import { getAccess } from "../../../utils/profile"
+    import { send } from "../../../utils/request"
+    import { actionData } from "../../actions/actionData"
+    import { getActionName, getActionTriggerId, runAction } from "../../actions/actions"
+    import MediaLoader from "../../drawer/media/MediaLoader.svelte"
+    import Icon from "../../helpers/Icon.svelte"
+    import T from "../../helpers/T.svelte"
+    import { clone, sortByName } from "../../helpers/array"
+    import { getExtension, getMedia, getMediaStyle, getMediaType, isMediaExtension, mediaSize } from "../../helpers/media"
+    import { findMatchingOut, getActiveOutputs, getCurrentStyle, setOutput } from "../../helpers/output"
+    import { _show } from "../../helpers/shows"
+    import Button from "../../inputs/Button.svelte"
+    import HoverButton from "../../inputs/HoverButton.svelte"
+    import Center from "../../system/Center.svelte"
+    import SelectElem from "../../system/SelectElem.svelte"
 
   $: show = $showsCache[$activeShow!.id]
 
@@ -124,12 +125,75 @@
       return
     }
 
-    const profile = getAccess("shows")
-    const readOnly = profile.global === "read" || profile[show.category || ""] === "read"
-    if (readOnly) {
-      alertMessage.set("profile.locked")
-      activePopup.set("alert")
-      return
+    let bgs: (Media & { count: number })[] = []
+    $: if (layoutBackgrounds.length) {
+        let tempBackgrounds: { [key: string]: Media & { count: number } } = {}
+        layoutBackgrounds.forEach((a) => {
+            if (!show.media?.[a]) return
+
+            let path: string = show.media[a].path || show.media[a].id || ""
+
+            let type = (show.media[a].type || getMediaType(getExtension(path))) as MediaType
+
+            let pathId = path.slice(0, 150)
+            if (tempBackgrounds[pathId]) tempBackgrounds[pathId].count++
+            else tempBackgrounds[pathId] = { id: a, name: "—", ...show.media[a], path, type, count: 1 }
+        })
+        bgs = sortByName(Object.values(tempBackgrounds))
+    } else bgs = []
+
+    let audio: (Media & { count: number })[] = []
+    $: if (layoutAudio.length) {
+        let tempAudio: { [key: string]: Media & { count: number } } = {}
+        layoutAudio.forEach((a) => {
+            if (!show.media?.[a]) return
+
+            let path = show.media[a].path!
+
+            let type: MediaType = "audio"
+
+            if (tempAudio[path]) tempAudio[path].count++
+            else tempAudio[path] = { id: a, ...show.media[a], path, type, count: 1 }
+        })
+
+        audio = Object.values(tempAudio)
+    } else audio = []
+
+    let mics: { id: string; name: string; count: number }[] = []
+    $: if (layoutMics.length) {
+        let tempMics: { [key: string]: { id: string; name: string; count: number } } = {}
+        layoutMics.forEach((a) => {
+            let id = a.id
+
+            if (tempMics[id]) tempMics[id].count++
+            else tempMics[id] = { ...a, count: 1 }
+        })
+
+        mics = Object.values(tempMics)
+    } else mics = []
+
+    function setBG(id: string, key: string, value: boolean) {
+        if (show.locked) {
+            alertMessage.set("show.locked_info")
+            activePopup.set("alert")
+            return
+        }
+
+        const profile = getAccess("shows")
+        const readOnly = profile.global === "read" || profile[show.category || ""] === "read"
+        if (readOnly) {
+            alertMessage.set("profile.locked")
+            activePopup.set("alert")
+            return
+        }
+
+        showsCache.update((a) => {
+            let bgs = a[$activeShow!.id].media
+            if (!bgs[id]) return a // old media
+            if (value) delete bgs[id][key]
+            else bgs[id][key] = value
+            return a
+        })
     }
 
     showsCache.update((a) => {
@@ -148,71 +212,102 @@
       // check if another exact exists
       if (actions.find((a) => JSON.stringify(a) === JSON.stringify(action))) return
 
-      actions.push(action)
-    })
-  } else actions = []
+    let similarBgs: { path: string; name: string }[] = []
+    $: if (bgs.length) getSimularPaths()
+    function getSimularPaths() {
+        if (!bgs.filter((a) => !a.path?.startsWith("http") && !a.path?.startsWith("data:")).length) return
 
   let similarBgs: { path: string; name: string }[] = []
   $: if (bgs.length) getSimularPaths()
   function getSimularPaths() {
     if (!bgs.filter((a) => !a.path?.includes("http") && !a.path?.includes("data:")).length) return
 
-    requestMain(Main.GET_SIMILAR, { paths: bgs.map((a) => a.path || "") }, (data) => {
-      similarBgs = data.filter((a) => isMediaExtension(getExtension(a.path))).slice(0, 3)
-    })
-  }
+    let newMedia: { [key: string]: { path: string; thumbnail: string; data: MediaStyle } } = {}
+    $: if (bgs) loadBackgrounds()
+    function loadBackgrounds() {
+        bgs.forEach(async (bgMedia) => {
+            let bgPath = bgMedia.path || ""
 
-  let newPaths: { [key: string]: string } = {}
-  $: if (bgs) loadBackgrounds()
-  function loadBackgrounds() {
-    bgs.forEach(async (background) => {
-      let path = background.path || ""
-      const mediaData = $media[path]
-      if (mediaData?.contentFile?.thumbnail) {
-        newPaths[path] = mediaData.contentFile.thumbnail
-        return
-      }
-      let newBgPath = await loadThumbnail(path, mediaSize.small)
-
-      if (newBgPath) newPaths[path] = newBgPath
-      else newPaths[path] = path
-    })
-  }
+            const media = await getMedia(bgPath, mediaSize.small)
+            if (media) newMedia[bgPath] = media
+        })
+    }
 </script>
 
 <div class="main">
-  {#if bgs.length || audio.length || mics.length || actions.length}
-    {#if bgs.length}
-      <!-- <h5><T id="tools.media" /></h5> -->
-      {#each bgs as background}
-        <!-- TODO: cameras -->
-        {@const mediaStyle = getMediaStyle($media[background.path || ""], outputStyle)}
-        {@const bgPath = newPaths[background.path || ""] || ""}
+    {#if bgs.length || audio.length || mics.length || actions.length}
+        {#if bgs.length}
+            <!-- <h5><T id="tools.media" /></h5> -->
+            {#each bgs as background}
+                {@const media = newMedia[background.path || ""] || {}}
 
-        <SelectElem id="media" data={{ ...background }} draggable>
-          <div class="media_item item context #show_media" class:active={findMatchingOut(background.path || "", $outputs)}>
-            <HoverButton
-              style="flex: 2;height: 50px;max-width: 100px;"
-              icon="play"
-              size={3}
-              on:click={() => {
-                if (!$outLocked) {
-                  let style = clone(mediaStyle)
-                  style.fit = $media[background.path || ""]?.fit || ""
-                  delete style.fitOptions
+                <!-- TODO: cameras -->
+                {@const mediaStyle = getMediaStyle(media.data, outputStyle)}
 
-                  setOutput("background", { path: background.path, type: background.type, loop: background.loop !== false, muted: background.muted !== false, ...style })
-                  if (background.type === "video") send(OUTPUT, ["DATA"], { [outputId]: { duration: 0, paused: false, muted: background.muted !== false, loop: background.loop !== false } })
-                }
-              }}
-            >
-              <MediaLoader name={background.name} path={background.path || ""} thumbnailPath={bgPath} type={background.type} {mediaStyle} />
-            </HoverButton>
+                <SelectElem id="media" data={{ ...background }} draggable>
+                    <div class="media_item item context #show_media" class:active={findMatchingOut(media.path || "", $outputs)}>
+                        <HoverButton
+                            style="flex: 2;height: 50px;max-width: 100px;"
+                            icon="play"
+                            size={3}
+                            on:click={() => {
+                                if (!$outLocked) {
+                                    let style = clone(mediaStyle)
+                                    style.fit = media.data?.fit || ""
+                                    delete style.fitOptions
 
-            <p data-title={background.path}>{background.name}</p>
+                                    setOutput("background", { path: media.path, type: background.type, loop: background.loop !== false, muted: background.muted !== false, ...style })
+                                    if (background.type === "video") send(OUTPUT, ["DATA"], { [outputId]: { duration: 0, paused: false, muted: background.muted !== false, loop: background.loop !== false } })
+                                }
+                            }}
+                        >
+                            <MediaLoader name={background.name} path={media.path} thumbnailPath={media.thumbnail} type={background.type} {mediaStyle} />
+                        </HoverButton>
 
-            {#if background.count > 1}
-              <span style="color: var(--secondary);font-weight: bold;">{background.count}</span>
+                        <p data-title={decodeURIComponent(media.path || background.path || "")}>{background.name}</p>
+
+                        {#if background.count > 1}
+                            <span style="color: var(--secondary);font-weight: bold;">{background.count}</span>
+                        {/if}
+
+                        {#if background.type === "video"}
+                            <Button style="flex: 0;padding: 14px 5px;" center title={translateText(background.muted !== false ? "actions.unmute" : "actions.mute")} on:click={() => setBG(background.id || "", "muted", background.muted === false)} dark>
+                                <Icon id={background.muted !== false ? "muted" : "volume"} white={background.muted !== false} size={1.2} />
+                            </Button>
+                            <Button style="flex: 0;padding: 14px 5px;" center title={translateText("media._loop" + (background.loop !== false ? ": settings.enabled" : ""))} on:click={() => setBG(background.id || "", "loop", background.loop === false)} dark>
+                                <Icon id="loop" white={background.loop === false} size={1.2} />
+                            </Button>
+                        {/if}
+                    </div>
+                </SelectElem>
+            {/each}
+
+            {#if similarBgs.length}
+                <h5><T id="media.recommended" /></h5>
+
+                {#each similarBgs as background}
+                    {@const mediaStyle = getMediaStyle($media[background.path], outputStyle)}
+                    {@const type = getMediaType(getExtension(background.path)) || "video"}
+
+                    <SelectElem id="media" data={{ ...background, type }} draggable>
+                        <div class="media_item item context #show_media" class:active={findMatchingOut(background.path, $outputs)}>
+                            <HoverButton
+                                style="flex: 2;height: 50px;max-width: 100px;"
+                                icon="play"
+                                size={3}
+                                on:click={() => {
+                                    if (!$outLocked) {
+                                        setOutput("background", { path: background.path, type, loop: true, muted: true, ...mediaStyle })
+                                        if (type === "video") send(OUTPUT, ["DATA"], { [outputId]: { duration: 0, paused: false, muted: true, loop: true } })
+                                    }
+                                }}
+                            >
+                                <MediaLoader name={background.name} path={background.path} {type} {mediaStyle} />
+                            </HoverButton>
+                            <p data-title={background.path}>{background.name}</p>
+                        </div>
+                    </SelectElem>
+                {/each}
             {/if}
 
             {#if background.type === "video"}

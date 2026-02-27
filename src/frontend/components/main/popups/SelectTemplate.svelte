@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte"
-    import { activePopup, activeStyle, outputs, popupData, scriptures, styles, templates } from "../../../stores"
+    import { activePopup, activeStyle, drawerTabsData, outputs, popupData, scriptures, styles, templates } from "../../../stores"
     import { translateText } from "../../../utils/language"
     import { formatSearch } from "../../../utils/search"
     import Card from "../../drawer/Card.svelte"
@@ -13,6 +13,7 @@
     import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
     import Center from "../../system/Center.svelte"
     import Loader from "../Loader.svelte"
+    import Icon from "../../helpers/Icon.svelte"
 
     let revert = $popupData.revert
     let allowEmpty = !!$popupData.allowEmpty
@@ -26,7 +27,7 @@
     $: active = $popupData.active || ""
 
     // multiple types (scripture)
-    const id = $popupData.id
+    const id = $popupData.id || ""
     let types: { value: string; label: string }[] = []
     let values: { value: string; label: string }[] = []
     if (id === "scripture") {
@@ -105,6 +106,33 @@
     // open drawer tab instantly before content has loaded
     let preloader = true
     onMount(() => setTimeout(() => (preloader = false), 20))
+
+    $: normalTemplates = searchedTemplates.filter((a) => a.category !== "scripture")
+    $: scriptureTemplates = searchedTemplates.filter((a) => a.category === "scripture")
+    $: templatesList = id.includes("scripture") ? [...trimScriptureTemplates(scriptureTemplates, selectedType), ...normalTemplates] : [...normalTemplates, ...scriptureTemplates]
+
+    function trimScriptureTemplates(templates: any[], _updater: any) {
+        let countId = ""
+
+        if (id === "scripture") {
+            countId = selectedType
+        } else if (id === "scripture_drawer") {
+            let count = 1
+            const activeScripture = $drawerTabsData.scripture?.activeSubTab || ""
+            const currentScripture = $scriptures[activeScripture]
+
+            if (currentScripture.collection?.versions?.length) count = currentScripture.collection.versions.length
+            countId = count > 1 ? "_" + count : ""
+        }
+
+        // only show relevant default templates (with the correct count)
+        const keepId = "scripture" + countId
+        const keepIdLT = "scriptureLT" + countId
+        const toRemove = ["scripture", "scripture_2", "scripture_3", "scripture_4", "scriptureLT", "scriptureLT_2"].filter((a) => a !== keepId && a !== keepIdLT)
+        templates = templates.filter((a) => !toRemove.includes(a.id))
+
+        return templates
+    }
 </script>
 
 <svelte:window on:keydown={chooseTemplate} />
@@ -124,15 +152,17 @@
         <Center style="height: 100px;padding-top: 20px;">
             <Loader />
         </Center>
-    {:else if searchedTemplates.length}
+    {:else if templatesList.length}
         <div class="grid">
             {#if allowEmpty || (customTypes && selectedType !== types[0]?.value)}
                 <Card active={!value} label={translateText(allowEmpty ? "main.none" : "example.default")} icon="templates" {resolution} on:click={() => selectTemplate("")}>
-                    <!--  -->
+                    <Center faded>
+                        <Icon id="close" size={2} white />
+                    </Center>
                 </Card>
             {/if}
 
-            {#each searchedTemplates as template, i}
+            {#each templatesList as template, i}
                 <Card preview={!!(searchValue.length && i === 0)} active={value === template.id} label={template.name} color={template.color} {resolution} on:click={() => selectTemplate(template)}>
                     <TemplateSlide templateId={template.id} {template} preview />
                 </Card>

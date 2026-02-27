@@ -1,11 +1,12 @@
 <script lang="ts">
     import { onDestroy, onMount } from "svelte"
     import type { Item, ItemType, Slide } from "../../../../types/Show"
-    import { activeEdit, activeShow, overlays, selected, showsCache, templates, theme, themes, timers } from "../../../stores"
+    import { activeEdit, activePopup, activeShow, alertMessage, categories, styles as outputStyles, overlays, selected, shownTips, showsCache, special, templates, theme, themes, timers } from "../../../stores"
     import { newToast } from "../../../utils/common"
     import { clone } from "../../helpers/array"
     import { history } from "../../helpers/history"
     import { getExtension, getMediaType } from "../../helpers/media"
+    import { getAllEnabledOutputs } from "../../helpers/output"
     import { getLayoutRef } from "../../helpers/show"
     import { _show } from "../../helpers/shows"
     import { getStyles } from "../../helpers/style"
@@ -245,6 +246,8 @@
         return
 
         function updateItemValues(a: any) {
+            if (!a[$activeEdit.id!]?.items) return a
+
             allItems.forEach((i: number) => {
                 if (!a[$activeEdit.id!].items[i]) return
 
@@ -258,6 +261,7 @@
                 a[$activeEdit.id!].items[i][splitted[0]][splitted[1]] = value
             })
 
+            a[$activeEdit.id!].modified = Date.now()
             return a
         }
     }
@@ -268,7 +272,7 @@
 
         // does not work for partial text when auto size is enabled
         // WIP doesn't need to show if disabled works correctly
-        if (id === "text" && input.key === "font-size" && selection?.length && item?.textFit !== "none") {
+        if (id === "text" && input.key === "font-size" && selection?.length && (item?.textFit || "none") !== "none") {
             newToast("edit.auto_size settings.enabled!")
         }
 
@@ -394,6 +398,8 @@
             // WIP changing the default "Name" overlay causes textbox swapping....
 
             allItems.forEach((_itemIndex, i) => {
+                if (!currentItems[i]) return
+
                 let allValues: any = Object.values(values)[0]
                 let currentValue: any = allValues[i] ?? allValues[0]
                 // some textboxes don't have lines, this will break things, so make sure it has lines!
@@ -478,6 +484,14 @@
             input.value = input.value.replace("rgb(0 0 0 / 0)", "rgb(0 0 0 / 0.4)")
         }
 
+        // store changes for detection
+        if (!$activeEdit.id) {
+            const id = `${input.id}${input.key || ""}`
+            if (!changes[$activeEdit.slide || 0]) changes[$activeEdit.slide || 0] = {}
+            changes[$activeEdit.slide || 0][id] = JSON.stringify(input)
+            changes = changes
+        }
+
         updateValue({ detail: input })
     }
 
@@ -486,6 +500,55 @@
     onMount(() => {
         loaded = true
     })
+
+    // check if the same changes are made to multiple slides, and notify the user to consider using templates
+    let changes: { [key: string]: { [key: string]: string } } = {}
+    $: if (changes) checkChanges()
+    let shownTemplateTip = false
+    function checkChanges() {
+        // alert if category has template
+        if (!shownTemplateTip && ($activeEdit.type || "show") === "show") {
+            const categoryId = $showsCache[$activeShow?.id || ""]?.category || ""
+            const categoryTemplate = $categories[categoryId]?.template || ""
+            if (categoryTemplate) {
+                alertMessage.set("tips.category_template")
+                activePopup.set("alert")
+                shownTemplateTip = true
+                return
+            }
+        }
+
+        // alert if all outputs has style templates
+        if (!shownTemplateTip && $special.styleTemplatePreview !== false) {
+            const outputsHasStyleTemplate = getAllEnabledOutputs().every((output) => {
+                return !!$outputStyles[output?.style || ""]?.template
+            })
+            if (outputsHasStyleTemplate) {
+                alertMessage.set("tips.style_template_active")
+                activePopup.set("alert")
+                shownTemplateTip = true
+                return
+            }
+        }
+
+        if ($shownTips.includes("consider_templates")) return
+
+        const SLIDES = 3
+        const allValues: string[] = Object.values(changes).flatMap((slide) => Object.values(slide))
+        const valueCounts = new Map<string, number>()
+
+        allValues.forEach((value) => {
+            valueCounts.set(value, (valueCounts.get(value) || 0) + 1)
+        })
+
+        const duplicates = Array.from(valueCounts.entries()).filter(([_value, count]) => count > SLIDES)
+        if (duplicates.length > 0) {
+            // openDrawer("templates")
+            alertMessage.set("tips.consider_templates")
+            activePopup.set("alert")
+            shownTips.set([...$shownTips, "consider_templates"])
+        }
+    }
 </script>
 
 <svelte:window on:keyup={keyup} on:keydown={keydown} on:mouseup={getTextSelection} on:mousedown={mousedown} />

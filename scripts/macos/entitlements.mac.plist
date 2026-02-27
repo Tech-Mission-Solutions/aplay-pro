@@ -37,5 +37,8 @@
         <true/>
         <key>com.apple.security.cs.debugger</key>
         <true/>
+        <!-- Child process entitlement inheritance (likely LibreOffice soffice binary) -->
+        <key>com.apple.security.inherit</key>
+        <true/>
     </dict>
 </plist>

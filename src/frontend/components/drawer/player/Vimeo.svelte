@@ -1,8 +1,8 @@
 <script>
     import Player from "@vimeo/player"
-    import { currentWindow, focusMode, theme, themes, volume } from "../../../stores"
-    import { OUTPUT } from "../../../../types/Channels"
     import { createEventDispatcher } from "svelte"
+    import { OUTPUT } from "../../../../types/Channels"
+    import { currentWindow, focusMode, theme, themes, volume } from "../../../stores"
     import { send } from "../../../utils/request"
 
     export let videoData = { paused: false, muted: true, loop: false, duration: 0 }
@@ -11,7 +11,6 @@
     export let outputId
     export let preview
 
-    export let title
     export let startAt = 0
 
     const options = {
@@ -39,12 +38,6 @@
 
         videoTime = startAt
         // WIP captions...
-
-        setTimeout(() => {
-            player.getVideoTitle().then((t) => {
-                title = t
-            })
-        }, 1000)
 
         loaded = true
 
@@ -115,7 +108,7 @@
 <div class="main" class:hide={!id}>
     {#if id}
         <!-- TODO: looping vimeo video will reload the video -->
-        <iframe bind:this={iframe} on:load={iframeLoaded} data-vimeo-title="0" data-vimeo-autopause="0" data-vimeo-dnt="0" allow="autopause;" {id} title="video" src="https://player.vimeo.com/video/{id}?autopause=0&controls=0&loop={videoData.loop}" width="640" height="360" frameborder="0" />
+        <iframe bind:this={iframe} on:load={iframeLoaded} data-vimeo-title="0" data-vimeo-autopause="0" data-vimeo-dnt="0" allow="autoplay;" {id} title="video" src="https://player.vimeo.com/video/{id}?autopause=0&controls=0&loop={videoData.loop}" width="640" height="360" />
     {/if}
 </div>
 
@@ -129,6 +122,7 @@
     .main :global(iframe) {
         height: 100%;
         width: 100%;
+        border: none;
     }
 
     .hide :global(.yt) {

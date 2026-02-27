@@ -15,11 +15,13 @@
     import { getItemText, getLineText, getSelectionRange, setCaret } from "../scripts/textStyle"
     import EditboxChords from "./EditboxChords.svelte"
     import { EditboxHelper } from "./EditboxHelper"
+    import { newToast } from "../../../utils/common"
 
     export let item: Item
     export let ref: {
         type?: "show" | "overlay" | "template" | "stage"
         showId?: string
+        origin?: string
         id: string
     }
     export let index: number
@@ -91,7 +93,7 @@
 
     function getStyle() {
         if (!plain && $activeEdit.slide === null) return
-        let result = EditboxHelper.getStyleHtml(item, plain, currentStyle)
+        let result = EditboxHelper.getStyleHtml(item, plain, currentStyle, ref.origin === "powerpoint")
         html = result.html
         currentStyle = result.currentStyle
         previousHTML = html
@@ -152,7 +154,7 @@
                 return
             }
 
-            cutInTwo({ e, sel, lines, currentIndex, textPos, start })
+            cutInTwo({ e, sel, lines: clone(lines), currentIndex, textPos, start })
         }
 
         storeCurrentCaretPos()
@@ -229,6 +231,7 @@
             stageShows.update((a) => {
                 if (!a[$activeStage.id!]?.items?.[ref.id]) return a
                 a[$activeStage.id!].items[ref.id].lines = newLines
+                a[$activeStage.id!].modified = Date.now()
                 return a
             })
         } else if (ref.id) {
@@ -274,9 +277,11 @@
         }
 
         function setNewLines(a: any) {
-            if (!a[$activeEdit.id!].items[index]) return a
+            if (!a[$activeEdit.id!]?.items?.[index]) return a
 
             a[$activeEdit.id!].items[index].lines = newLines
+
+            a[$activeEdit.id!].modified = Date.now()
             return a
         }
     }
@@ -368,14 +373,20 @@
 
             newLines.push(newLine)
 
-            // WIP backspace a line into a line with different styling will merge both and apply the first style to both (HTML issue)
-
             new Array(...line.childNodes).forEach((child: any, j) => {
                 if (child.nodeName === "#text") {
                     // add "floating" text to previous node (e.g. pressing backspace at the start of a line)
+                    // preserve style when merging lines with different styling (macOS issue)
                     let lastNode = newLines[pos].text.length - 1
-                    if (lastNode < 0 || !newLines[pos].text[lastNode]) return
-                    newLines[pos].text[lastNode].value += child.textContent
+                    let originalLineStyle = item.lines?.[i]?.text?.[0]?.style || ""
+                    let lastNodeStyle = lastNode >= 0 ? newLines[pos].text[lastNode]?.style || "" : ""
+
+                    // Create new segment if no previous node or styles differ
+                    if (lastNode < 0 || !newLines[pos].text[lastNode] || (originalLineStyle && originalLineStyle !== lastNodeStyle)) {
+                        newLines[pos].text.push({ style: originalLineStyle, value: child.textContent })
+                    } else {
+                        newLines[pos].text[lastNode].value += child.textContent
+                    }
 
                     updateHTML = true
                     return
@@ -531,6 +542,20 @@
             navigator.clipboard.readText().then((clipText: string) => {
                 paste(e, clipText)
             })
+        }
+
+        if (e.key === "<") {
+            // Bamini font character "<" (ஈ)
+            // https://github.com/ChurchApps/FreeShow/issues/2899
+            if (item?.lines?.some((line) => line.text?.some((text) => text.style?.toLowerCase()?.includes("bamini")))) {
+                e.preventDefault()
+                document.execCommand("insertHTML", false, "ஈ")
+                return
+            }
+
+            // HTML (will be invisible in editor)
+            // &lt; is currently read and replaced as < when editing
+            newToast("Note: < is treated as HTML")
         }
     }
 

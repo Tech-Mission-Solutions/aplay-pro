@@ -30,7 +30,7 @@
     const isOverlay = edit.type === "overlay"
     const isTemplate = edit.type === "template"
 
-    let itemIndex = (isStage ? $activeStage : edit).items[0]
+    let itemIndex = isStage ? $activeStage.items[0] : Number(edit.items[0] || 0)
     let slide = isStage ? $stageShows[$activeStage.id || ""] : isOverlay ? $overlays[edit.id!] : isTemplate ? $templates[edit.id!] : $showsCache[showId]?.slides?.[slideId]
     let item = slide?.items[itemIndex]
     let itemText = getItemText(item)
@@ -98,6 +98,7 @@
             stageShows.update((a) => {
                 if (!a[stageId]?.items[itemIndex]) return a
                 a[stageId].items[itemIndex].conditions = conditions
+                a[stageId].modified = Date.now()
                 return a
             })
             return
@@ -110,18 +111,21 @@
             overlays.update((a) => {
                 if (!a[edit.id!]?.items?.[itemIndex]) return a
                 a[edit.id!].items[itemIndex].conditions = conditions
+                a[edit.id!].modified = Date.now()
                 return a
             })
         } else if (isTemplate) {
             templates.update((a) => {
                 if (!a[edit.id!]?.items?.[itemIndex]) return a
                 a[edit.id!].items[itemIndex].conditions = conditions
+                a[edit.id!].modified = Date.now()
                 return a
             })
         } else {
             showsCache.update((a) => {
                 if (!a[showId]?.slides?.[slideId]?.items?.[itemIndex]) return a
                 a[showId].slides[slideId].items[itemIndex].conditions = conditions
+                a[showId].timestamps.modified = Date.now()
                 return a
             })
         }
@@ -180,17 +184,17 @@
     // $: addMoreOuter = showItemValues?.length > 1 || showItemValues?.[0]?.length > 1 || (showItemValues?.[0]?.[0]?.[0]?.[0] && (showItemValues?.[0]?.[0]?.[0]?.[1] || showItemValues?.[0]?.[0]?.[1]?.[0]))
     $: addMoreOuter = showItemValues?.[0]?.length > 1 || showItemValues?.length > 1
 
-    let updater = 0
-    const updaterInterval = setInterval(() => updater++, 2000)
+    let conditionsUpdater = 0
+    const updaterInterval = setInterval(() => conditionsUpdater++, 2000)
     onDestroy(() => clearInterval(updaterInterval))
 
     $: currentItemText =
-        isStage && item.type === "slide_text"
+        isStage && item?.type === "slide_text"
             ? getSlideTextItems(slide as any, item)
                   .map(getItemText)
                   .join("")
             : itemText
-    $: showItemState = isConditionMet(OUTER_OR, currentItemText, isStage ? "stage" : "default", updater)
+    $: showItemState = isConditionMet(OUTER_OR, currentItemText, isStage ? "stage" : "default", conditionsUpdater)
 
     let zoom = 1
 </script>
@@ -235,7 +239,7 @@
                                 {#each INNER_AND as content, d}
                                     {@const CONTENT = content || {}}
 
-                                    <div class="node and" class:trail={d > 0} class:isActive={checkConditionValue(content, currentItemText, isStage ? "stage" : "default", updater)}>
+                                    <div class="node and" class:trail={d > 0} class:isActive={checkConditionValue(content, currentItemText, isStage ? "stage" : "default", conditionsUpdater)}>
                                         {#if innerAnd?.length || a !== 0 || b !== 0 || c !== 0 || d !== 0}
                                             <div class="delete">
                                                 <MaterialButton variant="outlined" icon="delete" title="actions.delete" style="padding: 8px;border-radius: 50%;" on:click={() => deleteContent(a, b, c, d)} />

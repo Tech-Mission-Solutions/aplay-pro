@@ -82,6 +82,7 @@
             // TODO: history??
             stageShows.update((a) => {
                 delete a[$activeStage.id!].items[id]
+                a[$activeStage.id!].modified = Date.now()
                 return a
             })
             activeStage.set({ ...$activeStage, items: [] })
@@ -110,16 +111,47 @@
 
     $: fontSize = Number(getStyles(item?.style, true)?.["font-size"] || 0) || 100 // item.autoFontSize ||
 
-    $: autoSizeEnabled = item?.type === "current_output" ? false : item?.type?.includes("text") ? item?.auto || (item?.textFit && item?.textFit !== "none") : item?.auto !== false || item?.textFit !== "none"
+    // Exclude slide_text from Stagebox autosize - it uses Textbox's own autosize instead
+    // Stagebox autosize is for SlideNotes, SlideProgress, VideoTime, etc.
+    $: autoSizeEnabled = item?.type === "current_output" || item?.type === "slide_text" ? false : item?.type?.includes("text") ? item?.auto || (item?.textFit && item?.textFit !== "none") : item?.auto !== false || item?.textFit !== "none"
 
     let alignElem
     let size = 100
+    // Track previous slide to reset retry counter when slide changes
+    let prevSlideForAutoSize: any = undefined
     // currentSlide & timeout to update auto size properly if slide notes
-    $: if (alignElem && item && currentSlide !== undefined && autoSizeEnabled) updateAutoSize()
+    $: if (alignElem && item && currentSlide !== undefined && autoSizeEnabled) {
+        // Reset retry counter when slide changes
+        if (prevSlideForAutoSize !== currentSlide) {
+            autoSizeRetryCount = 0
+            prevSlideForAutoSize = currentSlide
+        }
+        updateAutoSize()
+    }
     let currentAutoSizeTimeout: NodeJS.Timeout | null = null
+    let autoSizeRetryCount = 0
+    const MAX_AUTOSIZE_RETRIES = 5
     function updateAutoSize() {
         if (currentAutoSizeTimeout) clearTimeout(currentAutoSizeTimeout)
         currentAutoSizeTimeout = setTimeout(() => {
+            // Check if the element has valid dimensions before measuring
+            // If height is 0, the content hasn't rendered yet - retry with longer delay
+            if (!alignElem || alignElem.clientHeight === 0) {
+                autoSizeRetryCount++
+
+                if (autoSizeRetryCount < MAX_AUTOSIZE_RETRIES) {
+                    // Retry with progressively longer delays
+                    currentAutoSizeTimeout = setTimeout(() => updateAutoSize(), 50 * autoSizeRetryCount)
+                    return
+                }
+                // Give up after max retries - don't apply bad values
+                currentAutoSizeTimeout = null
+                return
+            }
+
+            // Reset retry count on successful measurement
+            autoSizeRetryCount = 0
+
             let itemFontSize = Number(getStyles(item?.style, true)?.["font-size"] || "") || 100
 
             const type = item?.textFit || "growToFit"
@@ -130,6 +162,7 @@
             if (!isTextItem) maxFontSize = 0
 
             size = autosize(alignElem, { type, textQuery: ".autoFontSize", defaultFontSize, maxFontSize })
+
             currentAutoSizeTimeout = null
         }, 20)
     }
@@ -174,13 +207,19 @@
     function updateStyles() {
         const styles = getStyles(item?.style)
         const textStyleKeys = ["line-height", "text-decoration"]
+        // For slide_text items with autosize, exclude font-size from container style
+        // to prevent CSS inheritance of 800px (MAX_FONT_SIZE) before autosize computes correct value
+        const isSlideTextWithAutosize = item?.type === "slide_text" && (item?.auto !== false || (item?.textFit && item?.textFit !== "none"))
 
         itemStyle = ""
         textStyle = ""
 
         Object.entries(styles).forEach(([key, value]) => {
             if (textStyleKeys.includes(key)) textStyle += `${key}: ${value};`
-            else itemStyle += `${key}: ${value};`
+            else if (key === "font-size" && isSlideTextWithAutosize) {
+                // Skip font-size for autosize items - let Textbox's autosize compute it
+                // Otherwise 800px gets inherited and causes giant text flash
+            } else itemStyle += `${key}: ${value};`
         })
     }
 
@@ -212,18 +251,19 @@
         stageShows.update((a) => {
             if (!a[$activeStage.id!]?.items?.[id]?.conditions) return a
             delete a[$activeStage.id!].items[id].conditions
+            a[$activeStage.id!].modified = Date.now()
             return a
         })
     }
 
     $: contextId = item?.type === "text" ? "stage_text_item" : item?.type === "current_output" ? "stage_item_output" : "stage_item"
 
-    let updater = 0
-    const updaterInterval = setInterval(() => updater++, 3000)
+    let conditionsUpdater = 0
+    const updaterInterval = setInterval(() => conditionsUpdater++, 3000)
     onDestroy(() => clearInterval(updaterInterval))
 
     $: currentItemText = item ? (item.type === "slide_text" ? getSlideTextItems(stageLayout!, item).map(getItemText).join("") : getItemText(stageItemToItem(item))) : ""
-    $: showItemState = edit ? isConditionMet(item?.conditions?.showItem, currentItemText, "stage", updater) : false
+    $: showItemState = edit ? isConditionMet(item?.conditions?.showItem, currentItemText, "stage", conditionsUpdater) : false
 
     // fixed letter width
     $: fixedWidth = item?.type === "timer" || item?.type === "clock" ? "font-feature-settings: 'tnum' 1;" : ""
@@ -290,7 +330,7 @@
                     {/if}
                 {:else if item.type === "slide_text" || id.includes("slide")}
                     {#if (item.type ? item.includeMedia : !id.includes("_text")) && currentBackground}
-                        {@const slideBackground = slideOffset === 0 ? currentBackground : slideOffset === 1 ? currentBackground.next : null}
+                        {@const slideBackground = slideOffset === 0 ? currentBackground : slideOffset === 1 ? currentBackground.next : slideOffset === 2 ? currentBackground.next2 : null}
                         <!-- WIP this only includes "next" slide background -->
                         {#if typeof slideBackground?.path === "string"}
                             <div class="image" style="position: absolute;left: 0;top: 0;width: 100%;height: 100%;">
@@ -301,8 +341,10 @@
 
                     <!-- refresh to update auto sizes -->
                     <!-- refresh auto size if changing stage layout with #key made item unmovable .. -->
+                    <!-- For slide_text items, don't pass fontSize from item style (which is MAX_FONT_SIZE=800) -->
+                    <!-- Let Textbox's own autosize compute the correct value -->
                     {#key currentSlide?.id || currentSlide?.index}
-                        <SlideText {currentSlide} {slideOffset} stageItem={item} chords={typeof item.chords === "boolean" ? item.chords : item.chords?.enabled} ref={{ type: "stage", id }} autoSize={item.textFit !== "none" && item.auto !== false} {fontSize} {textStyle} style={item.type ? item.keepStyle : false} />
+                        <SlideText {currentSlide} {slideOffset} stageItem={item} chords={typeof item.chords === "boolean" ? item.chords : item.chords?.enabled} ref={{ type: "stage", id }} autoSize={item.textFit !== "none" && item.auto !== false} fontSize={0} {textStyle} style={item.type ? item.keepStyle : false} />
                     {/key}
                 {:else if item.type === "slide_notes" || id.includes("notes")}
                     <SlideNotes {currentSlide} {slideOffset} autoSize={item.auto !== false ? autoSize : fontSize} />

@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { TrimmedShow } from "../../../../types/Show"
-    import { categories, drawerTabsData, labelsDisabled, shows } from "../../../stores"
+    import { activeProfile, categories, drawerTabsData, labelsDisabled, shows } from "../../../stores"
     import { hasNewerUpdate } from "../../../utils/common"
     import { getAccess } from "../../../utils/profile"
     import { keysToID, sortObject } from "../../helpers/array"
@@ -10,7 +10,7 @@
     import MaterialButton from "../../inputs/MaterialButton.svelte"
     import NavigationSections from "./NavigationSections.svelte"
 
-    const profile = getAccess("shows")
+    $: profile = $activeProfile ? getAccess("shows") : {}
     $: readOnly = profile.global === "read"
 
     $: activeSubTab = $drawerTabsData.shows?.activeSubTab || ""
@@ -48,9 +48,10 @@
         return sortObject(categories, "name").map((a: any) => {
             const action = a.action
             const template = a.template
+            const metadata = a.metadata?.display
             const count = allVisibleShows.reduce((count, show) => count + (show.category === a.id ? 1 : 0), 0)
             const readOnly = profile.global === "read" || profile[a.id] === "read"
-            return { id: a.id, label: a.name, icon: a.icon, action, template, count, readOnly }
+            return { id: a.id, label: a.name, icon: a.icon, action, template, metadata, count, readOnly }
         })
     }
 

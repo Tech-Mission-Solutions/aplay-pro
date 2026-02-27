@@ -3,7 +3,7 @@
     import { EXPORT } from "../../../../types/Channels"
     import { Main } from "../../../../types/IPC/Main"
     import { destroyMain, receiveMain, requestMain, sendMain } from "../../../IPC/main"
-    import { activePage, activePopup, alertMessage, alertUpdates, deletedShows, os, popupData, shows, showsCache, special, usageLog, version } from "../../../stores"
+    import { activePage, activePopup, alertMessage, alertUpdates, deletedShows, popupData, shows, showsCache, special, usageLog, version } from "../../../stores"
     import { send } from "../../../utils/request"
     import T from "../../helpers/T.svelte"
     import InputRow from "../../input/InputRow.svelte"
@@ -55,7 +55,7 @@
     }
 
     // hardware acceleration
-    let disableHardwareAcceleration = $os.platform === "darwin"
+    let disableHardwareAcceleration = false
     function toggleHardwareAcceleration(e: any) {
         disableHardwareAcceleration = e.detail
         sendMain(Main.SET_STORE_VALUE, { file: "config", key: "disableHardwareAcceleration", value: disableHardwareAcceleration })
@@ -150,7 +150,7 @@
 
     // bundle media files
     function bundleMediaFiles() {
-        sendMain(Main.BUNDLE_MEDIA_FILES)
+        sendMain(Main.BUNDLE_MEDIA_FILES, { openFolder: true })
     }
 
     // usage log
@@ -170,7 +170,7 @@
         usageLogExported = false
     }
 
-    $: isBeta = $version.includes("beta")
+    $: isBeta = $version.includes("-beta")
 </script>
 
 <MaterialToggleSwitch label="settings.auto_updates" checked={$special.autoUpdates} on:change={(e) => updateSpecial(e.detail, "autoUpdates")} />
@@ -265,11 +265,14 @@
     </Button>
 </CombinedInput> -->
 
-<InputRow>
-    <MaterialButton title="media.bundle_media_files_tip" style="width: 100%;justify-content: left;" icon="image" on:click={bundleMediaFiles}>
-        <T id="media.bundle_media_files" />
-    </MaterialButton>
-</InputRow>
+<!-- BUNDLE MEDIA FILES MANUALLY OR AUTOMATICALLY -->
+{#if !$special.cloudSyncMediaFolder}
+    <InputRow>
+        <MaterialButton title="media.bundle_media_files_tip" style="width: 100%;justify-content: left;" icon="image" on:click={bundleMediaFiles}>
+            <T id="media.bundle_media_files" />
+        </MaterialButton>
+    </InputRow>
+{/if}
 
 {#if $special.logSongUsage && $usageLog.all?.length}
     <InputRow>

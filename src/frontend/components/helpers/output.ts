@@ -4,24 +4,25 @@ import { OUTPUT } from "../../../types/Channels"
 import { Main } from "../../../types/IPC/Main"
 import type { Output, Outputs } from "../../../types/Output"
 import type { Resolution, Styles } from "../../../types/Settings"
-import type { Item, Layout, LayoutRef, Media, OutSlide, Show, Slide, SlideData, Template, Templates, TemplateSettings, Transition } from "../../../types/Show"
+import type { Item, Layout, LayoutRef, Media, OutSlide, Show, Slide, SlideData, Template, TemplateSettings, Transition } from "../../../types/Show"
 import { AudioAnalyser } from "../../audio/audioAnalyser"
 import { fadeinAllPlayingAudio, fadeoutAllPlayingAudio } from "../../audio/audioFading"
 import { sendMain } from "../../IPC/main"
-import { actions, activeProject, activeRename, activeTimers, allOutputs, categories, connections, currentOutputSettings, disabledServers, effects, lockedOverlays, media, outputDisplay, outputs, outputSlideCache, outputState, overlays, overlayTimers, playingVideos, projects, scriptures, serverData, showsCache, special, stageShows, styles, templates, theme, themes, transitionData, usageLog } from "../../stores"
+import { actions, activeProject, activeRename, activeTimers, allOutputs, categories, connections, currentOutputSettings, customMessageCredits, disabledServers, effects, lockedOverlays, media, outputDisplay, outputs, outputSlideCache, outputState, overlays, overlayTimers, playingVideos, projects, scriptures, scriptureSettings, serverData, showsCache, special, stageShows, styles, templates, theme, themes, transitionData, usageLog } from "../../stores"
 import { trackScriptureUsage } from "../../utils/analytics"
 import { isMainWindow, isOutputWindow, newToast } from "../../utils/common"
 import { translateText } from "../../utils/language"
 import { send } from "../../utils/request"
 import { sendBackgroundToStage } from "../../utils/stageTalk"
+import { TemplateHelper } from "../../utils/templates"
 import { videoExtensions } from "../../values/extensions"
 import { customActionActivation, runAction } from "../actions/actions"
 import type { API_camera, API_screen, API_stage_output_layout } from "../actions/api"
-import { getItemText, getItemTextArray, getSlideText } from "../edit/scripts/textStyle"
+import { getItemText, getSlideText } from "../edit/scripts/textStyle"
 import type { EditInput } from "../edit/values/boxes"
 import { clearBackground, clearSlide } from "../output/clear"
 import { areObjectsEqual, clone, keysToID, removeDuplicates, sortByName, sortObject } from "./array"
-import { getExtension, getFileName, removeExtension } from "./media"
+import { getExtension, getFileName, getMediaLayerType, removeExtension } from "./media"
 import { getLayoutRef } from "./show"
 import { getFewestOutputLines, getItemWithMostLines, replaceDynamicValues } from "./showActions"
 import { _show } from "./shows"
@@ -58,6 +59,8 @@ export function toggleOutput(id: string) {
 let resetActionTrigger = false
 export function setOutput(type: string, data: any, toggle = false, outputId = "", add = false) {
     const ref = data?.layout ? _show(data.id).layouts([data.layout]).ref()[0] || [] : []
+
+    customActionActivation("output_changed")
 
     // track usage (& set attributionString)
     if (type === "slide" && data?.id) {
@@ -115,7 +118,8 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
             // if current playing background is "foreground", clear it
             const currentBackground = get(outputs)[outs?.[0]]?.out?.background || {}
             const mediaData = get(media)[currentBackground.path || ""] || {}
-            if (mediaData.videoType === "foreground") clearBackground()
+            const mediaType = getMediaLayerType(currentBackground.path || "", mediaData)
+            if (mediaType === "foreground") clearBackground()
         }
 
         let toggleState = false
@@ -183,17 +187,15 @@ export function startFolderTimer(folderPath: string, file: { type: string; path:
     setOutput("transition", { duration: timer, folderPath })
 }
 
+// WIP smarter logging (based on time or based on percentage played)
 let justLogged = ""
 function appendShowUsage(showId: string) {
-    console.log(get(special).logSongUsage)
     if (!get(special).logSongUsage) return
 
-    console.log(get(showsCache), showId)
     const show = get(showsCache)[showId]
     if (!show) return
 
     // only log once in a row
-    console.log(justLogged)
     if (show.name === justLogged) return
     justLogged = show.name || ""
 
@@ -324,12 +326,22 @@ export function clearOverlayTimer(outputId: string, overlayId: string) {
 ///
 
 export function getAllOutputs() {
+    if (!Object.keys(get(outputs)).length) return [{ ...clone(defaultOutput), id: "default" }]
     // sort by normal first A-Z, then stage A-Z
     return sortObject(sortByName(keysToID(get(outputs))), "stageOutput")
     // return sortByName(keysToID(get(outputs)))
 }
 export function getAllEnabledOutputs() {
-    return getAllOutputs().filter((a) => a.enabled)
+    const outputsList = getAllOutputs()
+    const enabled = outputsList.filter((a) => a.enabled)
+    if (!enabled.length && isMainWindow()) {
+        outputs.update((a) => {
+            a[Object.keys(a)[0]].enabled = true
+            return a
+        })
+        return [outputsList[0]]
+    }
+    return enabled
 }
 
 export function getAllNormalOutputs() {
@@ -351,7 +363,19 @@ export function getWindowOutputId() {
 }
 
 export function getAllActiveOutputs() {
-    return getAllEnabledOutputs().filter((a) => !a.stageOutput && a.active)
+    const outputsList = getAllNormalOutputs()
+    const active = outputsList.filter((a) => a.active)
+    if (!active.length && isMainWindow()) {
+        outputs.update((a) => {
+            a[Object.keys(a)[0]].active = true
+            return a
+        })
+        return [outputsList[0]]
+    }
+    return active
+}
+export function getAllActiveOutputIds() {
+    return getAllActiveOutputs().map(({ id }) => id)
 }
 export function getFirstActiveOutput(_updater: any = null) {
     const firstActive = getAllActiveOutputs()[0]
@@ -410,6 +434,16 @@ export function findMatchingOut(id: string, updater: Outputs = get(outputs)): st
     // }
 
     return match
+}
+
+// used for checking if style template should be used as slide preview - only if all outputs have it
+export function allOutputsHasStyleTemplate(isScripture: boolean = false) {
+    const outputs = getAllNormalOutputs()
+    return outputs.every((output) => {
+        const style = output.style ? get(styles)[output.style] || null : null
+        const template = style?.[isScripture ? "templateScripture" : "template"]
+        return !!template
+    })
 }
 
 export function refreshOut(refresh = true) {
@@ -702,6 +736,8 @@ export function enableStageOutput(options: any = {}) {
 }
 
 export function changeStageOutputLayout(data: API_stage_output_layout) {
+    if (!data.stageLayoutId) return
+
     const outputIds = data.outputId ? [data.outputId] : Object.keys(get(outputs))
 
     outputs.update((a) => {
@@ -781,11 +817,15 @@ export function getCurrentMediaTransition() {
 
 // TEMPLATE
 
-export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], addOverflowTemplateItems = false, resetAutoSize = true, templateClicked = false) {
-    // if (!slideItems?.length && !addOverflowTemplateItems) return []
-    slideItems = clone(slideItems || []).filter((a) => a && (!templateClicked || !a.fromTemplate))
-
+export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], addOverflowTemplateItems = false, resetAutoSize = true, templateClicked = false, mode: string = "", customDynamicValues: { [key: string]: string | [string, string][] } = {}) {
+    slideItems = clone(slideItems || []).filter(Boolean)
     if (!templateItems.length) return slideItems
+
+    // only get items that are not from a template
+    slideItems = slideItems.filter((a) => !a.fromTemplate)
+
+    const originalTemplateItems = templateItems
+
     // it's the wrong way around when a template is converted to a slide/output, but it breaks more than it fixes at this time.
     // should be reversed, but people have to invert the order of their template items order.
     templateItems = clone(templateItems) // .reverse()
@@ -800,8 +840,10 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
     const sorted = sortItemsByType(templateItems)
     const sortedTemplateItems = clone(sorted)
 
+    const hasScriptureDynamicValue = customDynamicValues && templateItems?.some((item) => item?.lines?.some((line) => line?.text?.some((text) => text.value?.includes("{scripture"))))
+
     // reduce template textboxes to slide items
-    const slideTextboxes = slideItems.reduce((count, a) => (count += (a?.type || "text") === "text" ? 1 : 0), 0)
+    const slideTextboxes = hasScriptureDynamicValue ? 0 : slideItems.reduce((count, a) => (count += (a?.type || "text") === "text" ? 1 : 0), 0)
     if (!templateClicked && slideTextboxes < (sortedTemplateItems.text?.length || 0)) {
         sortedTemplateItems.text = sortedTemplateItems.text.slice(0, slideTextboxes)
     }
@@ -816,6 +858,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         if (!item) return
 
         const type = item.type || "text"
+        if (type === "text" && hasScriptureDynamicValue) return
 
         const templateItem = clone(sortedTemplateItems[type]?.shift())
         if (!templateItem) return finish()
@@ -823,8 +866,28 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         item.style = templateItem.style || ""
         item.align = templateItem.align || ""
 
+        // use template image unless it's empty
+        if (type === "media" && templateItem.src) item.src = templateItem.src
+
+        // don't alter text if item mode
+        if (mode === "item") return finish()
+
         if (resetAutoSize) delete item.autoFontSize
-        item.auto = templateItem.auto || false
+
+        // Handle auto and textFit properties
+        if (templateItem.auto !== undefined) {
+            // Template explicitly defines auto
+            item.auto = templateItem.auto
+        } else if (templateItem.textFit) {
+            // Template has textFit but not auto - enable auto (textFit implies auto-sizing)
+            if (templateItem.textFit !== "none") item.auto = true
+        } else if (templateItem.auto === undefined && templateItem.textFit === undefined) {
+            // Template defines neither - disable auto-sizing (simple static template)
+            item.auto = false
+            delete item.textFit
+        }
+
+        // Apply textFit if template defines it
         if (templateItem.textFit) item.textFit = templateItem.textFit
         if (templateItem.list) item.list = templateItem.list
 
@@ -836,7 +899,8 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
 
         // remove exiting styling & add new if set in template
         // WIP some keys are probably missing here...
-        const extraStyles = ["chords", "textFit", "actions", "specialStyle", "scrolling", "bindings", "conditions", "clickReveal", "lineReveal", "fit", "filter", "flipped", "flippedY"]
+        // NOTE: textFit is already handled above in the auto/textFit logic block
+        const extraStyles = ["chords", "actions", "specialStyle", "scrolling", "bindings", "conditions", "clickReveal", "lineReveal", "fit", "filter", "flipped", "flippedY"]
         extraStyles.forEach((key) => {
             delete item[key]
             if (templateItem[key]) item[key] = templateItem[key]
@@ -853,6 +917,8 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
             )
         ] as string[]
 
+        const hasDynamicValue = templateItem?.lines?.some((line) => line?.text?.some((text) => text.value?.includes("{")))
+
         item.lines?.forEach((line, j) => {
             let templateLine = templateItem?.lines?.[j] || templateItem?.lines?.[0]
             if (!templateLine) return
@@ -860,12 +926,11 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
             // remove empty text parts (if not completely empty)
             if (templateLine.text.some((a) => a?.value?.trim().length)) templateLine.text = templateLine.text.filter((a) => a?.value?.trim().length)
 
-            const hasDynamicValue = templateLine?.text?.some((text) => text.value?.includes("{"))
-
             line.align = templateLine?.align || ""
             line.text?.forEach((text, k) => {
                 const templateText = templateLine?.text?.[k] || templateLine?.text?.[0]
-                if (!text.customType?.includes("disableTemplate") && !templateText?.value?.includes("{scripture_number}")) {
+
+                if (!text.customType?.includes("disableTemplate") && !/\{scripture(?:\d+)?_number\}/.test(templateText?.value || "")) {
                     let style = templateText?.style || ""
 
                     // add original text color, if template is not clicked & slide text has multiple colors
@@ -881,7 +946,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
                 const firstChar = templateText?.value?.[0] || ""
 
                 // add dynamic values
-                if (!text.value?.length && hasDynamicValue && templateItem?.lines?.[j]) {
+                if ((!text.value?.length || text.value?.includes("{")) && hasDynamicValue && templateItem?.lines?.[j]) {
                     text.value = templateText!.value
                 }
 
@@ -896,6 +961,9 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
                     line.text[k].value = text.value.replace(text.value[0], "").trim()
                 }
             })
+
+            // remove empty values
+            // line.text = line.text?.filter((a) => a?.value?.length) || []
         })
 
         finish()
@@ -904,7 +972,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         }
     })
 
-    if (addOverflowTemplateItems) {
+    if (addOverflowTemplateItems || hasScriptureDynamicValue) {
         const remainingTextTemplateItems = sorted.text?.slice(slideTextboxes) || []
         sortedTemplateItems.text = removeTextValue(remainingTextTemplateItems)
     } else {
@@ -941,7 +1009,98 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
     // add behind existing items (any textboxes previously on top not in use will not be replaced by any underneath)
     newSlideItems = [...remainingTemplateItems, ...newSlideItems, ...(sortedTemplateItems.text || [])]
 
+    newSlideItems = replaceScriptureValues(newSlideItems, originalTemplateItems, customDynamicValues)
+
     return newSlideItems // .reverse()
+}
+
+// WIP duplicate of getScriptureSlidesNew section in scripture.ts
+function replaceScriptureValues(items: Item[], templateItems: Item[], customDynamicValues: { [key: string]: string | [string, string][] } = {}) {
+    if (Object.keys(customDynamicValues).length) {
+        // extra styles
+        let verseNumberSize = 50 // get(scriptureSettings).numberSize || 50 // %
+        let verseNumberStyle = `color: ${get(scriptureSettings).numberColor || "#919191"};text-shadow: none;`
+        let verseNumberStyles: string[] = []
+        let baseStyle = ""
+
+        // find any text object with {scripture_number} and get the style
+        templateItems.forEach((item) => {
+            item.lines?.forEach((line) => {
+                line.text?.forEach((textObj) => {
+                    for (let i = 0; i <= 4; i++) {
+                        const numberValue = `{scripture${i === 0 ? "" : i}_number}`
+                        if (textObj.value?.includes(numberValue)) verseNumberStyles[i] = textObj.style || ""
+                    }
+                    if (textObj.value?.includes("{scripture_text}")) {
+                        const textStyle = textObj.style || ""
+                        if (textStyle && (item.textFit || "none") === "none") baseStyle = textStyle
+                    }
+                })
+            })
+        })
+
+        // set custom dynamic values (scripture)
+        let slideString = JSON.stringify(items)
+        Object.keys(customDynamicValues).forEach((key) => {
+            const value = customDynamicValues[key]
+            if (typeof value === "string") {
+                slideString = slideString.replace(new RegExp(`{${key}}`, "g"), value)
+            }
+        })
+
+        // remove style only values
+        for (let i = 0; i <= 4; i++) {
+            const numberValue = `{scripture${i === 0 ? "" : i}_number}`
+            slideString = slideString.replaceAll(`${numberValue} `, "").replaceAll(numberValue, "")
+        }
+
+        items = JSON.parse(slideString)
+
+        Object.keys(customDynamicValues).forEach((key) => {
+            const value = customDynamicValues[key]
+            if (Array.isArray(value)) {
+                // verse content [number, text]
+                items.forEach((item) => {
+                    item.lines?.forEach((line) => {
+                        const newTexts: { value: string; style: string; customType?: string }[] = []
+                        let insertAtPos = -1
+                        line.text?.forEach((text, i) => {
+                            if (text.value?.includes(`{${key}}`)) {
+                                insertAtPos = i
+                                text.value = "" // remove original text
+                                const style = text.style || ""
+
+                                const bibleIndex = parseInt(key.replace(/\D/g, "")) || 0
+
+                                value.forEach(([number, value]) => {
+                                    if (number && number !== "0") {
+                                        const size = verseNumberSize * (i === 0 ? 1.2 : 1)
+                                        const numberStyle = `;${verseNumberStyles[bibleIndex] || verseNumberStyles[0] || verseNumberStyle}font-size: ${size}px;margin-right: 0.3em;`
+                                        newTexts.push({ value: number, style: style + numberStyle, customType: "disableTemplate" })
+                                    }
+
+                                    newTexts.push({ value: value, style: style + ";" + baseStyle })
+                                })
+                            }
+                        })
+
+                        if (insertAtPos > -1) {
+                            line.text = [...line.text.slice(0, insertAtPos), ...newTexts, ...line.text.slice(insertAtPos + 1)]
+                        }
+                    })
+                })
+            }
+        })
+
+        // remove empty values
+        items.forEach((item) => {
+            item.lines?.forEach((line) => {
+                line.text = line.text?.filter((text) => text.value) || []
+            })
+        })
+    }
+
+    return items
 }
 
 export function updateSlideFromTemplate(slide: Slide, template: Template, isFirst = false, removeOverflow = false, firstTemplateId?: string) {
@@ -1026,9 +1185,11 @@ function getSlideItemsFromTemplate(templateSettings: TemplateSettings) {
 function removeTextValue(items: Item[]) {
     items.forEach((item) => {
         if (!item.lines) return
-        item.lines = item.lines.map((line) => {
-            const hasDynamicValue = line.text?.some((text) => text.value?.includes("{"))
 
+        // && !text.value?.includes("{scripture")
+        const hasDynamicValue = item.lines.some((line) => line.text?.some((text) => text.value?.includes("{")))
+
+        item.lines = item.lines.map((line) => {
             if (hasDynamicValue) return { align: line.align, text: line.text }
             return { align: line.align, text: [{ style: line.text?.[0]?.style, value: "" }] }
         })
@@ -1118,7 +1279,7 @@ export function getOutputTransitions(slideData: SlideData | null, styleTransitio
     return clone(transitions)
 }
 
-export function getStyleTemplate(outSlide: OutSlide, currentStyle: Styles | undefined) {
+export function getStyleTemplate(outSlide: OutSlide | null, currentStyle: Styles | undefined) {
     if (!currentStyle) return {} as Template
 
     // scripture
@@ -1138,18 +1299,41 @@ export function slideHasAutoSizeItem(slide: Slide | Template) {
     return slide?.items?.find((a) => a.auto)
 }
 
-export function setTemplateStyle(outSlide: OutSlide, currentStyle: Styles, items: Item[] | undefined, outputId: string) {
+export function setTemplateStyle(outSlide: OutSlide | null, currentStyle: Styles, items: Item[] | undefined, outputId: string, slideDynamicValues?: { [key: string]: any }) {
+    if (!Array.isArray(items)) return []
+
     const isDrawerScripture = outSlide?.id === "temp"
-    const slideItems = isDrawerScripture ? outSlide.tempItems : items?.filter(checkSpecificOutput)
+    const slideItems = isDrawerScripture ? outSlide.tempItems : items
+
+    const customDynamicValues = isDrawerScripture ? outSlide.customDynamicValues : slideDynamicValues
 
     const template = getStyleTemplate(outSlide, currentStyle)
     const templateItems = template.items || []
-    const newItems = mergeWithTemplate(slideItems || [], templateItems, true) || []
+    const mode = template?.settings?.mode
+
+    // console.log("[DEBUG - setTemplateStyle]", {
+    //     outSlideId: outSlide?.id,
+    //     templateId: currentStyle?.template,
+    //     templateMode: mode,
+    //     templateItemsCount: templateItems.length,
+    //     slideItemsCount: slideItems?.length,
+    //     templateAuto: templateItems?.find((i) => i.auto),
+    //     outputId
+    // })
+
+    const newItems = mergeWithTemplate(slideItems || [], templateItems, true, true, false, mode, customDynamicValues) || []
     newItems.push(...getSlideItemsFromTemplate(template.settings || {}))
 
-    return newItems
+    // console.log("[DEBUG - setTemplateStyle] After merge", {
+    //     newItemsCount: newItems.length,
+    //     newItemsAuto: newItems?.find((i) => i.auto)
+    // })
+
+    return newItems.filter(checkSpecificOutput)
 
     function checkSpecificOutput(item: Item) {
+        if (!item) return false
+        if (outSlide === null) return true // always show in slides preview
         return !item.bindings?.length || item.bindings.includes(outputId)
     }
 }
@@ -1233,122 +1417,66 @@ export function createMetadataLayout(layout: string, ref: any, _updater = 0) {
 }
 
 export interface OutputMetadata {
-    message?: { [key: string]: string }
     display?: string
     style?: string
     transition?: any
     value?: string
     media?: boolean
     condition?: any
-
-    messageStyle?: string
-    messageTransition?: any
 }
-const defaultMetadataStyle = "top: 910px;left: 50px;width: 1820px;height: 150px;opacity: 0.8;font-size: 30px;text-shadow: 2px 2px 4px rgb(0 0 0 / 80%);"
-const defaultMessageStyle = "top: 50px;left: 50px;width: 1820px;height: 150px;opacity: 0.8;font-size: 50px;text-shadow: 2px 2px 4px rgb(0 0 0 / 80%);"
-export function getMetadata(oldMetadata: any, show: Show | undefined, currentStyle: Styles, templatesUpdater = get(templates), outSlide: OutSlide | null) {
-    const metadata: OutputMetadata = { style: getTemplateStyle("metadata", templatesUpdater) || defaultMetadataStyle }
+const defaultMetadataItemStyle = "top: 910px;left: 30px;width: 1860px;height: 150px;"
+const defaultMetadataTextStyle = "font-size: 30px;color: rgb(255 255 255 / 0.8);text-shadow: 2px 2px 4px rgb(0 0 0 / 80%);"
+export function getMetadata(show: Show | undefined, currentStyle: Styles, outSlide: OutSlide | null, _updater = get(templates)) {
+    if (!show || !outSlide) return []
 
-    if (!show) return metadata
-    const settings: any = show.metadata || {}
-    const overrideOutput = settings.override
-    const templateId: string = overrideOutput ? settings.template : currentStyle.metadataTemplate || "metadata"
+    const showCategory = get(categories)[show.category || ""] || {}
+    const metadataValues = currentStyle.metadata || showCategory.metadata || {}
+    const display = metadataValues.display || "never"
+    if (display === "never") return []
 
-    metadata.media = settings.autoMedia
-    metadata.message = metadata.media ? {} : show.meta
-    metadata.display = overrideOutput ? settings.display : currentStyle.displayMetadata
-    metadata.style = getTemplateStyle(templateId, templatesUpdater) || defaultMetadataStyle
-    metadata.style += getTemplateAlignment(templateId, templatesUpdater)
-    metadata.transition = templatesUpdater[templateId]?.items?.[0]?.actions?.transition || null
-    metadata.condition = templatesUpdater[templateId]?.items?.[0]?.conditions || {}
+    const ref = clone(_show(outSlide.id).layouts([outSlide.layout]).ref()[0] || [])
+    const firstActiveSlideIndex = ref.findIndex((a) => !a.data.disabled)
+    const lastActiveSlideIndex = ref.length - 1 - [...ref].reverse().findIndex((a) => !a.data.disabled)
+    const displayMetadata = display === "always" || (display?.includes("first") && outSlide?.index === firstActiveSlideIndex) || (display?.includes("last") && outSlide?.index === lastActiveSlideIndex)
+    if (!displayMetadata) return []
 
-    const metadataTemplateValue = getItemTextArray(templatesUpdater[templateId]?.items?.[0])
-    // if (metadataTemplateValue || metadata.message || currentStyle)
-    getMetaValue()
-    function getMetaValue() {
-        if (metadata.media) {
-            metadata.value = oldMetadata.value || ""
-            return
+    // template
+    let templateId: string = metadataValues.template || "metadata"
+    // if first slide
+    if (display === "first_last" && outSlide?.index === firstActiveSlideIndex) templateId = metadataValues.templateFirst || templateId
+    if (display === "always") {
+        templateId = metadataValues.templateAll || "metadata"
+        // if first slide
+        if (outSlide?.index === firstActiveSlideIndex) templateId = metadataValues.templateFirst || templateId
+        else if (metadataValues.template && outSlide) {
+            // if last slide
+            if (outSlide?.index === lastActiveSlideIndex) templateId = metadataValues.template
         }
+    }
+    if (!get(templates)[templateId]) templateId = "metadata"
 
-        if (metadataTemplateValue.find((a) => a.includes("{"))) {
-            if (!outSlide) return
-            const ref = { showId: outSlide.id, layoutId: outSlide.layout, slideIndex: outSlide.index }
-            metadata.value = replaceDynamicValues(metadataTemplateValue.join("<br>"), ref)
-            return
+    const template = new TemplateHelper(templateId)
+    const items = template.getItems()
+
+    const hasDynamicValues = template.getPlainText().includes("{")
+    if (!hasDynamicValues) {
+        const value = joinMetadata(show.meta, "; ") || get(customMessageCredits)
+        const textboxItem = items.findIndex((a) => a.lines)
+        if (textboxItem === -1) {
+            items.push({ style: defaultMetadataItemStyle, type: "text", lines: [{ align: "", text: [{ value, style: defaultMetadataTextStyle }] }] })
+            return items
+        } else {
+            if (!items[textboxItem].lines?.[0].text?.[0]) items[textboxItem].lines = [{ align: "", text: [{ value, style: defaultMetadataTextStyle }] }]
+            else items[textboxItem].lines![0].text![0].value = value
         }
-
-        if (!metadata.message) return
-
-        // metadata.value = currentStyle.metadataLayout || DEFAULT_META_LAYOUT
-        metadata.value = joinMetadata(metadata.message, currentStyle.metadataDivider)
     }
 
-    const messageTemplate = overrideOutput ? show.message?.template || "" : currentStyle.messageTemplate || "message"
-    metadata.messageStyle = getTemplateStyle(messageTemplate, templatesUpdater) || defaultMessageStyle
-    metadata.messageStyle += getTemplateAlignment(messageTemplate, templatesUpdater)
-    metadata.messageTransition = templatesUpdater[messageTemplate]?.items?.[0]?.actions?.transition || null
-
-    return clone(metadata)
+    return items
 }
-export function joinMetadata(message: { [key: string]: string }, divider = "; ") {
-    return Object.values(message)
+export function joinMetadata(metadata: { [key: string]: string }, divider = "; ") {
+    return Object.values(metadata)
         .filter((a: string) => a.length)
         .join(divider)
-}
-
-function getTemplateStyle(templateId: string, templatesUpdater: Templates) {
-    if (!templateId) return
-    const template = templatesUpdater[templateId]
-    if (!template) return
-
-    const style = template.items?.[0]?.style || ""
-    const textStyle = template.items?.[0]?.lines?.[0]?.text?.[0]?.style || ""
-
-    return style + textStyle
-}
-
-function getTemplateAlignment(templateId: string, templatesUpdater: Templates) {
-    if (!templateId) return
-    const template = templatesUpdater[templateId]
-    if (!template) return
-
-    const itemAlign = template.items?.[0]?.align || ""
-    const lineAlign = template.items?.[0]?.lines?.[0]?.align || ""
-
-    return itemAlign + lineAlign.replace("text-align", "justify-content")
-}
-
-export function decodeExif(data: any) {
-    const message: any = {}
-
-    const exif = data.exif
-    if (!exif) return message
-
-    if (exif.exif.DateTimeOriginal) message.taken = "Date: " + exif.exif.DateTimeOriginal
-    if (exif.exif.ApertureValue) message.aperture = "Aperture: " + exif.exif.ApertureValue
-    if (exif.exif.BrightnessValue) message.brightness = "Brightness: " + exif.exif.BrightnessValue
-    if (exif.exif.ExposureTime) message.exposure_time = "Exposure Time: " + exif.exif.ExposureTime.toFixed(4)
-    if (exif.exif.FNumber) message.fnumber = "F Number: " + exif.exif.FNumber
-    if (exif.exif.Flash) message.flash = "Flash: " + exif.exif.Flash
-    if (exif.exif.FocalLength) message.focallength = "Focal Length: " + exif.exif.FocalLength
-    if (exif.exif.ISO) message.iso = "ISO: " + exif.exif.ISO
-    if (exif.exif.InteropOffset) message.interopoffset = "Interop Offset: " + exif.exif.InteropOffset
-    if (exif.exif.LightSource) message.lightsource = "Light Source: " + exif.exif.LightSource
-    if (exif.exif.ShutterSpeedValue) message.shutterspeed = "Shutter Speed: " + exif.exif.ShutterSpeedValue
-
-    if (exif.exif.LensMake) message.lens = "Lens: " + exif.exif.LensMake
-    if (exif.exif.LensModel) message.lensmodel = "Lens Model: " + exif.exif.LensModel
-
-    if (exif.gps.GPSLatitude) message.gps = "Position: " + exif.gps.GPSLatitudeRef + exif.gps.GPSLatitude[0]
-    if (exif.gps.GPSLongitude) message.gps += " " + exif.gps.GPSLongitudeRef + exif.gps.GPSLongitude[0]
-    if (exif.gps.GPSAltitude) message.gps += " " + exif.gps.GPSAltitude
-
-    if (exif.image.Make) message.device = "Device: " + exif.image.Make
-    if (exif.image.Model) message.device += " " + exif.image.Model
-    if (exif.image.Software) message.software = "Software: " + exif.image.Software
-
-    return message
 }
 
 export function getSlideFilter(slideData: SlideData | null) {

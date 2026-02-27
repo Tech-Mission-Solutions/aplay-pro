@@ -16,6 +16,7 @@
     import MaterialButton from "../../inputs/MaterialButton.svelte"
     import MaterialDropdown from "../../inputs/MaterialDropdown.svelte"
     import { getCustomStageLabel, updateStageShow } from "../stage"
+    import { getLikelyPosition } from "../../edit/scripts/autoPosition"
 
     type ItemRef = { id: string; icon?: string; name?: string; maxAmount?: number }
     const dynamicItems: ItemRef[] = [
@@ -65,6 +66,10 @@
                 style = `width: ${width}px;height: ${height}px;left: ${left}px;top: ${top}px;`
             }
 
+            if (Object.keys(a[stageId]?.items).length > 0) {
+                style = getLikelyPosition(Object.values(a[stageId].items), style)
+            }
+
             let item: StageItem = { type: itemType, style, align: "" }
 
             if (itemType === "text") item.lines = [{ align: "", text: [{ style: "", value: textValue || "" }] }]
@@ -74,13 +79,14 @@
             }
 
             a[stageId].items[itemId] = item
+            a[stageId].modified = Date.now()
             return a
         })
 
         updateSortedStageItems()
 
         // select item
-        if (Object.keys($stageShows[stageId]?.items).length > 1) {
+        if (Object.keys($stageShows[stageId]?.items || {}).length > 1) {
             activeStage.update((a) => {
                 a.items = [itemId]
                 return a
@@ -121,7 +127,7 @@
     $: allItems = getSortedStageItems(stageId, $stageShows)
     $: invertedItemList = Array.isArray(allItems) ? clone(allItems).reverse() : []
 
-    const excludeValues = ["project_", "time_", "audio_", "meta_", "slide_text_previous", "slide_text_next"]
+    const excludeValues = ["project_", "time_", "exif_", "audio_", "meta_", "slide_text_", "show_text_full"]
     const ref = { type: "stage" }
     const dynamicValues = getDynamicIds()
         .filter((id) => !excludeValues.find((v) => id.includes(v))) // || id.startsWith("project_")
@@ -214,8 +220,8 @@
                             {#if getIdentifier[type]}<p style="margin-inline-start: 10px;max-width: 120px;opacity: 0.5;font-size: 0.8em;max-width: 40%;">{getIdentifier[type](currentItem)}</p>{/if}
                         </span>
                         <span>
-                            <MaterialButton disabled={i === allItems.length - 1} icon="down" style="padding: 8px;" on:click={() => rearrangeStageItems("backward", id)} />
-                            <MaterialButton disabled={i === 0} icon="up" style="padding: 8px;" on:click={() => rearrangeStageItems("forward", id)} />
+                            <MaterialButton disabled={i === allItems.length - 1} icon="down" title="actions.backward" style="padding: 8px;" on:click={() => rearrangeStageItems("backward", id)} />
+                            <MaterialButton disabled={i === 0} icon="up" title="actions.forward" style="padding: 8px;" on:click={() => rearrangeStageItems("forward", id)} />
                         </span>
                     </MaterialButton>
                 {/each}

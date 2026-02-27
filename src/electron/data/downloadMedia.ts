@@ -11,79 +11,79 @@ import { encryptFile, getProtectedPath, registerProtectedMediaFile } from "./pro
 import { filePathHashCode } from "./thumbnails"
 
 export function downloadLessonsMedia(lessons: LessonsData[]) {
-  const replace = lessons.map(checkLesson)
+    const replace = lessons.map(checkLesson)
 
-  sendToMain(ToMain.REPLACE_MEDIA_PATHS, replace.flat())
+    sendToMain(ToMain.REPLACE_MEDIA_PATHS, replace.flat())
 }
 
 function checkLesson(lesson: LessonsData) {
-  const type = lesson.type || "lessons"
+    const type = lesson.type || "lessons"
 
-  downloadCount = 0
-  failedDownloads = 0
-  sendToMain(ToMain.LESSONS_DONE, { showId: lesson.showId, status: { finished: 0, failed: 0 } })
+    downloadCount = 0
+    failedDownloads = 0
+    sendToMain(ToMain.LESSONS_DONE, { showId: lesson.showId, status: { finished: 0, failed: 0 } })
 
-  const folderName = getValidFileName(lesson.name)
-  const lessonFolder = getDataFolderPath("lessons", folderName)
-  makeDir(lessonFolder)
+    const folderName = getValidFileName(lesson.name)
+    const lessonFolder = getDataFolderPath("lessons", folderName)
+    makeDir(lessonFolder)
 
-  return lesson.files
-    .map(file => {
-      const filePath = getFilePath(file)
-      if (!filePath) return
+    return lesson.files
+        .map((file) => {
+            const filePath = getFilePath(file)
+            if (!filePath) return
 
-      return downloadFile(filePath, file, lesson.showId)
-    })
-    .filter(a => a)
+            return downloadFile(filePath, file, lesson.showId)
+        })
+        .filter((a) => a)
 
-  function getFilePath(file: LessonFile) {
-    if (type === "planningcenter") return path.join(lessonFolder, file.name)
+    function getFilePath(file: LessonFile) {
+        if (type === "planningcenter") return path.join(lessonFolder, file.name)
 
-    if (file.streamUrl) file.fileType = "video/mp4"
-    const extension = getFileExtension(file.url, file.fileType)
-    if (!extension) return
+        if (file.streamUrl) file.fileType = "video/mp4"
+        const extension = getFileExtension(file.url, file.fileType)
+        if (!extension) return
 
-    let fileName = file.name
-    if (!fileName.includes("." + extension)) fileName += "." + extension
+        let fileName = file.name
+        if (!fileName.includes("." + extension)) fileName += "." + extension
 
-    return path.join(lessonFolder, fileName)
-  }
+        return path.join(lessonFolder, fileName)
+    }
 }
 
 function getFileExtension(url: string, fileType = "") {
-  if (fileType.includes("mp4") || url.includes(".mp4")) return "mp4"
-  if (fileType.includes("jpg") || fileType.includes("jpeg") || url.includes(".jpg") || url.includes(".jpeg")) return "jpg"
-  if (fileType.includes("png") || url.includes(".png")) return "png"
+    if (fileType.includes("mp4") || url.includes(".mp4")) return "mp4"
+    if (fileType.includes("jpg") || fileType.includes("jpeg") || url.includes(".jpg") || url.includes(".jpeg")) return "jpg"
+    if (fileType.includes("png") || url.includes(".png")) return "png"
 
-  return ""
+    return ""
 }
 
 function downloadFile(filePath: string, file: LessonFile, showId: string) {
-  const fileRef = { from: file.url, to: filePath, type: file.type }
+    const fileRef = { from: file.url, to: filePath, type: file.type }
 
-  if (doesPathExist(filePath)) {
-    // console.log(filePath + " exists!")
-    downloadCount++
-    sendToMain(ToMain.LESSONS_DONE, { showId, status: { finished: downloadCount, failed: failedDownloads } })
+    if (doesPathExist(filePath)) {
+        // console.log(filePath + " exists!")
+        downloadCount++
+        sendToMain(ToMain.LESSONS_DONE, { showId, status: { finished: downloadCount, failed: failedDownloads } })
+        return fileRef
+    }
+
+    addToDownloadQueue({ path: filePath, file, showId })
+
     return fileRef
-  }
-
-  addToDownloadQueue({ path: filePath, file, showId })
-
-  return fileRef
 }
 
 type DownloadFile = { path: string; file: LessonFile; showId: string }
 const downloadQueue: DownloadFile[] = []
 function addToDownloadQueue(file: DownloadFile) {
-  const alreadyInQueue = downloadQueue.find(a => a.path === file.path)
-  if (alreadyInQueue) {
-    downloadCount++
-    return
-  }
+    const alreadyInQueue = downloadQueue.find((a) => a.path === file.path)
+    if (alreadyInQueue) {
+        downloadCount++
+        return
+    }
 
-  downloadQueue.push(file)
-  initDownload()
+    downloadQueue.push(file)
+    initDownload()
 }
 
 let currentlyDownloading = 0
@@ -91,45 +91,45 @@ const maxAmount = 5
 const refillMargin = maxAmount * 0.6
 let waiting = false
 async function initDownload() {
-  if (waiting) return
+    if (waiting) return
 
-  if (!downloadQueue.length) {
-    if (currentlyDownloading < 1 && downloadCount) {
-      console.info(`${downloadCount} file(s) downloaded!`)
-      downloadCount = 0
-      failedDownloads = 0
+    if (!downloadQueue.length) {
+        if (currentlyDownloading < 1 && downloadCount) {
+            console.info(`${downloadCount} file(s) downloaded!`)
+            downloadCount = 0
+            failedDownloads = 0
 
-      return
+            return
+        }
+
+        // return setTimeout(initDownload, 500)
+        return
     }
 
-    // return setTimeout(initDownload, 500)
-    return
-  }
+    // generate a max amount at the same time
+    if (currentlyDownloading > maxAmount) {
+        waiting = true
+        await waitUntilValueIsDefined(() => currentlyDownloading < refillMargin)
+        waiting = false
+    }
 
-  // generate a max amount at the same time
-  if (currentlyDownloading > maxAmount) {
-    waiting = true
-    await waitUntilValueIsDefined(() => currentlyDownloading < refillMargin)
-    waiting = false
-  }
+    if (!downloadQueue[0]) {
+        downloadQueue.shift()
+        initDownload()
+        return
+    }
 
-  if (!downloadQueue[0]) {
-    downloadQueue.shift()
-    initDownload()
-    return
-  }
-
-  currentlyDownloading++
-  startDownload(downloadQueue.shift()!)
+    currentlyDownloading++
+    startDownload(downloadQueue.shift()!)
 }
 
 let downloadCount = 0
 let failedDownloads = 0
 let errorCount = 0
 function startDownload(data: DownloadFile) {
-  // download the media
-  const file = data.file
-  const url = file.url
+    // download the media
+    const file = data.file
+    const url = file.url
 
     if (!url) {
         currentlyDownloading--
@@ -137,122 +137,124 @@ function startDownload(data: DownloadFile) {
         return
     }
 
-  makeDir(path.dirname(data.path))
-  const fileStream = fs.createWriteStream(data.path)
-  console.info(`Downloading lessons media: ${file.name}`)
-  console.info(url)
-  https
-    .get(url, res => {
-      if (res.statusCode !== 200) {
-        fileStream.close()
-        fs.unlink(data.path, err => console.error(err))
+    makeDir(path.dirname(data.path))
+    const fileStream = fs.createWriteStream(data.path)
+    console.info(`Downloading lessons media: ${file.name}`)
+    console.info(url)
+    https
+        .get(url, (res) => {
+            if (res.statusCode !== 200) {
+                fileStream.close()
+                fs.unlink(data.path, (err) => console.error(err))
 
-        console.error(`Failed to download file, status code: ${String(res.statusCode)}`)
-        failedDownloads++
-        sendToMain(ToMain.LESSONS_DONE, { showId: data.showId, status: { finished: downloadCount, failed: failedDownloads } })
+                console.error(`Failed to download file, status code: ${String(res.statusCode)}`)
+                failedDownloads++
+                sendToMain(ToMain.LESSONS_DONE, { showId: data.showId, status: { finished: downloadCount, failed: failedDownloads } })
 
-        next()
-        return
-      }
+                next()
+                return
+            }
 
-      res.pipe(fileStream)
+            res.pipe(fileStream)
 
-      res.on("error", err => {
-        fileStream.close()
-        console.error(`Response error: ${err.message}`)
+            res.on("error", (err) => {
+                fileStream.close()
+                console.error(`Response error: ${err.message}`)
 
-        retry()
-      })
+                retry()
+            })
 
-      fileStream.on("error", err1 => {
-        fs.unlink(data.path, err2 => console.error(err2))
-        console.error(`File error: ${err1.message}`)
+            fileStream.on("error", (err1) => {
+                fs.unlink(data.path, (err2) => console.error(err2))
+                console.error(`File error: ${err1.message}`)
 
-        retry()
-      })
+                retry()
+            })
 
-      fileStream.on("finish", () => {
-        fileStream.close()
-        downloadCount++
-        console.error(`Finished downloading file: ${file.name}`)
-        sendToMain(ToMain.LESSONS_DONE, { showId: data.showId, status: { finished: downloadCount, failed: failedDownloads } })
+            fileStream.on("finish", () => {
+                fileStream.close()
+                downloadCount++
+                console.error(`Finished downloading file: ${file.name}`)
+                sendToMain(ToMain.LESSONS_DONE, { showId: data.showId, status: { finished: downloadCount, failed: failedDownloads } })
 
-        next()
-      })
-    })
-    .on("error", err => {
-      fileStream.close()
-      console.error(`Request error: ${err.message}`)
+                next()
+            })
+        })
+        .on("error", (err) => {
+            fileStream.close()
+            console.error(`Request error: ${err.message}`)
 
-      retry()
-    })
+            retry()
+        })
 
-  function next() {
-    clearTimeout(timeout)
-    currentlyDownloading--
-    initDownload()
-  }
-
-  function retry() {
-    if (errorCount > 5) {
-      failedDownloads++
-      sendToMain(ToMain.LESSONS_DONE, { showId: data.showId, status: { finished: downloadCount, failed: failedDownloads } })
-
-      next()
-      return
+    function next() {
+        clearTimeout(timeout)
+        currentlyDownloading--
+        initDownload()
     }
-    errorCount++
 
-    addToDownloadQueue(data)
-    next()
-  }
+    function retry() {
+        if (errorCount > 5) {
+            failedDownloads++
+            sendToMain(ToMain.LESSONS_DONE, { showId: data.showId, status: { finished: downloadCount, failed: failedDownloads } })
 
-  const timeout = setTimeout(
-    () => {
-      fileStream.close()
-      console.error(`File timed out: ${file.name}`)
-      next()
-    },
-    60 * 8 * 1000
-  ) // 8 minutes timeout
+            next()
+            return
+        }
+        errorCount++
+
+        addToDownloadQueue(data)
+        next()
+    }
+
+    const timeout = setTimeout(
+        () => {
+            fileStream.close()
+            console.error(`File timed out: ${file.name}`)
+            next()
+        },
+        60 * 8 * 1000
+    ) // 8 minutes timeout
 }
 
 /// //
 
-const downloading: string[] = []
+const downloading = new Set<string>()
 export function downloadMedia({ url, contentFile }: { url: string; contentFile?: any }) {
-  if (!url?.includes("http") || url?.includes("blob:")) return
+    if (!url?.startsWith("http") || url?.startsWith("blob:")) return
 
-  if (downloading.includes(url)) return
-  downloading.push(url)
+    if (downloading.has(url)) return
+    downloading.add(url)
 
-  console.info("Downloading online media: " + url)
+    const removeFromDownloading = () => downloading.delete(url)
 
-  const outputPath = getMediaThumbnailPath(url, contentFile)
+    console.info("Downloading online media: " + url)
 
-  // Check if provider-based encryption is needed
-  if (contentFile?.providerId) {
-    const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
-    if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
-      const encryptionKey = provider.getEncryptionKey?.()
-      if (!encryptionKey) {
-        console.error(`Provider ${contentFile.providerId} requires encryption but did not provide an encryption key`)
-        return
-      }
-      encryptFile(url, outputPath, encryptionKey)
-      return
+    const outputPath = getMediaThumbnailPath(url, contentFile)
+
+    // Check if provider-based encryption is needed
+    if (contentFile?.providerId) {
+        const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
+        if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
+            const encryptionKey = provider.getEncryptionKey?.()
+            if (!encryptionKey) {
+                console.error(`Provider ${contentFile.providerId} requires encryption but did not provide an encryption key`)
+                removeFromDownloading()
+                return
+            }
+            encryptFile(url, outputPath, encryptionKey).finally(removeFromDownloading)
+            return
+        }
     }
-  }
 
-  const fileStream = fs.createWriteStream(outputPath)
-  https
-    .get(url, res => {
-      if (res.statusCode !== 200) {
-        fileStream.close()
-        fs.unlink(outputPath, err => err && console.error(err))
-
+    const fileStream = fs.createWriteStream(outputPath)
+    https
+        .get(url, (res) => {
+            if (res.statusCode !== 200) {
+                fileStream.close()
+                fs.unlink(outputPath, (err) => err && console.error(err))
                 console.error(`Failed to download file, status code: ${String(res.statusCode)}`)
-                sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
+                error()
                 return
             }
 
@@ -269,22 +271,18 @@ export function downloadMedia({ url, contentFile }: { url: string; contentFile?:
             res.on("error", (err) => {
                 fileStream.close()
                 console.error(`Response error: ${err.message}`)
-                sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
-
-        retry()
-      })
+                error()
+            })
 
             fileStream.on("error", (err1) => {
                 fs.unlink(outputPath, (err2) => err2 && console.error(err2))
                 console.error(`File error: ${err1.message}`)
-                sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
-
-        retry()
-      })
+                error()
+            })
 
             fileStream.on("finish", async () => {
                 fileStream.close()
-                downloading.splice(downloading.indexOf(url), 1)
+                removeFromDownloading()
                 console.info(`Finished downloading file: ${url}`)
                 sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: totalSize, total: totalSize, status: "complete" })
             })
@@ -292,79 +290,72 @@ export function downloadMedia({ url, contentFile }: { url: string; contentFile?:
         .on("error", (err) => {
             fileStream.close()
             console.error(`Request error: ${err.message}`)
-            sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
+            error()
+        })
 
-      retry()
-    })
-
-  let errorCount2 = 0
-  function retry() {
-    if (errorCount2 > 5) {
-      return
+    function error() {
+        sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url, progress: 0, total: 0, status: "error" })
+        removeFromDownloading()
     }
-    errorCount2++
-  }
 
-  // const timeout = setTimeout(
-  //     () => {
-  //         fileStream.close()
-  //         console.error(`File timed out: ${url}`)
-  //     },
-  //     60 * 8 * 1000
-  // ) // 8 minutes timeout
+    // const timeout = setTimeout(
+    //     () => {
+    //         fileStream.close()
+    //         console.error(`File timed out: ${url}`)
+    //     },
+    //     60 * 8 * 1000
+    // ) // 8 minutes timeout
 }
 
 export async function checkIfMediaDownloaded({ url, contentFile }: { url: string; contentFile?: any }) {
-  if (!url?.includes("http")) return null
+    if (!url?.startsWith("http")) return null
 
     // still being downloaded
-    if (downloading.includes(url)) return { path: url, buffer: null, isDownloading: true }
+    if (downloading.has(url)) return { path: url, buffer: null, isDownloading: true }
 
     const outputPath = getMediaThumbnailPath(url, contentFile)
     if (!doesPathExist(outputPath)) return null
 
-
-
-  // Check if provider-based encryption is needed
-  if (contentFile?.providerId) {
-    const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
-    if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
-      try {
-        const protectedUrl = registerProtectedMediaFile({
-          filePath: outputPath,
-          providerId: contentFile.providerId,
-          mimeType: getMimeTypeFromContentFile(contentFile, outputPath)
-        })
-        if (!protectedUrl) {
-          console.error(`Failed to register protected media for ${url}`)
-          return null
+    // Check if provider-based encryption is needed
+    if (contentFile?.providerId) {
+        const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
+        if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
+            try {
+                const protectedUrl = registerProtectedMediaFile({
+                    filePath: outputPath,
+                    providerId: contentFile.providerId,
+                    mimeType: getMimeTypeFromContentFile(contentFile, outputPath)
+                })
+                if (!protectedUrl) {
+                    console.error(`Failed to register protected media for ${url}`)
+                    return null
+                }
+                return { path: outputPath, buffer: null, protectedUrl }
+            } catch (err) {
+                console.error(`Failed to prepare protected media: ${url}`, err)
+                return null
+            }
         }
-        return { path: outputPath, buffer: null, protectedUrl }
-      } catch (err) {
-        console.error(`Failed to prepare protected media: ${url}`, err)
-        return null
-      }
     }
-  }
 
     return { path: outputPath, buffer: null }
 }
 
 function getMediaThumbnailPath(url: string, contentFile?: any) {
-  // Check if provider-based encryption is needed
-  if (contentFile?.providerId) {
-    const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
-    if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
-      return getProtectedPath(url)
+    // Check if provider-based encryption is needed
+    if (contentFile?.providerId) {
+        const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
+        if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
+            return getProtectedPath(url)
+        }
     }
-  }
 
     const urlWithoutQuery = url.split("?")[0]
     const extension = path.extname(urlWithoutQuery)
     const fileName = `${filePathHashCode(url)}${extension}`
     const outputFolder = getDataFolderPath("onlineMedia")
 
-  return path.join(outputFolder, fileName)
+    return path.join(outputFolder, fileName)
 }
 
 function getMimeTypeFromContentFile(contentFile: any, fallbackPath: string) {

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onDestroy, onMount } from "svelte"
+    import { onDestroy } from "svelte"
     import type { Item, OutSlide, SlideData, Transition } from "../../../../types/Show"
     import { showsCache } from "../../../stores"
     import { shouldItemBeShown } from "../../edit/scripts/itemHelpers"
@@ -7,6 +7,7 @@
     import { loadCustomFonts } from "../../helpers/fonts"
     import Textbox from "../../slide/Textbox.svelte"
     import SlideItemTransition from "../transitions/SlideItemTransition.svelte"
+    import { waitUntilValueIsDefined } from "../../../utils/common"
 
     export let outputId: string
     export let outSlide: OutSlide
@@ -27,11 +28,14 @@
     export let transitionEnabled = false
     export let styleIdOverride = ""
 
-    onMount(() => {
+    let origin = ""
+    $: if (outSlide.id) updateShow()
+    function updateShow() {
         // custom fonts
         const currentShow = $showsCache[outSlide.id]
         if (currentShow?.settings?.customFonts) loadCustomFonts(currentShow.settings.customFonts)
-    })
+        origin = currentShow?.origin || ""
+    }
 
     // TEST:
     // conditions
@@ -72,10 +76,10 @@
     const showItemRef = { outputId, slideIndex: outSlide?.index }
     // $: videoTime = $videosTime[outputId] || 0 // WIP only update if the items text has a video dynamic value
     // $: if ($activeTimers || $variables || $playingAudio || $playingAudioPaths || videoTime) updateValues()
-    let updater = 0
+    let conditionsUpdater = 0
     const updaterInterval = setInterval(() => {
         if (isClearing) return
-        if (currentItems.find((a) => a.conditions)) updater++
+        if (currentItems.find((a) => a?.conditions)) conditionsUpdater++
     }, 300)
     onDestroy(() => clearInterval(updaterInterval))
 
@@ -152,7 +156,11 @@
         return item?.id ? String(item.id) : `idx-${index}`
     }
 
-    function updateItems() {
+    let isClearingToEmpty = false
+    async function updateItems() {
+        let betweenClearingTransition = transition.between || transition
+        if (betweenClearingTransition?.type === "none") betweenClearingTransition.duration = 0
+
         if (!currentSlideItems?.length) {
             scheduleAutoSizePrecompute([])
             currentItems = []
@@ -166,8 +174,17 @@
                 lines: clone(lines),
                 currentStyle: clone(currentStyle)
             }
+
+            // wait for items to properly clear
+            // if changing quickly from text to empty to text again, the first text will be displayed again (due to Svelte transition bug)
+            if (transitionEnabled) {
+                isClearingToEmpty = true
+                setTimeout(() => (isClearingToEmpty = false), betweenClearingTransition.duration)
+            }
             return
         }
+
+        if (isClearingToEmpty) await waitUntilValueIsDefined(() => !isClearingToEmpty, 10, betweenClearingTransition.duration)
 
         scheduleAutoSizePrecompute(currentSlide.items)
 
@@ -186,7 +203,7 @@
         if (currentTransition?.type === "none") currentTransition.duration = 0
 
         let currentTransitionDuration = transitionEnabled ? (itemTransitionDuration ?? currentTransition?.duration ?? 0) : 0
-        let waitToShow = currentTransitionDuration * 0.5
+        let waitToShow = currentTransitionDuration * ((currentTransition?.fadeInOffset ?? 50) / 100)
 
         // Identify items that are unchanged and have no real transition (to skip redraw)
         const newPersistentIndexes: number[] = []
@@ -275,69 +292,67 @@
     }
 </script>
 
-<!-- Persistent items: unchanged content with no transition, rendered outside {#key} to avoid flicker -->
-{#each persistentItems as item, idx}
-    {@const index = persistentItemIndexes[idx]}
-    {#if shouldItemBeShown(item, currentItems, showItemRef, updater) && (!item.clickReveal || current.outSlide?.itemClickReveal)}
-        <Textbox
-            backdropFilter={current.slideData?.["backdrop-filter"] || ""}
-            disableListTransition={mirror}
-            chords={item.chords?.enabled}
-            animationStyle={animationData.style || {}}
-            {item}
-            transition={null}
-            {ratio}
-            {outputId}
-            ref={{ showId: current.outSlide?.id, slideId: current.currentSlide?.id, id: current.currentSlide?.id || "", layoutId: current.outSlide?.layout }}
-            linesStart={current.lines?.[currentLineId || ""]?.[item.lineReveal ? "linesStart" : "start"]}
-            linesEnd={current.lines?.[currentLineId || ""]?.[item.lineReveal ? "linesEnd" : "end"]}
-            clickRevealed={!!current.lines?.[currentLineId || ""]?.clickRevealed}
-            outputStyle={current.currentStyle}
-            {mirror}
-            {preview}
-            slideIndex={current.outSlide?.index}
-            {styleIdOverride}
-            autoSizeKey={createAutoSizeKey(item, index)}
-        />
+<!-- Render all items in original order to maintain z-index layering -->
+{#each currentItems as item, index}
+    {#if shouldItemBeShown(item, currentItems, showItemRef, conditionsUpdater) && (!item.clickReveal || current.outSlide?.itemClickReveal)}
+        {#if persistentItemIndexes.includes(index)}
+            <!-- Persistent item: unchanged content, render outside transition to avoid flicker -->
+            <Textbox
+                backdropFilter={current.slideData?.["backdrop-filter"] || ""}
+                disableListTransition={mirror}
+                chords={item.chords?.enabled}
+                animationStyle={animationData.style || {}}
+                {item}
+                transition={null}
+                {ratio}
+                {outputId}
+                ref={{ type: "show", showId: current.outSlide?.id, slideId: current.currentSlide?.id, id: current.currentSlide?.id || "", layoutId: current.outSlide?.layout }}
+                linesStart={current.lines?.[currentLineId || ""]?.[item.lineReveal ? "linesStart" : "start"]}
+                linesEnd={current.lines?.[currentLineId || ""]?.[item.lineReveal ? "linesEnd" : "end"]}
+                clickRevealed={!!current.lines?.[currentLineId || ""]?.clickRevealed}
+                outputStyle={current.currentStyle}
+                {mirror}
+                {preview}
+                slideIndex={current.outSlide?.index}
+                {styleIdOverride}
+                autoSizeKey={createAutoSizeKey(item, index)}
+            />
+        {:else}
+            <!-- Transitioning item: render with animation wrapper inside {#key} -->
+            {#key show}
+                {#if show}
+                    <SlideItemTransition {preview} {transitionEnabled} {transitioningBetween} globalTransition={transition} currentSlide={current.currentSlide} {item} outSlide={current.outSlide} lines={current.lines} currentStyle={current.currentStyle} let:customSlide let:customItem let:customLines let:customOut let:transition>
+                        <Textbox
+                            backdropFilter={current.slideData?.["backdrop-filter"] || ""}
+                            disableListTransition={mirror}
+                            chords={customItem.chords?.enabled}
+                            animationStyle={animationData.style || {}}
+                            item={customItem}
+                            {transition}
+                            {ratio}
+                            {outputId}
+                            ref={{ type: "show", showId: customOut?.id, slideId: customSlide?.id, id: customSlide?.id || "", layoutId: customOut?.layout, origin }}
+                            linesStart={customLines?.[currentLineId || ""]?.[item.lineReveal ? "linesStart" : "start"]}
+                            linesEnd={customLines?.[currentLineId || ""]?.[item.lineReveal ? "linesEnd" : "end"]}
+                            clickRevealed={!!customLines?.[currentLineId || ""]?.clickRevealed}
+                            outputStyle={current.currentStyle}
+                            {mirror}
+                            {preview}
+                            slideIndex={customOut?.index}
+                            {styleIdOverride}
+                            autoSizeKey={createAutoSizeKey(item, index)}
+                        />
+                    </SlideItemTransition>
+                {/if}
+            {/key}
+        {/if}
     {/if}
 {/each}
-
-<!-- Transitioning items: changed content or items with transitions, rendered inside {#key} for proper animation -->
-{#key show}
-    {#each currentItems as item, index}
-        {#if show && !persistentItemIndexes.includes(index) && shouldItemBeShown(item, currentItems, showItemRef, updater) && (!item.clickReveal || current.outSlide?.itemClickReveal)}
-            <SlideItemTransition {preview} {transitionEnabled} {transitioningBetween} globalTransition={transition} currentSlide={current.currentSlide} {item} outSlide={current.outSlide} lines={current.lines} currentStyle={current.currentStyle} let:customSlide let:customItem let:customLines let:customOut let:transition>
-                <!-- filter={current.slideData?.filterEnabled?.includes("foreground") ? current.slideData?.filter : ""} -->
-                <!-- backdropFilter={current.slideData?.filterEnabled?.includes("foreground") ? current.slideData?.["backdrop-filter"] : ""} -->
-                <Textbox
-                    backdropFilter={current.slideData?.["backdrop-filter"] || ""}
-                    disableListTransition={mirror}
-                    chords={customItem.chords?.enabled}
-                    animationStyle={animationData.style || {}}
-                    item={customItem}
-                    {transition}
-                    {ratio}
-                    {outputId}
-                    ref={{ showId: customOut?.id, slideId: customSlide?.id, id: customSlide?.id || "", layoutId: customOut?.layout }}
-                    linesStart={customLines?.[currentLineId || ""]?.[item.lineReveal ? "linesStart" : "start"]}
-                    linesEnd={customLines?.[currentLineId || ""]?.[item.lineReveal ? "linesEnd" : "end"]}
-                    clickRevealed={!!customLines?.[currentLineId || ""]?.clickRevealed}
-                    outputStyle={current.currentStyle}
-                    {mirror}
-                    {preview}
-                    slideIndex={customOut?.index}
-                    {styleIdOverride}
-                    autoSizeKey={createAutoSizeKey(item, index)}
-                />
-            </SlideItemTransition>
-        {/if}
-    {/each}
-{/key}
 
 {#if precomputeTargets.length}
     <div class="autosize-precompute" aria-hidden="true">
         {#each precomputeTargets as target (target.key)}
-            <Textbox item={target.item} {ratio} {outputId} outputStyle={currentStyle} {mirror} {preview} {styleIdOverride} ref={{ showId: outSlide?.id, slideId: currentSlide?.id, id: currentSlide?.id || "", layoutId: outSlide?.layout }} autoSizeKey={target.key} on:autosizeReady={handlePrecomputeReady} />
+            <Textbox item={target.item} {ratio} {outputId} outputStyle={currentStyle} {mirror} {preview} {styleIdOverride} ref={{ type: "show", showId: outSlide?.id, slideId: currentSlide?.id, id: currentSlide?.id || "", layoutId: outSlide?.layout }} autoSizeKey={target.key} on:autosizeReady={handlePrecomputeReady} />
         {/each}
     </div>
 {/if}

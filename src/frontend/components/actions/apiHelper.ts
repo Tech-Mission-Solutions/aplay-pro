@@ -296,9 +296,24 @@ export function changeVariable(data: API_variable) {
         else if (!data.variableAction) value = Number(data.value || variable.default || 0)
         key = "number"
     } else if (variable.type === "text_set") {
-        // if (key === "value") {
-        key = "activeTextSet" as any
-        value = Number(data.value ?? 1)
+        if (key === "text_set") {
+            let index = (data.text_set_number ?? 1) - 1
+            if (index === -1) index = variable.activeTextSet || 0
+            const setId = data.text_set
+            if (!setId) return
+
+            const allSets = variable.textSets || []
+            const currentSet = allSets[index] || {}
+            const newValue = (data.value || "") as string
+            allSets[index] = { ...currentSet, [setId]: newValue }
+
+            key = "textSets" as any
+            value = allSets
+        } else {
+            // key = "value"
+            key = "activeTextSet" as any
+            value = Number(data.value ?? 1) - 1
+        }
     } else if (data.value !== undefined) {
         value = data.value
         if (key === "value" && typeof value !== "boolean") key = variable.type
@@ -477,10 +492,22 @@ export function getClearedState() {
     return { all, background, slide, overlays: overlaysCleared, audio, slideTimers }
 }
 
-// "1.1.1" = "Gen 1:1"
+// "1.1.1,2,3" = "Gen 1:1-3"
+// WIP allow "John 1:35-36" or "43:1:35" as well
 export function startScripture(data: API_scripture) {
     const split = data.reference.split(".")
-    const ref = { book: Number(split[0]), chapter: Number(split[1]), verses: [[split[2]]] }
+
+    const book = Number(split[0])
+    const chapter = Number(split[1])
+    const rawVerses = String(split[2] ?? "").trim()
+
+    // Support multiple verses encoded as comma-separated values, e.g. "43.3.16,17,18".
+    const verseItems = rawVerses
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean)
+
+    const ref = { book, chapter, verses: [verseItems.length ? verseItems : [rawVerses]] }
 
     if (get(activePage) !== "edit") activePage.set("show")
     if (data.id) setDrawerTabData("scripture", data.id) // use active if no ID
@@ -494,6 +521,7 @@ export function startScripture(data: API_scripture) {
 export function playMedia(data: API_media) {
     if (get(outLocked)) return
 
+    const mediaType = data.data?.type
     const extension = getMediaType(getExtension(data.path))
 
     if (extension === "pdf") {
@@ -508,7 +536,17 @@ export function playMedia(data: API_media) {
 
     const mediaStyle = getMediaStyle(get(media)[data.path], currentStyle)
 
-    setOutput("background", { path: data.path, ...mediaStyle })
+    // Get loop and muted settings from data, default to true
+    const loop = data.data?.loop !== undefined ? data.data.loop : true
+    const muted = data.data?.muted !== undefined ? data.data.muted : true
+
+    // Handle player (online media like YouTube/Vimeo)
+    if (mediaType === "player") {
+        setOutput("background", { type: "player", id: data.path, loop, muted, ...mediaStyle })
+    } else {
+        const type = mediaType || extension || "video"
+        setOutput("background", { type, path: data.path, loop, muted, ...mediaStyle })
+    }
 }
 
 export function videoSeekTo(data: API_seek) {
@@ -521,6 +559,40 @@ export function videoSeekTo(data: API_seek) {
     })
 
     send(OUTPUT, ["TIME"], timeValues)
+}
+
+export function toggleMediaLoop() {
+    if (get(outLocked)) return
+
+    const activeOutput = getFirstActiveOutput()
+    if (!activeOutput) return
+
+    const currentBg = get(outputs)[activeOutput.id]?.out?.background
+    if (!currentBg) return
+
+    const isLooping = currentBg.loop !== false
+    setOutput("background", { ...currentBg, loop: !isLooping })
+}
+
+export function getMediaLoopState(): boolean {
+    const activeOutput = getFirstActiveOutput()
+    if (!activeOutput) return true
+
+    const currentBg = get(outputs)[activeOutput.id]?.out?.background
+    return currentBg?.loop !== false
+}
+
+export function toggleMediaMute() {
+    if (get(outLocked)) return
+
+    const activeOutput = getFirstActiveOutput()
+    if (!activeOutput) return
+
+    const currentBg = get(outputs)[activeOutput.id]?.out?.background
+    if (!currentBg) return
+
+    const isMuted = currentBg.muted !== false
+    setOutput("background", { ...currentBg, muted: !isMuted })
 }
 
 // AUDIO
@@ -744,6 +816,7 @@ export async function getPDFThumbnails({ path }: API_media) {
 export function changeDrawZoom(data: API_draw_zoom) {
     const size = data.size || 100
     drawSettings.update((a) => {
+        if (!a.zoom) a.zoom = {}
         a.zoom.size = size
         return a
     })
@@ -768,6 +841,7 @@ export function addToProject(data: API_add_to_project) {
     projects.update((a) => {
         if (!a[data.projectId]?.shows || a[data.projectId].shows.find((item) => item.id === data.id)) return a
         a[data.projectId].shows.push({ ...(data.data || {}), id: data.id })
+        a[data.projectId].modified = Date.now()
         return a
     })
 

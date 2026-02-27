@@ -16,7 +16,7 @@ import { autoErrorReport } from "./IPC/responsesMain"
 import { receiveNDI } from "./ndi/talk"
 import { OutputHelper } from "./output/OutputHelper"
 import { callClose, exitApp, saveAndClose } from "./utils/close"
-import { isWithinDisplayBounds, mainWindowInitialize, openDevTools, parseCommandLineArgs, waitForBundle } from "./utils/init"
+import { isWithinDisplayBounds, mainWindowInitialize, openDevTools, parseCommandLineArgs, waitForBundle, isDraggableAreaVisible } from "./utils/init"
 import { template } from "./utils/menuTemplate"
 import { spellcheck } from "./utils/spellcheck"
 import { loadingOptions, mainOptions } from "./utils/windowOptions"
@@ -85,13 +85,13 @@ protocol.registerSchemesAsPrivileged([
 
 // start when ready
 if (RECORD_STARTUP_TIME) console.time("Full startup")
-app.on("ready", () => {
-    startApp()
+app.on("ready", async () => {
+    await startApp()
     requestHeaders()
 })
 
 export let powerSaveBlockerId: number | null = null
-function startApp() {
+async function startApp() {
     if (RECORD_STARTUP_TIME) console.time("Initial")
 
     // WIDEVINE
@@ -106,7 +106,7 @@ function startApp() {
 
     setTimeout(createLoading)
 
-    setupStores()
+    await setupStores()
 
     registerProtectedProtocol()
 
@@ -167,14 +167,17 @@ function createMain() {
     if (bounds.x) options.x = bounds.x
     if (bounds.y) options.y = bounds.y
 
-    // check if window position is within a visible area
-    if (bounds.x && bounds.y && !isWithinDisplayBounds({ x: bounds.x, y: bounds.y })) {
+    // check if window position is within a visible area and draggable top area is accessible
+    if (bounds.x && bounds.y && (!isWithinDisplayBounds({ x: bounds.x, y: bounds.y }) || !isDraggableAreaVisible(bounds, options.width!))) {
         options.x = (screenBounds.width - options.width!) / 2
         options.y = (screenBounds.height - options.height!) / 2
     }
 
     // create window
     mainWindow = new BrowserWindow({ ...mainOptions, ...options })
+
+    // ensure correct dimensions regardless of DPI scaling (without this, the window changed size each startup when scale was not 100%)
+    mainWindow.setSize(options.width!, options.height!)
 
     // macos min size
     mainWindow.setMinimumSize(MIN_WINDOW_SIZE, MIN_WINDOW_SIZE)

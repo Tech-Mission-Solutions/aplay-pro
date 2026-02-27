@@ -9,7 +9,7 @@ import { defaultSettings, defaultSyncedSettings } from "../data/defaults"
 import { _store, safeStoreSet } from "../data/store"
 import { sendMain, sendToMain } from "../IPC/main"
 import { deleteFile, doesPathExist, getDataFolderPath, parseShow, readFile, writeFile } from "../utils/files"
-import { clone, wait } from "../utils/helpers"
+import { checkIfMatching, clone, wait } from "../utils/helpers"
 import { renameShows } from "../utils/shows"
 
 let isSaving = false
@@ -50,10 +50,7 @@ export async function save(data: SaveData) {
     // rename shows
     if (data.renamedShows) {
         const renamedShows = data.renamedShows.filter(({ id }: { id: string }) => !data.deletedShows?.find((a) => a.id === id))
-        renameShows(renamedShows, showsPath)
-        // rename should be sync, but sometimes it might not be finished right away
-        // so add some extra wait time just in case
-        await wait(200)
+        await renameShows(renamedShows, showsPath)
     }
 
     // shows
@@ -91,17 +88,6 @@ export async function save(data: SaveData) {
     if (!reset) sendToMain(ToMain.SAVE2, { closeWhenFinished: data.closeWhenFinished, customTriggers: data.customTriggers })
 
     isSaving = false
-}
-
-// a few keys might not be placed in the same order in JS object vs store file
-function checkIfMatching(a: any, b: any): boolean {
-    try {
-        if (!a || !b || typeof a !== "object" || typeof b !== "object") return false
-        return JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort())
-    } catch (err) {
-        console.warn("Failed to compare store data:", err)
-        return false
-    }
 }
 
 function isValidJSON(object: any) {

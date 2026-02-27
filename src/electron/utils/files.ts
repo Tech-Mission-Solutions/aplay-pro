@@ -7,14 +7,16 @@ import { ExifImage } from "exif"
 import fs, { type Stats } from "fs"
 import path, { join, parse } from "path"
 import { uid } from "uid"
+import upath from "upath"
 import { OUTPUT } from "../../types/Channels"
 import { Main } from "../../types/IPC/Main"
 import { ToMain } from "../../types/IPC/ToMain"
-import type { FileData, MainFilePaths, Subtitle } from "../../types/Main"
-import type { Show, TrimmedShows } from "../../types/Show"
+import type { FileFolder, MainFilePaths, Subtitle } from "../../types/Main"
+import type { Project } from "../../types/Projects"
+import type { Item, Show, TrimmedShows } from "../../types/Show"
 import { imageExtensions, mimeTypes, videoExtensions } from "../data/media"
-import { _store, appDataPath, config, getStore } from "../data/store"
-import { createThumbnail } from "../data/thumbnails"
+import { _store, appDataPath, config, getStore, setStore, setStoreValue } from "../data/store"
+import { createThumbnail, filePathHashCode } from "../data/thumbnails"
 import { sendMain, sendToMain } from "../IPC/main"
 import { OutputHelper } from "../output/OutputHelper"
 import { mainWindow, setAutoProfile, toApp } from "./../index"
@@ -57,6 +59,7 @@ export function readFolder(filePath: string): string[] {
 }
 
 export function deleteFolder(filePath: string) {
+    if (!filePath) return
     try {
         fs.rmSync(filePath, { recursive: true })
     } catch (err) {
@@ -100,6 +103,15 @@ export function readFolderAsync(filePath: string): Promise<string[]> {
     )
 }
 
+async function readFolderWithTypesAsync(folderPath: string): Promise<fs.Dirent[]> {
+    return new Promise((resolve, reject) => {
+        fs.readdir(folderPath, { withFileTypes: true }, (err, entries) => {
+            if (err) reject(err)
+            else resolve(entries)
+        })
+    })
+}
+
 export async function writeFileAsync(filePath: string, content: string | NodeJS.ArrayBufferView, id = ""): Promise<boolean> {
     // don't know if it's necessary to check the file
     if (await fileContentMatchesAsync(content, filePath)) return false
@@ -128,14 +140,59 @@ export function writeFile(filePath: string, content: string | NodeJS.ArrayBuffer
 }
 
 export function deleteFile(filePath: string) {
-    fs.unlink(filePath, (err) => actionComplete(err, "Could not delete file"))
+    try {
+        fs.unlinkSync(filePath)
+        return true
+    } catch (err) {
+        actionComplete(err, "Could not delete file")
+        return false
+    }
 }
 
-export function renameFile(filePath: string, oldName: string, newName: string) {
+export function deleteFileAsync(filePath: string) {
+    return new Promise<boolean>((resolve) => {
+        fs.unlink(filePath, (err) => {
+            actionComplete(err, "Could not delete file")
+            resolve(!err)
+        })
+    })
+}
+
+export function copyFileAsync(sourcePath: string, destPath: string) {
+    return new Promise<boolean>((resolve) => {
+        fs.copyFile(sourcePath, destPath, (err) => {
+            actionComplete(err, "Could not copy file")
+            resolve(!err)
+        })
+    })
+}
+
+export function moveFileAsync(oldPath: string, newPath: string) {
+    return new Promise<boolean>((resolve) => {
+        fs.rename(oldPath, newPath, async (err) => {
+            if (err && err.code === "EXDEV") {
+                // cross-device link not permitted, fallback to copy + delete
+                try {
+                    await copyFileAsync(oldPath, newPath)
+                    await deleteFileAsync(oldPath)
+                    resolve(true)
+                } catch (copyErr) {
+                    actionComplete(copyErr as Error, "Could not copy file for cross-device move")
+                    resolve(false)
+                }
+            } else {
+                actionComplete(err, "Could not rename file")
+                resolve(!err)
+            }
+        })
+    })
+}
+
+export async function renameFileAsync(filePath: string, oldName: string, newName: string) {
     const oldPath = path.join(filePath, oldName)
     const newPath = path.join(filePath, newName)
 
-    fs.rename(oldPath, newPath, (err) => actionComplete(err, "Could not rename file"))
+    return await moveFileAsync(oldPath, newPath)
 }
 
 export function getFileStats(filePath: string, disableLog = false) {
@@ -177,7 +234,7 @@ export function getValidFileName(filePath: string) {
 
 export function selectFilesDialog(title = "", filters: Electron.FileFilter, multiple = true, initialPath: string = ""): string[] {
     // crashes if empty in electron v37
-    if (!filters.extensions.length) filters.extensions = ["*"]
+    if (!filters.extensions?.length) filters.extensions = ["*"]
 
     const options: Electron.OpenDialogSyncOptions = { properties: ["openFile"], filters: [{ name: filters.name, extensions: filters.extensions }] }
     if (title) options.title = title
@@ -211,14 +268,15 @@ export const dataFolderNames = {
     backups: "Backups",
     scriptures: "Bibles",
     onlineMedia: "Online",
-    mediaBundle: "Media",
+    media: "Media",
     exports: "Exports",
     imports: "Imports",
     lessons: "Lessons",
     planningcenter: "Planning Center",
     recordings: "Recordings",
     audio: "Audio",
-    userData: "Config"
+    userData: "Config",
+    cloud: "Cloud"
 }
 
 // Documents/FreeShow
@@ -305,76 +363,74 @@ function getMediaFolderPath(name: Parameters<typeof app.getPath>[0]): string {
 }
 
 // READ_FOLDER
-export function getFolderContent(data: { path: string; disableThumbnails?: boolean; listFilesInFolders?: boolean }) {
-    const folderPath: string = data.path
-    const fileList: string[] = readFolder(folderPath)
+export async function readFolderContent(data: { path: string | string[]; depth?: number; generateThumbnails?: boolean; captureFolderContent?: boolean }) {
+    let folderContent = new Map<string, FileFolder>()
 
-    if (!fileList.length) {
-        return { path: folderPath, files: [], filesInFolders: [], folderFiles: {} }
-    }
+    if (!Array.isArray(data.path)) data.path = [data.path]
+    if (data.depth === undefined) data.depth = 0
 
-    const files: FileData[] = []
-    for (const name of fileList) {
-        const filePath = path.join(folderPath, name)
-        const stats = getFileStats(filePath)
-        if (stats) files.push({ ...stats, name, thumbnailPath: !data.disableThumbnails && isMedia() ? createThumbnail(filePath) : "" })
+    await Promise.all(
+        data.path.map(async (folderPath) => {
+            const stats = await getFileStatsAsync(folderPath)
+            if (!stats?.isDirectory()) return
 
-        function isMedia() {
-            if (stats!.folder) return false
-            return [...imageExtensions, ...videoExtensions].includes(stats!.extension.toLowerCase())
+            await getFolderContentRecursive(folderPath)
+        })
+    )
+
+    async function getFolderContentRecursive(folderPath: string, currentDepth: number = 0) {
+        let exceededDepth = currentDepth > data.depth!
+        if ((data.captureFolderContent && currentDepth < 2 ? false : exceededDepth) || folderContent.has(folderPath)) {
+            let filePaths: string[] = []
+            if (currentDepth === 1) {
+                const fileList = await readFolderAsync(folderPath)
+                filePaths = fileList.map((name) => path.join(folderPath, name))
+            }
+
+            folderContent.set(folderPath, { isFolder: true, path: folderPath, name: path.basename(folderPath), files: filePaths })
+            return
         }
+
+        const fileList = await readFolderAsync(folderPath)
+        const filePaths: string[] = fileList.map((name) => path.join(folderPath, name))
+
+        let captureThumbnailPaths = data.captureFolderContent && currentDepth === 1 ? getFirstMediaFiles(filePaths, 4) : []
+        let currentPaths = data.captureFolderContent && exceededDepth ? captureThumbnailPaths : filePaths
+
+        await Promise.all(
+            currentPaths.map(async (filePath) => {
+                const stats = await getFileStatsAsync(filePath)
+                if (!stats) return
+
+                if (stats.isDirectory()) {
+                    await getFolderContentRecursive(filePath, currentDepth + 1)
+                } else {
+                    let thumbnailPath = ""
+                    if (captureThumbnailPaths.includes(filePath) || (data.generateThumbnails && currentDepth === 0 && isMedia(path.extname(filePath).substring(1)))) {
+                        try {
+                            thumbnailPath = createThumbnail(filePath)
+                        } catch (err) {
+                            console.error("Thumbnail creation failed:", err)
+                        }
+                    }
+
+                    folderContent.set(filePath, { isFolder: false, path: filePath, name: path.basename(filePath), thumbnailPath, stats })
+                }
+            })
+        )
+
+        folderContent.set(folderPath, { isFolder: true, path: folderPath, name: path.basename(folderPath), files: filePaths })
     }
 
-    if (!files.length) {
-        return { path: folderPath, files: [], filesInFolders: [], folderFiles: {} }
-    }
-
-    // get first "layer" of files inside folder for searching
-    const filesInFolders: FileData[] = []
-    const folderFiles: { [key: string]: FileData[] } = {}
-    if (data.listFilesInFolders) {
-        const folders: FileData[] = files.filter((a) => a.folder)
-        if (folders.length < 15) folders.forEach(getFilesInFolder)
-    }
-
-    function getFilesInFolder(folder: FileData) {
-        const folderFileList: string[] = readFolder(folder.path)
-        folderFiles[folder.path] = []
-        if (!folderFileList.length) return
-
-        for (const name of folderFileList) {
-            const filePath = path.join(folder.path, name)
-            const stats = getFileStats(filePath)
-            if (!stats) return
-
-            if (!stats.folder) filesInFolders.push({ ...stats, name })
-            folderFiles[folder.path].push({ ...stats, name })
-        }
-    }
-
-    return { path: folderPath, files, filesInFolders, folderFiles }
+    return Object.fromEntries(folderContent)
 }
 
-// READ_FOLDERS
-export async function getFoldersContent(paths: { path: string }[]) {
-    const list: { [key: string]: FileData[] } = {}
+function isMedia(extension: string) {
+    return [...imageExtensions, ...videoExtensions].includes(extension.toLowerCase())
+}
 
-    for (const folderData of paths) {
-        const folderPath = folderData.path
-        const fileList = await readFolderAsync(folderPath)
-
-        const files: FileData[] = []
-        for (const name of fileList) {
-            const filePath = path.join(folderPath, name)
-            const stats = getFileStats(filePath)
-            const hasContent = !stats?.folder || !!(await readFolderAsync(filePath)).length
-            if (hasContent && stats) files.push({ ...stats, name })
-        }
-
-        list[folderPath] = files
-    }
-
-    return list
+function getFirstMediaFiles(paths: string[], count: number) {
+    return paths.filter((filePath: string) => isMedia(path.extname(filePath).substring(1))).slice(0, count)
 }
 
 export function getSimularPaths(data: { paths: string[] }) {
@@ -500,8 +556,14 @@ async function extractCodecInfo(data: { path: string }): Promise<{ path: string;
             const mp4boxfile = MP4Box.createFile()
             mp4boxfile.onError = (err: Error) => console.error("MP4Box error:", err)
             mp4boxfile.onReady = (info: { tracks: { codec: string }[]; [key: string]: any }) => {
-                const codecs = info.tracks.map((track: { codec: string }) => track.codec)
                 const mimeType = getMimeType(data.path)
+
+                if (!Array.isArray(info?.tracks)) {
+                    resolve({ ...data, codecs: [], mimeType, mimeCodec: "" })
+                    return
+                }
+
+                const codecs = info.tracks.map((track: { codec: string }) => track.codec)
                 const mimeCodec = `${mimeType}; codecs="${codecs.join(", ")}"`
                 resolve({ ...data, codecs, mimeType, mimeCodec })
             }
@@ -549,6 +611,11 @@ async function extractSubtitles(data: { path: string }): Promise<{ path: string;
         const mp4boxfile = MP4Box.createFile()
         mp4boxfile.onError = (e: Error) => console.error("MP4Box error:", e)
         mp4boxfile.onReady = (info: any) => {
+            if (!Array.isArray(info?.tracks)) {
+                resolve({ ...data, tracks: [] })
+                return
+            }
+
             const tracks: Subtitle[] = []
             let trackCount = 0
             let completed = 0
@@ -614,103 +681,243 @@ function formatTimestamp(timestamp: number) {
 
 /// ///
 
+export function getMediaSyncFolderPath() {
+    return getStore("config").mediaFolderPath || getDataFolderPath("media")
+}
+export function setMediaSyncFolderPath(folderPath: string) {
+    setStoreValue({ file: "config", key: "mediaFolderPath", value: folderPath })
+}
+
+function fileNamesMatch(nameA: string, nameB: string) {
+    return normalizeFileNameForMatch(nameA) === normalizeFileNameForMatch(nameB)
+}
+function normalizeFileNameForMatch(name: string) {
+    return name.normalize("NFC").toLowerCase()
+}
+
 // SEARCH FOR MEDIA FILE (in drawer media folders & their following folders)
 const NESTED_SEARCH = 8 // folder levels deep
-export async function locateMediaFile({ fileName, splittedPath, folders, ref }: { fileName: string; splittedPath: string[]; folders: string[]; ref: { showId: string; mediaId: string; cloudId: string } }) {
-    const matches: string[] = []
+export async function locateMediaFile({ filePath, folders }: { filePath: string; folders: string[] }) {
+    if (await doesPathExistAsync(filePath)) return { path: filePath, hasChanged: false }
 
-    await findMatches()
-    if (!matches.length) return
+    // Media Sync Folder
+    const mediaFolder = getMediaSyncFolderPath()
+    const folderId = getFileParentFolderId(filePath)
+    const fileName = upath.basename(filePath)
+    const mediaFilePath = path.join(mediaFolder, folderId, fileName)
+    if (await doesPathExistAsync(mediaFilePath)) return { path: mediaFilePath, hasChanged: true }
+    const searchFolders = [mediaFolder, ...folders]
 
-    return { path: matches[0], ref }
+    // lookup already replaced paths from cache
+    const syncCache = getStore("CACHE_SYNC")
+    if (!syncCache.replacedPaths) syncCache.replacedPaths = {}
+    const cacheId = `${folderId}_${fileName}`
+    const cachedPath = syncCache.replacedPaths[cacheId]
+    if (cachedPath && (await doesPathExistAsync(cachedPath))) {
+        return { path: cachedPath, hasChanged: false }
+    }
+
+    const parentFolderName = upath.basename(upath.dirname(filePath))
+
+    const newPath = await findMatches()
+    if (!newPath) return null
+
+    // store replaced path in cache
+    syncCache.replacedPaths[cacheId] = newPath
+    setStore(_store.CACHE_SYNC, syncCache)
+
+    return { path: newPath, hasChanged: true }
 
     async function findMatches() {
-        for (const folderPath of folders) {
-            // if (matches.length > 1) return // this might be used if we want the user to choose if more than one match is found
-            if (matches.length) return
-            await searchInFolder(folderPath)
+        for (const folderPath of searchFolders) {
+            const newPath = await searchInFolder(folderPath)
+            if (newPath) return newPath
         }
+        return null
     }
 
-    async function searchInFolder(folderPath: string, level = 1) {
-        if (level > NESTED_SEARCH || matches.length) return
+    async function searchInFolder(folderPath: string, level = 1): Promise<string | null> {
+        if (level > NESTED_SEARCH) return null
+        if (!(await doesPathExistAsync(folderPath))) return null
 
-        const currentFolderFolders: string[] = []
-        const files = await readFolderAsync(folderPath)
+        // check any path with same parent folder for matches first to limit search a bit
+        // this should also help if multiple files has the same name, but originates from different folders
+        const potentialPath = path.join(folderPath, parentFolderName, fileName)
+        if (await doesPathExistAsync(potentialPath)) {
+            return potentialPath
+        }
 
-        await Promise.all(
-            files.map(async (name) => {
-                const currentFilePath: string = path.join(folderPath, name)
-                const isFolder = await checkIsFolder(currentFilePath)
+        let entries: fs.Dirent[] = []
+        try {
+            entries = await readFolderWithTypesAsync(folderPath)
+        } catch {
+            return null
+        }
 
-                if (isFolder) {
-                    // search all files in current folder before searching in any nested folders
-                    currentFolderFolders.push(currentFilePath)
-                } else {
-                    checkFileForMatch(name, folderPath)
-                    if (matches.length) return
-                }
-            })
-        )
+        const subFolders: string[] = []
 
-        if (matches.length) return
+        // ---- Scan files & collect subfolders
+        let found: string | null = null
 
-        await Promise.all(
-            currentFolderFolders.map(async (folderName) => {
-                await searchInFolder(folderName, level + 1)
-                if (matches.length) return
-            })
-        )
-    }
+        // search all files in current folder before searching in any nested folders
+        for (const entry of entries) {
+            const currentPath = path.join(folderPath, entry.name)
 
-    function checkFileForMatch(currentFileName: string, folderPath: string) {
-        // include original parent folder name in search first (to limit it a bit if two files with same name are in two different folders!)
-        if (splittedPath?.length > 1) {
-            const currentParentFolder = path.basename(folderPath)
-            const pathName = path.join(currentParentFolder, currentFileName)
-            const searchName = path.join(splittedPath[splittedPath.length - 2], fileName)
-            if (pathName === searchName) {
-                const filePath: string = path.join(folderPath, currentFileName)
-                matches.push(filePath)
+            if (entry.isDirectory()) {
+                subFolders.push(currentPath)
+                continue
+            }
+
+            if (fileNamesMatch(entry.name, fileName)) {
+                return currentPath
             }
         }
 
-        if (matches.length) return
+        if (found) return found
 
-        // check for file name exact match
-        if (currentFileName === fileName) {
-            const filePath: string = path.join(folderPath, currentFileName)
-            matches.push(filePath)
-        }
+        // ---- Scan files in subfolders
+        await asyncPool(8, subFolders, async (sub) => {
+            if (found) return
+
+            const result = await searchInFolder(sub, level + 1)
+            if (result) {
+                found = result
+            }
+        })
+
+        return found
     }
 }
 
-async function checkIsFolder(filePath: string): Promise<boolean> {
-    return new Promise((resolve) =>
-        fs.stat(filePath, (err, stats) => {
-            resolve(err ? false : stats.isDirectory())
+// poolLimit = number of concurrent promises
+async function asyncPool<T>(poolLimit: number, array: T[], iteratorFn: (item: T) => Promise<void>) {
+    const ret: Promise<void>[] = []
+    const executing: Promise<void>[] = []
+
+    for (const item of array) {
+        if ((iteratorFn as any).shouldStop?.()) break
+        const p = Promise.resolve().then(() => iteratorFn(item))
+        ret.push(p)
+
+        if (poolLimit <= array.length) {
+            const e: Promise<void> = p.then(() => {
+                executing.splice(executing.indexOf(e), 1)
+            })
+            executing.push(e)
+
+            if (executing.length >= poolLimit) {
+                await Promise.race(executing)
+            }
+        }
+    }
+
+    await Promise.all(ret)
+}
+
+/////
+
+// detect new files in downloads folder for easy importing
+// - auto import .project files
+// - suggest importing videos/images/pdfs
+// - WIP extract & import zip files with media content
+export async function detectNewFiles() {
+    if (!getStore("SETTINGS").initialized) return
+
+    const downloadsFolder = app.getPath("downloads")
+    const MAX_TIME = 16 * 60 * 60 * 1000 // 16 hours
+    const ONE_MINUTE = 60 * 1000
+    const WRITE_WAIT_MS = 2000
+    const temporaryExtensions = [".crdownload", ".part", ".download", ".tmp"]
+
+    // read folder once and build known set
+    const dirListing = await readFolderAsync(downloadsFolder)
+    const knownFiles = new Set(dirListing)
+
+    // initial recent files
+    const cutoff = Date.now() - MAX_TIME
+    const allRecentFiles: string[] = []
+    for (const fileName of dirListing) {
+        if (!fileName) continue
+        const ext = path.extname(fileName).toLowerCase()
+        if (temporaryExtensions.includes(ext)) continue
+
+        const filePath = path.join(downloadsFolder, fileName)
+        const stats = await getFileStatsAsync(filePath)
+        if (!stats) continue
+
+        if (stats.birthtimeMs < cutoff) continue
+
+        allRecentFiles.push(filePath)
+    }
+
+    sendToMain(ToMain.RECENTLY_ADDED_FILES, { paths: allRecentFiles })
+
+    // watch for file changes
+    try {
+        fs.watch(downloadsFolder, { persistent: false }, async (eventType, filename) => {
+            if (eventType !== "rename" || !filename) return
+
+            const ext = path.extname(filename).toLowerCase()
+            if (temporaryExtensions.includes(ext)) return
+
+            const filePath = path.join(downloadsFolder, filename)
+
+            const exists = await doesPathExistAsync(filePath)
+            if (!exists) {
+                const isKnown = knownFiles.delete(filename)
+                if (!isKnown) return
+
+                const idx = allRecentFiles.indexOf(filePath)
+                if (idx === -1) return
+
+                allRecentFiles.splice(idx, 1)
+                sendToMain(ToMain.RECENTLY_ADDED_FILES, { paths: allRecentFiles })
+                return
+            }
+
+            if (knownFiles.has(filename)) return
+
+            // treat as potential new download after a short write-wait
+            setTimeout(async () => {
+                const stats = await getFileStatsAsync(filePath)
+                if (!stats) return
+
+                knownFiles.add(filename)
+                if (stats.birthtimeMs < Date.now() - ONE_MINUTE) return
+
+                if (!allRecentFiles.includes(filePath)) allRecentFiles.push(filePath)
+                sendToMain(ToMain.RECENTLY_ADDED_FILES, { paths: allRecentFiles })
+            }, WRITE_WAIT_MS)
         })
-    )
+    } catch (err) {
+        console.warn("No permission to watch folder:", err)
+    }
 }
 
 /// ///
 
-// BUNDLE MEDIA FILES FROM ALL SHOWS (IMAGE/VIDEO/AUDIO)
+// region: BUNDLE MEDIA FILES FROM ALL SHOWS AND PROJECTS (IMAGE/VIDEO/AUDIO)
 let currentlyBundling = false
-export function bundleMediaFiles() {
+/**
+ * Bundles media files from all shows and projects
+ * @param openFolderWhenDone [default=false] Whether to open the output folder when done
+ */
+export function bundleMediaFiles({ openFolder = false }: { openFolder?: boolean } = {}) {
     if (currentlyBundling) return
     currentlyBundling = true
 
-    const showsPath = getDataFolderPath("shows")
+    let allMediaFiles: string[] = []
+    function addFile(filePath: string | undefined) {
+        if (filePath) allMediaFiles.push(filePath)
+    }
 
+    // shows
+    const showsPath = getDataFolderPath("shows")
     let showsList = readFolder(showsPath)
     showsList = showsList
         .filter((name) => name.toLowerCase().endsWith(".show")) // only .show files
         .filter((trimmedName) => trimmedName) // remove files with no name
 
-    let allMediaFiles: string[] = []
-
-    for (const name of showsList) readShow(name)
     function readShow(fileName: string) {
         const showPath: string = path.join(showsPath, fileName)
         const jsonData = readFile(showPath) || "{}"
@@ -721,10 +928,40 @@ export function bundleMediaFiles() {
         // media backgrounds & audio
         Object.values(show.media || {}).forEach((media) => {
             const mediaPath = media.path || media.id
-            if (mediaPath) allMediaFiles.push(mediaPath)
+            if (mediaPath) addFile(mediaPath)
         })
 
-        // WIP also copy media item paths? (only when it's supported by the auto find feature)
+        // slide media items
+        Object.values(show.slides || {}).forEach((a) => getItemsMedia(a.items || []))
+    }
+    for (const name of showsList) readShow(name)
+
+    // projects
+    function readProject(project: Project) {
+        project?.shows?.forEach((show) => {
+            const type = show.type || "show"
+            if (["image", "video", "audio", "pdf", "ppt"].includes(type)) {
+                addFile(show.id)
+            } else if (type === "folder") {
+                // WIP handle project media folders?
+            }
+        })
+    }
+    const projects = getStore("PROJECTS").projects as Project
+    Object.values(projects).forEach(readProject)
+
+    // get overlays media
+    const overlays = getStore("OVERLAYS")
+    Object.values(overlays).forEach((a) => getItemsMedia(a.items || []))
+
+    // get templates media
+    const templates = getStore("TEMPLATES")
+    Object.values(templates).forEach((a) => getItemsMedia(a.items || []))
+
+    function getItemsMedia(items: Item[]) {
+        items.forEach((item) => {
+            if (item.type === "media") addFile(item.src)
+        })
     }
 
     // remove duplicates
@@ -734,30 +971,64 @@ export function bundleMediaFiles() {
         return
     }
 
-    // get/create new folder
-    const outputPath = getDataFolderPath("mediaBundle")
+    // bundle should use default Media folder, and not any custom sync folders
+    const outputFolder = getDataFolderPath("media")
 
     // copy media files
-    allMediaFiles.forEach((mediaPath) => {
-        const fileName = path.basename(mediaPath)
-        const newPath = path.join(outputPath, fileName)
+    addToMediaFolder(allMediaFiles, outputFolder) // skip awaiting
 
-        // don't copy if it's already copied
-        if (doesPathExist(newPath)) return
-
-        fs.copyFile(mediaPath, newPath, (err) => {
-            if (err) console.error("Could not copy: " + mediaPath + "! File might not exist.")
-        })
-    })
-
-    // open folder
-    openInSystem(outputPath, true)
+    if (openFolder) openInSystem(outputFolder, true)
     currentlyBundling = false
+}
+
+export async function addToMediaFolder(mediaPaths: string[], outputFolder?: string) {
+    const mediaFolderPath = outputFolder || getMediaSyncFolderPath()
+    let changed = false
+
+    await Promise.all(
+        mediaPaths.map(async (mediaPath) => {
+            // if media path is already in media folder, skip
+            if (mediaPath.startsWith(mediaFolderPath)) return
+
+            // make sure original media exists
+            if (!(await doesPathExistAsync(mediaPath))) return
+
+            // ensure folder name is matching path in case files with the same name has the same parent folder name
+            const folderId = getFileParentFolderId(mediaPath)
+
+            const newFolderPath = path.join(mediaFolderPath, folderId)
+            createFolder(newFolderPath)
+
+            const fileName = path.basename(mediaPath)
+            const newMediaPath = path.join(newFolderPath, fileName)
+
+            const alreadyExists = await doesPathExistAsync(newMediaPath)
+            if (alreadyExists) {
+                // no need when we have the folder name path id
+                // double check that it's actually different
+                // const matches = await fileContentMatchesAsync(await readFileAsync(mediaPath), newMediaPath)
+                // if (matches) return
+                return
+            }
+
+            changed = true
+            await copyFileAsync(mediaPath, newMediaPath)
+        })
+    )
+
+    return changed
+}
+
+function getFileParentFolderId(filePath: string) {
+    const fileFolderPath = upath.dirname(filePath)
+    const parentFolderName = upath.basename(fileFolderPath)
+    const uniqueName = parentFolderName + "_" + filePathHashCode(fileFolderPath)
+    return uniqueName
 }
 
 // LOAD SHOWS
 
-export function loadShows(returnShows = false) {
+export function loadShows(returnShows = false, reCacheNames: string[] = []) {
     const showsPath = getDataFolderPath("shows")
 
     specialCaseFixer()
@@ -772,7 +1043,7 @@ export function loadShows(returnShows = false) {
     // create a map for quick lookup of cached shows by name
     const cachedShowNames = new Map<string, string>()
     for (const [id, show] of Object.entries(cachedShows)) {
-        if (show?.name) cachedShowNames.set(show.name, id)
+        if (show?.name && !reCacheNames.includes(show.name)) cachedShowNames.set(show.name, id)
     }
 
     filesInFolder = filesInFolder
@@ -816,12 +1087,7 @@ export function loadShows(returnShows = false) {
     if (returnShows) return newCachedShows
 
     // save this (for cloud sync)
-    try {
-        _store.SHOWS?.clear()
-        _store.SHOWS?.set(newCachedShows)
-    } catch (err) {
-        console.warn("Failed to save shows cache:", err)
-    }
+    setStore(_store.SHOWS, newCachedShows)
 
     return newCachedShows
 }

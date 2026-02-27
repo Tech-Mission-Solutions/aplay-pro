@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount } from "svelte"
-    import { activeFocus, activePage, activePopup, alertMessage, cachedShowsData, categories, focusMode, lessonsLoaded, notFound, outLocked, outputs, outputSlideCache, showsCache, slidesOptions, special, templates } from "../../stores"
+    import { activeEdit, activeFocus, activePage, activePopup, alertMessage, cachedShowsData, categories, focusMode, lessonsLoaded, notFound, outLocked, outputs, outputSlideCache, showsCache, slidesOptions, special, templates } from "../../stores"
     import { hasNewerUpdate, wait } from "../../utils/common"
     import { getAccess } from "../../utils/profile"
     import { videoExtensions } from "../../values/extensions"
@@ -12,10 +12,10 @@
     import { getCachedShow } from "../helpers/show"
     import { checkActionTrigger, getFewestOutputLines, getFewestOutputLinesReveal, getItemWithMostLines, updateOut } from "../helpers/showActions"
     import { _show } from "../helpers/shows"
-    import { getClosestRecordingSlide } from "../helpers/slideRecording"
     import T from "../helpers/T.svelte"
     import MaterialButton from "../inputs/MaterialButton.svelte"
     import Loader from "../main/Loader.svelte"
+    import SkeletonSlide from "../slide/SkeletonSlide.svelte"
     import Slide from "../slide/Slide.svelte"
     import Autoscroll from "../system/Autoscroll.svelte"
     import Center from "../system/Center.svelte"
@@ -29,7 +29,11 @@
     $: activeLayout = layout || $showsCache[showId]?.settings?.activeLayout
     $: layoutSlides = currentShow ? getCachedShow(showId, activeLayout, $cachedShowsData)?.layout || [] : []
 
+    let hasMounted = false
     onMount(() => {
+        // don't double render all slides on first load because of cachedShowsData update
+        setTimeout(() => (hasMounted = true), 80)
+
         // custom fonts
         if (currentShow?.settings?.customFonts) loadCustomFonts(currentShow.settings.customFonts)
     })
@@ -56,12 +60,18 @@
         })
     }
 
+    let shouldSkipSmooth = 0
+    $: if (showId) {
+        offset = 0
+        shouldSkipSmooth++
+    }
+
     let scrollElem: HTMLElement | undefined
     let offset = -1
-    $: updateOffset({ $outputs })
+    $: setTimeout(() => updateOffset({ $outputs, showId }))
     async function updateOffset(_updater: any) {
-        if (!loaded || !scrollElem) return
-        if (await hasNewerUpdate("SHOWS_SCROLL_OFFSET", 50)) return
+        if (!scrollElem) return
+        if (await hasNewerUpdate("SHOWS_SCROLL_OFFSET", 10)) return
 
         let output = $outputs[activeOutputs[0]] || {}
         if (showId === output.out?.slide?.id && activeLayout === output.out?.slide?.layout) {
@@ -123,15 +133,12 @@
             setOutput("slide", { id: showId, layout: activeLayout, index, line, revealCount, itemClickReveal })
             updateOut(showId, index, slideRef, !e.altKey)
 
-            getClosestRecordingSlide({ showId, layoutId: activeLayout }, index)
-
             // force update output if index is the same as previous
             if (activeSlides[index]) refreshOut()
         })
 
-        // WIP focus mode does not auto scroll on arrow navigation when many slides (that overflow view area)
-        // always auto scroll in focus mode (if not very many slides)
-        if ($focusMode && projectIndex > -1 && index < 10) {
+        // set to active in focus mode
+        if ($focusMode) {
             activeFocus.set({ id: showId, index: projectIndex, type: "show" })
             return
         }
@@ -155,17 +162,24 @@
         } else endIndex = null
     }
 
-    // update show by its template
     $: gridMode = mode === "grid" || mode === "simple" || mode === "groups"
-    $: if (showId && gridMode && !isLessons && loaded) setTimeout(updateTemplate, 100)
+
+    // update show by its template
+    $: if (showId && loaded) setTimeout(updateTemplate, 100)
     function updateTemplate() {
         if (!loaded) return
 
-        let showTemplate = currentShow?.settings?.template || ""
-        // get category template if no show template
-        if (!showTemplate || showTemplate === "default" || !$templates[showTemplate]) showTemplate = $categories[currentShow?.category || ""]?.template || ""
+        let currentTemplate = currentShow?.settings?.template || ""
+        let createItems = false
 
-        history({ id: "TEMPLATE", save: false, newData: { id: showTemplate }, location: { page: "show" } })
+        // override with category template if any
+        const categoryTemplate = $categories[currentShow?.category || ""]?.template || ""
+        if (categoryTemplate && $templates[categoryTemplate]) {
+            currentTemplate = categoryTemplate
+            createItems = true
+        }
+
+        history({ id: "TEMPLATE", save: false, newData: { id: currentTemplate, data: { createItems } }, location: { page: "show" } })
     }
 
     $: if (showId && $special.capitalize_words) capitalizeWords()
@@ -305,6 +319,7 @@
         if (isLocked) return
 
         history({ id: "SLIDES" })
+        activeEdit.set({ type: "show", slide: 0, items: [] })
         activePage.set("edit")
     }
 
@@ -452,7 +467,7 @@
 
 <svelte:window on:keydown={keydown} on:keyup={keyup} on:mousedown={keyup} on:blur={blurred} />
 
-<Autoscroll class={$focusMode || isLocked ? "" : "context #shows__close"} {offset} disabled={disableAutoScroll} bind:scrollElem style="display: flex;">
+<Autoscroll class={$focusMode || isLocked ? "" : "context #shows__close"} {offset} disabled={disableAutoScroll} {shouldSkipSmooth} bind:scrollElem style="display: flex;">
     <DropArea id="all_slides" selectChildren>
         <DropArea id="slides" hoverTimeout={0} selectChildren>
             {#if $showsCache[showId] === undefined}
@@ -467,15 +482,20 @@
                 <div class="grid" style={$focusMode ? "" : "padding-bottom: 60px;"}>
                     {#if layoutSlides.length}
                         {#each layoutSlides as slide, i}
-                            {#if (loaded || i < lazyLoader) && currentShow?.slides?.[slide.id] && (mode === "grid" || mode === "groups" || !slide.disabled) && (mode !== "groups" || currentShow.slides[slide.id].group !== null || activeSlides[i] !== undefined)}
-                                <Slide {showId} slide={currentShow.slides[slide.id]} show={currentShow} {layoutSlides} layoutSlide={slide} index={i} color={slide.color} output={activeSlides[i]} active={activeSlides[i] !== undefined} {endIndex} list={!gridMode} columns={$slidesOptions.columns} icons {altKeyPressed} disableThumbnails={isLessons && !loaded} centerPreview on:click={(e) => slideClick(e, i)} />
+                            {@const currentSlide = currentShow?.slides?.[slide.id]}
+                            {#if hasMounted && (loaded || i < lazyLoader)}
+                                {#if currentSlide && (mode === "grid" || mode === "groups" || !slide.disabled) && (mode !== "groups" || currentSlide.group !== null || activeSlides[i] !== undefined)}
+                                    <Slide {showId} slide={currentSlide} show={currentShow} {layoutSlides} layoutSlide={slide} index={i} color={slide.color} output={activeSlides[i]} active={activeSlides[i] !== undefined} {endIndex} list={!gridMode} columns={$slidesOptions.columns} icons {altKeyPressed} disableThumbnails={isLessons && !loaded} centerPreview on:click={(e) => slideClick(e, i)} />
+                                {/if}
+                            {:else}
+                                <SkeletonSlide slide={currentSlide} index={i} color={slide.color} columns={$slidesOptions.columns} active={activeSlides[i] !== undefined} on:click={(e) => slideClick(e, i)} />
                             {/if}
                         {/each}
                     {:else}
                         <Center absolute>
                             <span style="opacity: 0.5;font-size: 2em;margin-bottom: 10px;"><T id="empty.slides" /></span>
 
-                            <MaterialButton disabled={isLocked} icon="add" title="tooltip.project" style="justify-content: start;padding: 8px 12px;" on:click={createSlide}>
+                            <MaterialButton variant="outlined" disabled={isLocked} icon="add" title="tooltip.project" style="justify-content: start;padding: 8px 14px;" on:click={createSlide}>
                                 <T id="new.slide" />
                             </MaterialButton>
                         </Center>

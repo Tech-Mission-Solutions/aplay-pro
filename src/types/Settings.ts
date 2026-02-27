@@ -16,6 +16,7 @@ export interface Styles {
     background?: string
     backgroundImage?: string
     clearStyleBackgroundOnText?: boolean
+    transition?: { [key: string]: Transition }
     fit?: MediaFit | null
     blurAmount?: number
     blurOpacity?: number
@@ -30,12 +31,14 @@ export interface Styles {
     templateScripture_2?: string
     templateScripture_3?: string
     templateScripture_4?: string
-    metadataDivider?: string
-    metadataLayout?: string // not in use yet 1.2.8
-    displayMetadata?: string
-    metadataTemplate?: string
-    messageTemplate?: string
-    transition?: { [key: string]: Transition }
+    metadata?: Metadata
+}
+
+export interface Metadata {
+    display?: string
+    template?: string // default or last slide only
+    templateFirst?: string // first slide only
+    templateAll?: string // all slides (old "message")
 }
 
 export interface Resolution {

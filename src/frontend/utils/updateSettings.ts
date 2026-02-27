@@ -1,7 +1,7 @@
 import { get } from "svelte/store"
 import { Main } from "../../types/IPC/Main"
 import type { Output } from "../../types/Output"
-import type { Themes } from "../../types/Settings"
+import type { Metadata, Themes } from "../../types/Settings"
 import { clone, keysToID } from "../components/helpers/array"
 import { checkWindowCapture, setOutput, toggleOutputs } from "../components/helpers/output"
 import { defaultThemes } from "../components/settings/tabs/defaultThemes"
@@ -20,11 +20,13 @@ import {
     autosave,
     calendarAddShow,
     categories,
+    cloudSyncData,
     companion,
     contentProviderData,
     customMetadata,
     customizedIcons,
     dataPath,
+    deletedDefaults,
     disabledServers,
     drawSettings,
     drawer,
@@ -72,6 +74,8 @@ import {
     theme,
     themes,
     timeFormat,
+    timecode,
+    timeline,
     timers,
     triggers,
     variableTags,
@@ -117,10 +121,11 @@ export function updateSettings(data: any) {
         setTimeout(
             () => {
                 restartOutputs()
-                if (get(autoOutput)) setTimeout(() => toggleOutputs(null, { autoStartup: true }), get(os).platform === "darwin" ? 1500 : 500)
-                setTimeout(() => checkWindowCapture(true), get(os).platform === "darwin" ? 2000 : 1000)
+                const delay = 1200
+                if (get(autoOutput)) setTimeout(() => toggleOutputs(null, { autoStartup: true }), get(os).platform === "darwin" ? delay + 300 : delay)
+                setTimeout(() => checkWindowCapture(true), get(os).platform === "darwin" ? delay + 300 + 500 : delay + 500)
             },
-            get(os).platform === "darwin" ? 2500 : 1500
+            get(os).platform === "darwin" ? 3500 : 2500
         )
     }
 
@@ -185,7 +190,7 @@ export function restartOutputs(specificId = "") {
 }
 
 export function updateThemeValues(themeValues: Themes) {
-    if (!themeValues) return
+    if (!themeValues?.colors) return
 
     Object.entries(themeValues.colors || {}).forEach(([key, value]) => document.documentElement.style.setProperty("--" + key, value))
     Object.entries(themeValues.font || {}).forEach(([key, value]) => {
@@ -258,7 +263,21 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
         outputs.set(v)
     },
     sorted: (v: any) => sorted.set(v),
-    styles: (v: any) => styles.set(v),
+    styles: (v: any) => {
+        // convert settings (<= v1.5.7)
+        Object.values(v).forEach((style: any) => {
+            const metadata: Metadata = {}
+            if (style.displayMetadata) metadata.display = style.displayMetadata
+            if (style.metadataTemplate) metadata.template = style.metadataTemplate
+            if (Object.keys(metadata).length) style.metadata = metadata
+            delete style.metadataDivider
+            delete style.displayMetadata
+            delete style.metadataTemplate
+            delete style.messageTemplate
+        })
+
+        styles.set(v)
+    },
     profiles: (v: any) => profiles.set(v),
     remotePassword: (v: any) => remotePassword.set(v),
     audioFolders: (v: any) => audioFolders.set(v),
@@ -300,6 +319,7 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     actionTags: (v: any) => actionTags.set(v),
     variableTags: (v: any) => variableTags.set(v),
     customizedIcons: (v: any) => customizedIcons.set(v),
+    cloudSyncData: (v: any) => cloudSyncData.set(v),
     driveData: (v: any) => driveData.set(v),
     calendarAddShow: (v: any) => calendarAddShow.set(v),
     metronome: (v: any) => metronome.set(v),
@@ -338,12 +358,31 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
         // DEPRECATED (migrate)
         v.customUserDataLocation = true
 
+        // DEPRECATED (migrate)
+        let deletedDefaultsValue = get(deletedDefaults)
+        if (v.deletedTemplates) {
+            deletedDefaultsValue.templates = v.deletedTemplates
+            delete v.deletedTemplates
+        }
+        if (v.deletedOverlays) {
+            deletedDefaultsValue.overlays = v.deletedOverlays
+            delete v.deletedOverlays
+        }
+        if (v.deletedEffects) {
+            deletedDefaultsValue.effects = v.deletedEffects
+            delete v.deletedEffects
+        }
+        if (Object.keys(deletedDefaultsValue).length) deletedDefaults.set(deletedDefaultsValue)
+
         special.set(v)
     },
+    timeline: (v: any) => timeline.set(v),
+    timecode: (v: any) => timecode.set(v),
     // @ts-ignore - DEPERACTED (migrate)
     chumsSyncCategories: (v: any) => {
         if (v?.length > 1) contentProviderData.set({ ...get(contentProviderData), churchApps: { syncCategories: v } })
     },
     contentProviderData: (v: any) => contentProviderData.set(v),
-    effects: (a: any) => effects.set(a)
+    effects: (a: any) => effects.set(a),
+    deletedDefaults: (a: any) => deletedDefaults.set({ ...get(deletedDefaults), ...a })
 }

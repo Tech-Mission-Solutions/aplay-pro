@@ -1,7 +1,8 @@
 <script lang="ts">
     import type { Media, Slide, SlideData } from "../../../types/Show"
     import { AudioPlayer } from "../../audio/audioPlayer"
-    import { activePopup, activeShow, activeTimers, alertMessage, outputs, shows } from "../../stores"
+    import { activeShow, activeTimers, outputs, shows } from "../../stores"
+    import { newToast } from "../../utils/common"
     import { translateText } from "../../utils/language"
     import { getAccess } from "../../utils/profile"
     import { videoExtensions } from "../../values/extensions"
@@ -35,16 +36,19 @@
 
     function hasAccess() {
         if (currentShow.locked) {
-            alertMessage.set("show.locked_info")
-            activePopup.set("alert")
+            newToast("show.locked_info")
+            return false
+        }
+
+        if (slide?.locked) {
+            newToast("output.state_locked")
             return false
         }
 
         const profile = getAccess("shows")
         const readOnly = profile.global === "read" || profile[currentShow.category || ""] === "read"
         if (readOnly) {
-            alertMessage.set("profile.locked")
-            activePopup.set("alert")
+            newToast("profile.locked")
             return false
         }
 
@@ -100,9 +104,6 @@
 
     $: audio = layoutSlide.audio?.length ? _show().get()?.media?.[layoutSlide.audio[0]] || {} : {}
     $: audioPath = audio.path
-    // no need for cloud when audio can be stacked
-    // $: cloudId = $driveData.mediaId
-    // $: audioPath = cloudId && cloudId !== "default" ? audio.cloud?.[cloudId] || audio.path : audio.path
 
     $: zoom = 4 / columns
 </script>
@@ -188,7 +189,7 @@
         <div>
             <div class="button">
                 <Button style="padding: 3px;" redHover title={translateText("remove.background")} {zoom} on:click={() => removeLayout("background")}>
-                    <Icon id={["camera", "screen", "ndi"].includes(background.type || "") ? background.type || "" : background.path?.includes("http") ? "web" : "image"} size={0.9} white />
+                    <Icon id={["camera", "screen", "ndi"].includes(background.type || "") ? background.type || "" : background.path?.startsWith("http") ? "web" : "image"} size={0.9} white />
                 </Button>
             </div>
             {#if videoDuration}

@@ -2,11 +2,11 @@
     import { getDocument, GlobalWorkerOptions } from "pdfjs-dist"
     import type { ClickEvent, MediaStyle } from "../../../types/Main"
     import { AudioPlayer } from "../../audio/audioPlayer"
-    import { activeEdit, activeFocus, activePage, activeProject, activeShow, categories, focusMode, media, notFound, outLocked, outputs, overlays, playerVideos, playingAudio, projects, refreshEditSlide, shows, showsCache, styles } from "../../stores"
+    import { activeEdit, activeFocus, activePage, activeProject, activeShow, categories, focusMode, globalTags, media, notFound, outLocked, outputs, overlays, playerVideos, playingAudio, projects, refreshEditSlide, shows, showsCache, special, styles } from "../../stores"
     import { getAccess } from "../../utils/profile"
     import { historyAwait } from "../helpers/history"
     import Icon from "../helpers/Icon.svelte"
-    import { getFileName, getMediaStyle, removeExtension } from "../helpers/media"
+    import { encodeFilePath, getExtension, getFileName, getMedia, getMediaLayerType, getMediaStyle, getMediaType, mediaSize, removeExtension } from "../helpers/media"
     import { findMatchingOut, getActiveOutputs, setOutput } from "../helpers/output"
     import { loadShows } from "../helpers/setShow"
     import { checkName, getLayoutRef } from "../helpers/show"
@@ -21,11 +21,13 @@
     export let data: null | string = null
     export let index: null | number = null
     export let isFirst: boolean = false
+    export let isProject: boolean = false
     $: type = show.type || "show"
-    $: name = type === "show" ? $shows[show.id]?.name : type === "overlay" ? $overlays[show.id]?.name : type === "player" ? ($playerVideos[id] ? $playerVideos[id].name : setNotFound(id)) : show.name
+    $: name = type === "show" ? $shows[show.id]?.name : type === "overlay" ? $overlays[show.id]?.name : type === "player" ? ($playerVideos[id] || show.data?.id ? $playerVideos[id]?.name || show.data?.name || show.data?.id : setNotFound(id)) : show.name
     // export let page: "side" | "drawer" = "drawer"
     export let match: null | number = null
-    $: showNumber = show?.quickAccess?.number || show?.meta?.number || ""
+    $: showNumber = isProject ? "" : show?.quickAccess?.number || show?.meta?.number || ""
+    $: showDuration = isProject ? $shows[show.id]?.quickAccess?.duration || show?.scheduleLength || 0 : 0
 
     let profile = getAccess("shows")
     let readOnly = profile.global === "read" || profile[show.category] === "read"
@@ -72,6 +74,7 @@
     $: selectedItem = $focusMode ? $activeFocus : $activeShow
     $: isActive = index !== null ? selectedItem?.index === index : selectedItem?.id === id
 
+    // WIP partly duplicate of openShow() in show.ts
     let editActive = false
     function click(e: ClickEvent) {
         const { ctrl, shift, target } = e.detail
@@ -137,7 +140,7 @@
             const mediaData = $media[id] || {}
             let mediaStyle: MediaStyle = getMediaStyle(mediaData, outputStyle)
 
-            const videoType = mediaData.videoType
+            const videoType = getMediaLayerType(id, mediaStyle)
             const shouldLoop = videoType === "background" ? show.loop || true : false
             const shouldBeMuted = videoType === "background" ? show.muted || true : false
 
@@ -184,38 +187,95 @@
     }
 
     $: outline = activeOutput !== null || !!$playingAudio[id]
+
+    let thumbnailPath: string | null = null
+    $: isMedia = type === "image" || type === "video" || type === "player"
+    $: mediaStyle = isMedia ? getMediaStyle($media[id], undefined) : {} // , $styles[getFirstActiveOutput($outputs)?.style || ""]
+    $: mediaStyleString = `pointer-events: none;filter: ${mediaStyle.filter || ""};transform: scale(${mediaStyle.flipped ? "-1" : "1"}, ${mediaStyle.flippedY ? "-1" : "1"});`
+    $: if (id && isMedia) getThumbnail()
+    else thumbnailPath = ""
+    async function getThumbnail() {
+        thumbnailPath = ""
+
+        if (type === "player") {
+            const player = $playerVideos[id] || show.data
+            if (player?.type === "youtube") {
+                thumbnailPath = `https://i.ytimg.com/vi/${player.id}/sddefault.jpg`
+                return
+            }
+            if (player?.type === "vimeo") {
+                thumbnailPath = `https://vumbnail.com/${player.id}_medium.jpg`
+                return
+            }
+            return
+        }
+
+        const media = await getMedia(id, mediaSize.small)
+        if (media) thumbnailPath = media.thumbnail || media.altPath || media.path
+        // online videos (Pixabay) might not have a thumbnail ready
+        if (getMediaType(getExtension(thumbnailPath)) === "video") thumbnailPath = ""
+    }
 </script>
 
 <div id="show_{id}" class="main" class:played={show.played}>
     <MaterialButton on:click={click} on:dblclick={doubleClick} {isActive} showOutline={outline} class="context {$$props.class}{readOnly ? '_readonly' : ''}" style="font-weight: normal;--outline-color: {activeOutput || 'var(--secondary)'};{$notFound.show?.includes(id) ? 'background-color: rgb(255 0 0 / 0.2);' : ''}{style}{$$props.style || ''}" tab>
         <div class="row">
-            <span class="cell" style="max-width: calc(100% {showNumber ? '- var(--number-width)' : ''} - var(--modified-width, 0px));">
-                {#if icon || show.locked}
-                    <Icon id={show.played ? "check" : iconID ? iconID : show.locked ? "locked" : "noIcon"} custom={!show.played && custom} box={iconID === "ppt" ? 50 : 24} white={show.played} right />
-                {/if}
+            <span class="cell" style={isProject ? `width: 100%;max-width: ${show.layoutInfo?.name || show.scheduleLength ? 92 : 100}%;` : `width: 75%;max-width: calc(100% ${showNumber ? "- var(--number-width)" : ""} - var(--modified-width, 0px));`}>
+                <div class="icon" class:isMedia>
+                    {#if thumbnailPath}
+                        <img class="thumbnail" src={encodeFilePath(thumbnailPath)} alt="thumbnail" style={mediaStyleString} />
+                    {:else if icon || show.locked}
+                        <Icon id={show.played ? "check" : iconID ? iconID : show.locked ? "locked" : "noIcon"} custom={!show.played && custom} box={iconID === "ppt" ? 50 : 24} white={show.played} right={!isMedia} />
+                    {/if}
+                </div>
 
                 <HiddenInput value={newName} id={index !== null ? "show_" + id + "#" + index : "show_drawer_" + id} on:edit={rename} bind:edit={editActive} allowEmpty={false} allowEdit={(!show.type || show.type === "show") && !readOnly} />
 
-                {#if match !== null && ($activeShow?.data?.searchInput ? $activeShow?.id === id : isFirst)}
-                    <span style="opacity: 0.4;font-size: 0.9em;padding: 0 10px;">Press enter to add to project</span>
-                {/if}
+                {#if isProject}
+                    {#if show.layoutInfo?.name}
+                        <span class="layout" style="opacity: 0.6;font-style: italic;font-size: 0.9em;">{show.layoutInfo.name}</span>
+                    {/if}
 
-                {#if show.layoutInfo?.name}
-                    <span class="layout" style="opacity: 0.6;font-style: italic;font-size: 0.9em;">{show.layoutInfo.name}</span>
-                {/if}
-
-                {#if show.scheduleLength !== undefined && Number(show.scheduleLength)}
-                    <span class="layout">{joinTime(secondsToTime(show.scheduleLength))}</span>
+                    {#if showDuration && Number(showDuration)}
+                        <span class="layout">{joinTime(secondsToTime(showDuration))}</span>
+                    {/if}
+                {:else}
+                    <!-- shows drawer list -->
+                    {#if match !== null && ($activeShow?.data?.searchInput ? $activeShow?.id === id : isFirst)}
+                        <span style="opacity: 0.4;font-size: 0.9em;padding: 0 10px;">Press enter to add to project</span>
+                    {/if}
                 {/if}
             </span>
 
-            <span class="cell">
-                {#if showNumber}
-                    <span class="number">{showNumber}</span>
+            {#if isProject}
+                {#if isActive}
+                    <span class="arrow">
+                        <Icon id="next" white />
+                    </span>
                 {/if}
+            {:else}
+                <span class="cell">
+                    <!-- tags -->
+                    {#if $special.displayTags}
+                        <span class="tags">
+                            {#each $shows[show.id]?.quickAccess?.tags || [] as tagId}
+                                {@const tag = $globalTags[tagId]}
+                                {#if tag}
+                                    <span class="tag" style="--color: {tag.color || 'white'};">
+                                        <p style="margin: 0;">{tag.name || "—"}</p>
+                                    </span>
+                                {/if}
+                            {/each}
+                        </span>
+                    {/if}
 
-                <span class="date">{data || ""}</span>
-            </span>
+                    {#if showNumber || $special.displayTags}
+                        <span class="number">{showNumber || ""}</span>
+                    {/if}
+
+                    <span class="date">{data || ""}</span>
+                </span>
+            {/if}
         </div>
     </MaterialButton>
 </div>
@@ -223,6 +283,8 @@
 <style>
     .main {
         width: 100%;
+
+        display: flex;
     }
 
     .main :global(button) {
@@ -241,6 +303,7 @@
     .cell {
         display: flex;
         align-items: center;
+        justify-content: space-between;
 
         max-width: 75%;
     }
@@ -281,5 +344,63 @@
         padding-inline-start: 5px;
         white-space: nowrap;
         max-width: 45%;
+    }
+
+    .icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .icon.isMedia {
+        min-width: 35px;
+        min-height: 35px;
+        width: 35px;
+        height: 35px;
+        margin-right: 10px;
+    }
+
+    .thumbnail {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 4px;
+
+        /* hide alt text */
+        text-indent: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+
+    .arrow {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+
+        opacity: 0.4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* tags */
+
+    .tags {
+        display: flex;
+        gap: 5px;
+        padding-left: 10px;
+    }
+
+    .tag {
+        --color: white;
+
+        display: flex;
+        padding: 0px 5px;
+
+        color: var(--color);
+        font-weight: 600;
+
+        border-radius: 20px;
+        border: 2px solid var(--color);
     }
 </style>

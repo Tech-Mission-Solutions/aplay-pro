@@ -75,6 +75,10 @@ import Variable from "../components/main/popups/Variable.svelte"
 import { activePopup, popupData } from "../stores"
 import NowPlaying from "../components/main/popups/NowPlaying.svelte"
 import Restore from "../components/main/popups/Restore.svelte"
+import CloudSync from "../components/main/popups/CloudSync.svelte"
+import Timecode from "../components/main/popups/Timecode.svelte"
+import TimelineSettings from "../components/main/popups/TimelineSettings.svelte"
+import NewUpdate from "../components/main/popups/NewUpdate.svelte"
 
 export const popups: { [key in Popups]: ComponentType } = {
     initialize: Initialize,
@@ -138,6 +142,7 @@ export const popups: { [key in Popups]: ComponentType } = {
     restore: Restore,
     reset_all: ResetAll,
     alert: Alert,
+    new_update: NewUpdate,
     history: History,
     action_history: ActionHistory,
     manage_emitters: Emitters,
@@ -146,10 +151,13 @@ export const popups: { [key in Popups]: ComponentType } = {
     custom_action: CustomAction,
     slide_midi: SlideMidi,
     connect: Connect,
+    cloud_sync: CloudSync,
     cloud_update: CloudUpdate,
     cloud_method: CloudMethod,
     sync_categories: ChurchAppsSyncCategories,
-    effect_items: EffectItems
+    effect_items: EffectItems,
+    timeline: TimelineSettings,
+    timecode: Timecode
 }
 
 export function waitForPopupData(popupId: Popups): Promise<any> {

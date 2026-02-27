@@ -1,7 +1,7 @@
 import { get } from "svelte/store"
 import { uid } from "uid"
 import type { LayoutRef } from "../../../types/Show"
-import { activeFocus, activeShow, shows as allShows, driveData, focusMode, showsCache } from "../../stores"
+import { activeFocus, activeShow, shows as allShows, focusMode, showsCache } from "../../stores"
 import { clone } from "./array"
 import { addToPos } from "./mover"
 // import { loadShows } from "./setShow"
@@ -83,7 +83,7 @@ export function _show(id = "active") {
                 if (!shows[id]) return []
                 if (!slideIds.length && shows[id].slides) slideIds = Object.keys(shows[id].slides)
                 slideIds.forEach((slideId) => {
-                    const slide = clone(shows[id].slides[slideId])
+                    const slide = clone(shows[id]?.slides?.[slideId])
                     if (!slide) return
 
                     if (key) a.push(slide[key])
@@ -680,13 +680,6 @@ export function _show(id = "active") {
                 if (!bgid) bgid = uid()
                 showsCache.update((a) => {
                     if (!a[id]) return a
-
-                    const cloudId = get(driveData).mediaId
-                    if (cloudId && cloudId !== "default") {
-                        object.cloud = a[id].media[bgid]?.cloud || {}
-                        if (!object.cloud[cloudId]) object.cloud[cloudId] = {}
-                        object.cloud[cloudId] = object.path
-                    }
 
                     a[id].media[bgid] = object
 

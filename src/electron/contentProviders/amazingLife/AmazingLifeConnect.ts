@@ -168,3 +168,7 @@ export class AmazingLifeConnect {
     this.oauthHelper.handleCallback(req, res)
   }
 }
+
+function connectionInitialized(isFirstConnection: boolean = false): void {
+    sendToMain(ToMain.PROVIDER_CONNECT, { providerId: "amazinglife", success: true, isFirstConnection })
+}

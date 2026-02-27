@@ -27,7 +27,8 @@
         let moveCondition: boolean = mouse.e.target.closest(".line") || ((!mouse.e.target.closest(".edit") || notTextBox || mouse.e.altKey) && !mouse.e.target.closest(".square")) || (control && !mouse.e.target.closest(".square")) || mouse.e.buttons === 4
 
         let keepAspectRatio = e.shiftKey
-        const square = mouse.item.type === "icon"
+        // WIP square option currently not working well (also custom SVG icons can be any ratio)
+        const square = false // mouse.item.type === "icon"
 
         if (mouse.e.target.closest(".rotate")) {
             let rotation = rotateBox(e, mouse, ratio)
@@ -47,6 +48,23 @@
                 lines = moved.lines
             }
         }
+
+        // remove all lines that are too close to each other (with same orientation)
+        const MAX_DISTANCE = 12 / ratio
+        lines = lines.filter((line, index, arr) => {
+            for (let i = 0; i < arr.length; i++) {
+                if (i === index) continue
+                if (line[0][0] !== arr[i][0][0] && line[0] !== arr[i][0]) continue
+                if (Math.abs(line[1] - arr[i][1]) <= MAX_DISTANCE) return false
+            }
+            return true
+        })
+
+        // show max 3 lines of each orientation at once
+        const MAX_LINES = 3
+        let xLines = lines.filter((line) => line[0] === "x" || line[0] === "xc").slice(0, MAX_LINES)
+        let yLines = lines.filter((line) => line[0] === "y" || line[0] === "yc").slice(0, MAX_LINES)
+        lines = [...xLines, ...yLines]
 
         // percentage scale
         let outputId = isStage ? "" : getActiveOutputs($outputs, true, true, true)[0]

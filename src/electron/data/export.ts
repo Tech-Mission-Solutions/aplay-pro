@@ -2,9 +2,9 @@
 // Export as TXT or PDF
 // When exporting as PDF we create a new window and capture its content
 
-import { BrowserWindow, ipcMain } from "electron"
+import { BrowserWindow } from "electron"
 import fs, { type WriteFileOptions } from "fs"
-import { basename, extname, join } from "path"
+import { basename, dirname, extname, join } from "path"
 import { EXPORT, STARTUP } from "../../types/Channels"
 import { ToMain } from "../../types/IPC/ToMain"
 import type { Show, Slide, Template } from "../../types/Show"
@@ -24,7 +24,22 @@ const customJSONExtensions = {
 }
 
 export function startExport(_e: Electron.IpcMainEvent, msg: Message) {
+    // PDF
+    if (msg.channel === "DONE") {
+        const exportFolderPath = getDataFolderPath("exports")
+        doneWritingFile(null, exportFolderPath)
+        return
+    }
+
     if (!msg.data) return
+
+    // PDF
+    if (msg.channel === "EXPORT") {
+        if (!msg.data.name) return
+        sendToMain(ToMain.ALERT, msg.data.name)
+        const exportFolderPath = getDataFolderPath("exports")
+        if (msg.data.type === "pdf") generatePDF(join(exportFolderPath, msg.data.name), msg.data.options)
+    }
 
     if (msg.channel === "TEMPLATE") {
         exportTemplate(msg.data)
@@ -85,13 +100,25 @@ function doneWritingFile(err: NodeJS.ErrnoException | null, exportFolder: string
 
 const PDFOptions = {
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    // margins: { marginType: "none" }, // prevent default white borders
     pageSize: "A4" as const,
     printBackground: true,
     landscape: false
 }
 
-export function generatePDF(path: string) {
-    exportWindow?.webContents.printToPDF(PDFOptions).then(savePdf).catch(exportMessage)
+export function generatePDF(path: string, options: any = {}) {
+    let pageOptions: Electron.PrintToPDFOptions = PDFOptions
+
+    if (options.type === "media") {
+        // landscape 16:9
+        pageOptions.pageSize = {
+            // about 8.25 x 4.64 microns
+            width: 297000 / 10000 / 3.6, // 297mm
+            height: 167062 / 10000 / 3.6 // ~167mm
+        }
+    }
+
+    exportWindow?.webContents.printToPDF(pageOptions).then(savePdf).catch(exportMessage)
 
     function savePdf(data: Buffer) {
         writeFile(path, ".pdf", data, undefined, doneWritingPDF)
@@ -125,20 +152,6 @@ export function createPDFWindow(data: any) {
         exportWindow?.webContents.send(EXPORT, { channel: "PDF", data })
     }
 }
-
-ipcMain.on(EXPORT, (_e, msg: any) => {
-    const exportFolderPath = getDataFolderPath("exports")
-
-    if (msg.channel === "DONE") {
-        doneWritingFile(null, exportFolderPath)
-        return
-    }
-    if (msg.channel !== "EXPORT") return
-
-    if (!msg.data?.name) return
-    sendToMain(ToMain.ALERT, msg.data.name)
-    if (msg.data.type === "pdf") generatePDF(join(exportFolderPath, msg.data.name))
-})
 
 // ----- JSON -----
 
@@ -253,21 +266,32 @@ function exportAllShows(data: { type: string }) {
 
 // ----- PROJECT -----
 
-export function exportProject(data: { type: "project"; name: string; file: any }) {
+export function exportProject(data: { type: "project"; name: string; file: any; path?: string }) {
     sendToMain(ToMain.ALERT, "export.exporting")
     const exportFolder = getDataFolderPath("exports")
 
     const files: string[] = data.file.files || []
     if (!files.length) {
+        let exportPath = data.path ? data.path.replace(".project", "") : join(exportFolder, data.name)
         // export as plain JSON
-        writeFile(join(exportFolder, data.name), ".project", JSON.stringify(data.file), "utf-8", (err) => doneWritingFile(err, exportFolder))
+        writeFile(exportPath, ".project", JSON.stringify(data.file), "utf-8", (err) => doneWritingFile(err, data.path ? "" : exportFolder))
         return
     }
 
     // create archive with hashed filenames
-    compressWithMedia(files, data.file, data.name, ".project", exportFolder, (path, extension) => {
-        return `${basename(path, extension)}__${filePathHashCode(path)}${extension}`
-    })
+    const folderPath = data.path ? dirname(data.path) : exportFolder
+    const name = data.path ? basename(data.path).replace(".project", "") : data.name
+    compressWithMedia(
+        files,
+        data.file,
+        name,
+        ".project",
+        folderPath,
+        (path, extension) => {
+            return `${basename(path, extension)}__${filePathHashCode(path)}${extension}`
+        },
+        !!data.path
+    )
 }
 
 // ----- TEMPLATE -----
@@ -288,7 +312,7 @@ export function exportTemplate(data: { file: { template: Template; files?: strin
     compressWithMedia(files, data.file, data.name, customJSONExtensions.TEMPLATE, exportFolder, (path) => basename(path))
 }
 
-function compressWithMedia(files: string[], fileData: any, name: string, extension: string, exportFolder: string, getFileName: (path: string, ext: string) => string) {
+function compressWithMedia(files: string[], fileData: any, name: string, extension: string, exportFolder: string, getFileName: (path: string, ext: string) => string, canOverwrite = false) {
     const entries: { name: string; content?: Buffer | string; filePath?: string }[] = files
         .filter((filePath) => fs.existsSync(filePath))
         .map((filePath) => ({
@@ -298,7 +322,7 @@ function compressWithMedia(files: string[], fileData: any, name: string, extensi
 
     entries.push({ name: "data.json", content: Buffer.from(JSON.stringify(fileData)) })
 
-    const filePath = getUniquePath(join(exportFolder, name), extension)
+    const filePath = canOverwrite ? join(exportFolder, name) + extension : getUniquePath(join(exportFolder, name), extension)
 
     compressToZip(entries, filePath)
         .then(() => doneWritingFile(null, exportFolder))

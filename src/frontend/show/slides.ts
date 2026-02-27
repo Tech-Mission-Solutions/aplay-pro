@@ -37,12 +37,24 @@ export function changeSlideGroups(obj: { sel: { data: { index: number }[] }; men
     newData = updated.newData
     const newParents = updated.newParents
 
+    let childrenLayoutData: { [key: string]: { [key: string]: any } } = {}
+
     // set new children
     groups.forEach(({ slides }) => {
+        const slideId = slides[0].id
+
         // remove exising children
-        newData.slides[slides[0].id].children = []
+        newData.slides[slideId].children = []
+
         if (slides.length > 1) {
-            newData.slides[slides[0].id].children!.push(...slides.slice(1, slides.length).map(({ id }) => id))
+            const newChildren = slides.slice(1).map(({ id }) => id)
+            newData.slides[slideId].children!.push(...newChildren)
+
+            let childLayoutData: { [key: string]: any } = {}
+            newChildren.forEach((childId, childIndex) => {
+                childLayoutData[childId] = slides[childIndex + 1].data || {}
+            })
+            childrenLayoutData[slideId] = childLayoutData
         }
     })
 
@@ -52,6 +64,8 @@ export function changeSlideGroups(obj: { sel: { data: { index: number }[] }; men
     // set child layout data from old parents
     const newLayout: SlideData[] = []
     newData.layout.forEach((layoutRef) => {
+        if (childrenLayoutData[layoutRef.id]) layoutRef.children = childrenLayoutData[layoutRef.id]
+
         if (!layoutRef.remove) {
             newLayout.push(layoutRef)
             return
@@ -169,6 +183,8 @@ function updateValues(groups: { slides: LayoutRef[]; groupData: GroupData }[], n
             const childData = layouts[activeLayoutIndex].slides?.find((a) => a.children?.[slide.id])?.children?.[slide.id] || {}
 
             let slideId = slide.id
+            if (!newData.slides?.[slideId]) return
+
             const originalHasChanged = otherSlides && hasChanged
             if (originalHasChanged) cloneOtherSlides()
 
@@ -222,6 +238,9 @@ function updateValues(groups: { slides: LayoutRef[]; groupData: GroupData }[], n
                     newValues.globalGroup = groupData.globalGroup
                     newValues.group = groupData.group || ""
                     newValues.color = ""
+
+                    // remove locked if set to "None" (should not be able to select if locked anyway)
+                    if (groupData.group === ".") delete newData.slides[slideId].locked
                 }
                 changeValues(newData.slides[slideId], newValues)
             }
@@ -511,7 +530,7 @@ export function removeItemValues(items: Item[]) {
 // split in half
 // WIP similar to Editbox.svelte
 export function splitItemInTwo(slideRef: LayoutRef, itemIndex: number, sel: { start?: number; end?: number }[] = [], cutIndex = -1) {
-    let lines: Line[] = _show().slides([slideRef.id]).items([itemIndex]).get("lines")[0]?.[0] || []
+    let lines: Line[] = clone(_show().slides([slideRef.id]).items([itemIndex]).get("lines")[0]?.[0] || [])
     lines = lines.filter((a) => a.text?.[0]?.value?.length)
 
     // if only one line (like scriptures, split by text)
@@ -570,12 +589,15 @@ export function splitItemInTwo(slideRef: LayoutRef, itemIndex: number, sel: { st
         if (!firstLines.at(-1)?.text.length) firstLines.pop()
 
         function splitLines(text) {
-            currentIndex += text.value.length
+            const value = text.value || ""
+
+            currentIndex += value.length
             if (sel[i]?.start !== undefined) start = sel[i].start!
 
             if (start < 0 || currentIndex < start) {
+                if (!firstLines.length) firstLines.push({ align: line.align, text: [] })
                 firstLines[firstLines.length - 1].text.push(text)
-                textPos += text.value.length
+                textPos += value.length
                 return
             }
 
@@ -583,17 +605,18 @@ export function splitItemInTwo(slideRef: LayoutRef, itemIndex: number, sel: { st
             const pos = (sel[i]?.start || 0) - textPos
 
             if (pos > 0) {
+                if (!firstLines.length) firstLines.push({ align: line.align, text: [] })
                 firstLines[firstLines.length - 1].text.push({
                     style: text.style,
-                    value: text.value.slice(0, pos)
+                    value: value.slice(0, pos)
                 })
             }
             secondLines[secondLines.length - 1].text.push({
                 style: text.style,
-                value: text.value.slice(0, text.value.length)
+                value: value.slice(0, value.length)
             })
 
-            textPos += text.value.length
+            textPos += value.length
         }
     })
 
@@ -897,6 +920,7 @@ export function createVirtualBreaks(lines: Line[], skip = false) {
         if (!Array.isArray(line?.text)) return
 
         line.text.forEach((text) => {
+            if (!text.value) text.value = ""
             text.value = replaceVirtualBreaks(text.value, replaceWith)
         })
     })

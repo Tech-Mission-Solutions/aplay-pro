@@ -11,6 +11,7 @@
     import Center from "../../system/Center.svelte"
     import { getAllProjectItems } from "./focus"
     import FocusItem from "./FocusItem.svelte"
+    import { hasNewerUpdate } from "../../../utils/common"
 
     $: projectId = $activeProject || ""
     $: project = $projects[projectId]
@@ -38,22 +39,32 @@
 
     $: active = $activeFocus
     let scrollingToActive: any = null
+    let previousId = ""
     // auto scroll to active slide when show or output changes
     $: if (active || outputIndex !== undefined) scrollToActive()
-    function scrollToActive() {
+    async function scrollToActive() {
         if (!listElem || isScrolling || projectUpdating) return
 
-        let index = active.index
-        if (index === undefined) index = project.shows.findIndex((a) => a.id === (outputShowId ?? active.id))
+        // wait until both output and active has updated if they update at mostly the same time
+        if (await hasNewerUpdate("FOCUS_SCROLL")) return
 
-        let id = "id_" + getId(outputShowId ?? active.id) + "_" + index
+        let currentId = active.id
+        let slideIndex = active.id === outputShowId ? outputIndex || 0 : 0
+
+        let index = active.index
+        if (index === undefined) {
+            if (outputShowId) currentId = outputShowId
+            index = project.shows.findIndex((a) => a.id === currentId)
+        }
+
+        if (!outputShowId && previousId && previousId === currentId) return
+        previousId = currentId
+
+        let id = "id_" + getId(currentId) + "_" + index
         let elem = listElem.querySelector("#" + id) as HTMLElement
         let elemTop = elem?.offsetTop || 0
-        const slide = elem?.querySelector(".grid")?.children[outputIndex || 0] as HTMLElement
+        const slide = elem?.querySelector(".grid")?.children[slideIndex] as HTMLElement
         let slideTop = elemTop + (slide?.offsetTop ?? elem?.offsetTop ?? 0)
-        if (!slide) return
-
-        // WIP scroll to active slide also if it's outside of view
 
         // don't scroll if already visible
         const currentScrollPos = listElem.closest(".center")?.scrollTop || 0
@@ -95,8 +106,8 @@
         let scrollTop = e.target.scrollTop
 
         let focusedId = ""
-        let names = listElem.querySelectorAll(".name")
-        ;[...names].forEach((a) => {
+        let items = listElem.querySelectorAll(".focusId")
+        ;[...items].forEach((a) => {
             let top = (a as HTMLElement).offsetTop - fromTop
             if (top <= scrollTop) focusedId = a.id
         })
@@ -116,10 +127,10 @@
         return text.replace(/[^a-zA-Z0-9]+/g, "")
     }
 
-    // don't refresh list unless count changes
+    // don't refresh list unless order changes
     let projectsItemsList: ProjectShowRef[] = []
     onMount(updateProjectItemsList)
-    $: projectItems = project?.shows?.length || 0
+    $: projectItems = (project?.shows || []).map((a) => a.id || a.name).join(",")
     $: if (projectItems) updateProjectItemsList()
     function updateProjectItemsList() {
         projectsItemsList = project?.shows || []
@@ -134,7 +145,7 @@
     {#if list.length}
         <div class="list" bind:this={listElem}>
             {#each list as item, i}
-                <div id={"id_" + getId(item.id) + "_" + i}>
+                <div id={"id_" + getId(item.id) + "_" + i} class="focusId">
                     <div class="name" style={item.color ? `border-bottom: 2px solid ${item.color}` : ""}>
                         <Icon id={item.icon || "noIcon"} custom={(item.type || "show") === "show"} white right />
                         <p>{item.name}</p>

@@ -1,5 +1,6 @@
 <script lang="ts">
     import { selected } from "../../stores"
+    import { mediaExtensions } from "../../values/extensions"
     import { DropAreas, ondrop, validateDrop } from "../helpers/drop"
     import { deselect } from "../helpers/select"
     import T from "../helpers/T.svelte"
@@ -32,6 +33,46 @@
         }, 10)
     }
 
+    async function dropEvent(e: any) {
+        const files = getFiles(e)
+        if (files.length) {
+            const webMediaFiles = files.filter((file) => isWebMediaFile(file))
+            if (webMediaFiles.length) {
+                // convert web media files to base64
+                const mediaData = await Promise.all(webMediaFiles.map((file) => fileToBase64(file)))
+                selected.set({ id: "media", data: mediaData })
+                ondrop(e, id)
+                return
+            }
+
+            // Regular local files
+            selected.set({ id: "files", data: files })
+            ondrop(e, id)
+            return
+        }
+
+        const urls = getUrls(e)
+        if (urls.length) {
+            const mediaUrls = urls.filter((u) => isMediaUrl(u))
+            if (mediaUrls.length) {
+                const mediaData = mediaUrls.map((u) => ({ name: getNameFromUrl(u), path: u }))
+                selected.set({ id: "media", data: mediaData })
+                ondrop(e, id)
+                return
+            }
+
+            selected.set({ id: "urls", data: urls })
+            ondrop(e, id)
+            return
+        }
+
+        fileOver = false
+        hover = false
+        console.log($selected.id, "=>", id)
+
+        if (validateDrop(id, $selected.id, true)) ondrop(e, id)
+    }
+
     function getFiles(e: any): any[] {
         let files: any[] = []
 
@@ -53,6 +94,84 @@
         }
 
         return files
+    }
+
+    function getUrls(e: any): string[] {
+        let urls: string[] = []
+
+        // try to get any URL data
+        const urlData = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain")
+        if (!urlData) return []
+
+        const lines = urlData.split("\n")
+        for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed && !trimmed.startsWith("#") && isValidUrl(trimmed)) urls.push(trimmed)
+        }
+
+        return urls
+    }
+
+    function isValidUrl(string: string): boolean {
+        try {
+            const url = new URL(string)
+            return url.protocol === "http:" || url.protocol === "https:" || url.protocol === "file:"
+        } catch {
+            return false
+        }
+    }
+
+    function isMediaUrl(string: string): boolean {
+        try {
+            const url = new URL(string)
+            const pathname = url.pathname || ""
+            const m = pathname.match(/\.([a-z0-9]{2,5})(?:$|\?)/i)
+            if (!m) return false
+            const ext = m[1].toLowerCase()
+            return mediaExtensions.includes(ext)
+        } catch {
+            return false
+        }
+    }
+
+    function getNameFromUrl(string: string): string {
+        try {
+            const url = new URL(string)
+            const parts = url.pathname.split("/")
+            const name = parts.pop() || string
+            return decodeURIComponent(name)
+        } catch {
+            return string
+        }
+    }
+
+    function isWebMediaFile(file: File): boolean {
+        const isMediaFile = file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/")
+        if (!isMediaFile) return false
+
+        const isFromWeb =
+            // Blob URLs are definitely from web
+            file.name.includes("blob:") ||
+            // Files with unusual extensions or no extensions (common for web files)
+            !/\.\w{2,4}$/i.test(file.name) ||
+            // Files with very recent modification times (within last few seconds) are likely from web
+            Date.now() - file.lastModified < 5000 ||
+            // Files with size 0 that aren't obviously empty file types
+            (file.size === 0 && !file.name.endsWith(".txt"))
+
+        return isFromWeb
+    }
+
+    async function fileToBase64(file: File): Promise<{ name: string; path: string }> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+                const result = reader.result as string
+                resolve({ name: file.name, path: result })
+            }
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+        })
     }
 
     let fileOver = false
@@ -83,15 +202,7 @@
 <div
     class="droparea"
     class:hover
-    on:drop|preventDefault={(e) => {
-        let files = getFiles(e)
-        if (files.length) selected.set({ id: "files", data: files })
-        fileOver = false
-        hover = false
-        console.log($selected.id, "=>", id)
-
-        if (validateDrop(id, $selected.id, true) || files.length) ondrop(e, id)
-    }}
+    on:drop|preventDefault={dropEvent}
     on:dragover|preventDefault={(e) => {
         if (file && e.dataTransfer?.items[0]?.kind === "file") fileOver = true
     }}

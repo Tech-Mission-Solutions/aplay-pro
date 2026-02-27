@@ -55,6 +55,13 @@
         tabs.items.remove = false
         // tabs.slide.remove = false
     }
+    $: templateItemMode = $activeEdit.type === "template" && $templates[activeId]?.settings?.mode === "item"
+    $: if (templateItemMode) {
+        if (active === "text") active = item ? "item" : "items"
+        tabs.text.remove = true
+    } else {
+        tabs.text.remove = false
+    }
 
     $: showIsActive = $activeShow && ($activeShow.type === undefined || $activeShow.type === "show")
     $: editSlideSelected = $activeEdit.slide !== null && $activeEdit.slide !== undefined
@@ -71,7 +78,11 @@
     $: isEmpty = !allSlideItems?.length
     $: tabs.item.disabled = isEmpty
     let previousCount = 0
-    $: if (isEmpty || activeId || activeSlide) previousCount = 0
+    let actualPreviousCount = 0
+    $: if (isEmpty || activeId || activeSlide) {
+        actualPreviousCount = previousCount
+        previousCount = 0
+    }
     $: if (item !== undefined) itemChanged()
     function itemChanged() {
         if (item === null) {
@@ -84,7 +95,8 @@
         if (previousCount === currentCount) return
         previousCount = currentCount
 
-        if (active === "items") active = "text"
+        if (active === "items" && (!actualPreviousCount || actualPreviousCount !== currentCount)) active = "text"
+        actualPreviousCount = 0
         tabs.text.disabled = false
     }
 
@@ -208,8 +220,10 @@
             else if ($activeEdit.type === "template") templates.update(updateItemValues)
 
             function updateItemValues(a: any) {
+                if (!a[$activeEdit.id!]?.items) return
+
                 $activeEdit.items.forEach((i: number) => {
-                    if (!a[$activeEdit.id!]?.items[i]?.lines) return
+                    if (!a[$activeEdit.id!].items[i]?.lines) return
 
                     a[$activeEdit.id!].items[i].lines.forEach((line: Line) => {
                         line.text?.forEach((text) => {
@@ -218,6 +232,7 @@
                     })
                 })
 
+                a[$activeEdit.id!].modified = Date.now()
                 return a
             }
 
@@ -350,12 +365,16 @@
         }
     }
 
-    // const ignoreDefault = ["metadata", "message", "double"]
-
     $: slideActive = !!((slides?.length && showIsActive && activeSlide !== null) || activeId)
     let profile = getAccess("shows")
-    $: isLocked = activeId ? false : $showsCache[$activeShow?.id || ""]?.locked || profile.global === "read" || profile[$showsCache[$activeShow?.id || ""]?.category || ""] === "read"
-    // $: isDefault = $activeEdit.type === "overlay" ? $overlays[activeId || ""]?.isDefault : $activeEdit.type === "template" ? $templates[activeId || ""]?.isDefault && !ignoreDefault.includes(activeId || "") : false
+
+    $: currentShow = $showsCache[$activeShow?.id || ""]
+    $: isSlideLockedFn = () => {
+        const slideId = ref[activeSlide]?.parent?.id || ref[activeSlide]?.id
+        return !!currentShow?.slides?.[slideId]?.locked
+    }
+    $: isLocked = activeId ? false : currentShow?.locked || isSlideLockedFn() || profile.global === "read" || profile[currentShow?.category || ""] === "read"
+    // $: isDefault = $activeEdit.type === "overlay" ? $overlays[activeId || ""]?.isDefault : $activeEdit.type === "template" ? $templates[activeId || ""]?.isDefault : false
     $: overflowHidden = !!(isShow || $activeEdit.type === "template")
 
     $: currentCopied = $copyPasteEdit[type]
@@ -486,7 +505,12 @@
                 </Button>
             {/if}
         </span> -->
-    {:else if !isLocked}
+    {:else if isLocked}
+        <Center faded>
+            <Icon id="lock" size={2} white />
+            <p style="margin-top: 8px;"><T id="output.state_locked" /></p>
+        </Center>
+    {:else}
         <Center faded>
             <T id="empty.slides" />
         </Center>

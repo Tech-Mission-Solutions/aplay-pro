@@ -1,19 +1,16 @@
-import Bonjour, { type Bonjour as BonjourInstance } from "bonjour-service"
+import Bonjour from "bonjour-service"
 import crypto from "crypto"
 import os from "os"
 
-let bonjour: BonjourInstance | null = null
-try {
-    bonjour = new Bonjour()
-} catch (err) {
-    // likely no permission on macOS (System Settings > Privacy & Security > Network Access)
-    console.warn("Bonjour: Failed to initialize:", err.message)
-}
+const bonjour = new Bonjour({}, (err: any) => {
+    // might not have permission on macOS (System Settings > Privacy & Security > Network Access)
+    // catch "send EHOSTUNREACH 224.0.0.251:5353" on macOS
+    console.warn("Bonjour: An error occurred:", err.message)
+})
 
 const ips = getLocalIPs()
 
 const instanceID = crypto.randomBytes(3).toString("hex")
-const hostname = os.hostname()
 
 // broadcast port over LAN
 export function publishPort(name: string, port: number) {
@@ -23,8 +20,8 @@ export function publishPort(name: string, port: number) {
         return
     }
 
-    // Format: computer-REMOTE-a4f2d9
-    const uniqueName = `${hostname}-${name}-${instanceID}`
+    // Format: freeshow-REMOTE-a4f2d9
+    const uniqueName = `freeshow-${name}-${instanceID}`
     const customData = { ip: ips[0], ips }
 
     try {

@@ -1,7 +1,6 @@
 import * as Sentry from "@sentry/electron/main"
 import type { BrowserWindow, DesktopCapturerSource } from "electron"
 import { app, desktopCapturer, screen, shell, systemPreferences } from "electron"
-import { machineIdSync } from "node-machine-id"
 import os from "os"
 import path from "path"
 import { getMainWindow, isProd, mainWindow, maximizeMain, setGlobalMenu } from ".."
@@ -9,8 +8,11 @@ import type { MainResponses } from "../../types/IPC/Main"
 import { Main } from "../../types/IPC/Main"
 import type { ErrorLog, LyricSearchResult, OS } from "../../types/Main"
 import { openNowPlaying, setPlayingState, unsetPlayingAudio } from "../audio/nowPlaying"
+import { canSync, getSyncTeams, hasDataChanged, hasTeamData, markAsNewSync, syncData } from "../cloud/syncManager"
 import { ContentProviderRegistry } from "../contentProviders"
+import { ChurchAppsChat } from "../contentProviders/churchApps/ChurchAppsChat"
 import { deleteBackup, getBackups, restoreFiles } from "../data/backup"
+import { getLocalIPs } from "../data/bonjour"
 import { checkIfMediaDownloaded, downloadLessonsMedia, downloadMedia } from "../data/downloadMedia"
 import { importShow } from "../data/import"
 import { save } from "../data/save"
@@ -20,15 +22,16 @@ import { OutputHelper } from "../output/OutputHelper"
 import { libreConvert } from "../output/ppt/libreConverter"
 import { getPresentationApplications, presentationControl, startSlideshow } from "../output/ppt/presentation"
 import { closeServers, startServers, updateServerData } from "../servers"
+import { processAudioData, timecodeStart, timecodeStop, updateTimecodeValue } from "../timecode/timecode"
 import { apiReturnData, emitOSC, startWebSocketAndRest, stopApiListener } from "../utils/api"
 import { closeMain } from "../utils/close"
-import { bundleMediaFiles, getDataFolderPath, getDataFolderRoot, getFileInfo, getFolderContent, getFoldersContent, getMediaCodec, getMediaTracks, getPaths, getSimularPaths, loadFile, loadShows, locateMediaFile, openInSystem, readExifData, readFile, selectFiles, selectFilesDialog, selectFolder, writeFile } from "../utils/files"
+import { addToMediaFolder, bundleMediaFiles, getDataFolderPath, getDataFolderRoot, getFileInfo, getMediaCodec, getMediaSyncFolderPath, getMediaTracks, getPaths, getSimularPaths, loadFile, loadShows, locateMediaFile, openInSystem, readExifData, readFile, readFolder, readFolderContent, selectFiles, selectFilesDialog, selectFolder, setMediaSyncFolderPath, writeFile } from "../utils/files"
+import { getMachineId } from "../utils/helpers"
 import { LyricSearch } from "../utils/LyricSearch"
 import { closeMidiInPorts, getMidiInputs, getMidiOutputs, receiveMidi, sendMidi } from "../utils/midi"
 import { deleteShows, deleteShowsNotIndexed, getAllShows, getEmptyShows, refreshAllShows } from "../utils/shows"
 import { correctSpelling } from "../utils/spellcheck"
 import checkForUpdates from "../utils/updater"
-import { getLocalIPs } from "../data/bonjour"
 
 export const mainResponses: MainResponses = {
     // DEV
@@ -39,6 +42,7 @@ export const mainResponses: MainResponses = {
     [Main.VERSION]: () => getVersion(),
     [Main.GET_OS]: () => getOS(),
     [Main.DEVICE_ID]: () => getMachineId(),
+    [Main.GET_DEVICE_NAME]: () => getDeviceName(),
     [Main.IP]: () => getLocalIPs(),
     [Main.CHECK_RAM_USAGE]: () => checkRamUsage(),
     // STORES
@@ -67,6 +71,7 @@ export const mainResponses: MainResponses = {
     [Main.BACKUPS]: () => getBackups(),
     [Main.DELETE_BACKUP]: (data) => deleteBackup(data),
     [Main.IMPORT]: (data) => startImport(data),
+    [Main.IMPORT_FILES]: (data) => importFiles(data),
     [Main.BIBLE]: (data) => loadScripture(data),
     [Main.SHOW]: (data) => loadShow(data),
     // MAIN
@@ -101,7 +106,7 @@ export const mainResponses: MainResponses = {
     [Main.OUTPUT]: (_, e) => (e.sender.id === getMainWindow()?.webContents.id ? "false" : "true"),
     // MEDIA
     [Main.DOES_MEDIA_EXIST]: (data) => doesMediaExist(data),
-    [Main.GET_THUMBNAIL]: (data) => getThumbnail(data),
+    [Main.GET_THUMBNAIL]: async (data) => await getThumbnail(data),
     [Main.SAVE_IMAGE]: (data) => saveImage(data),
     [Main.PDF_TO_IMAGE]: (data) => pdfToImage(data),
     [Main.READ_EXIF]: (data) => readExifData(data),
@@ -147,24 +152,36 @@ export const mainResponses: MainResponses = {
     [Main.RECORDER]: (data) => saveRecording(data),
     [Main.SYSTEM_OPEN]: (data) => openInSystem(data),
     [Main.LOCATE_MEDIA_FILE]: (data) => locateMediaFile(data),
+    [Main.GET_MEDIA_FOLDER_PATH]: () => getMediaSyncFolderPath(),
+    [Main.SET_MEDIA_FOLDER_PATH]: (data) => setMediaSyncFolderPath(data),
     [Main.GET_SIMILAR]: (data) => getSimularPaths(data),
-    [Main.BUNDLE_MEDIA_FILES]: () => bundleMediaFiles(),
+    [Main.BUNDLE_MEDIA_FILES]: (data) => bundleMediaFiles(data),
+    [Main.MEDIA_FOLDER_COPY]: (data) => addToMediaFolder(data.paths),
+    [Main.READ_BIBLES_FOLDER]: () => readBiblesFolder(),
     [Main.FILE_INFO]: (data) => getFileInfo(data),
-    [Main.READ_FOLDER]: (data) => getFolderContent(data),
-    [Main.READ_FOLDERS]: (data) => getFoldersContent(data),
+    [Main.READ_FOLDER]: (data) => readFolderContent(data),
     [Main.READ_FILE]: (data) => ({ content: readFile(data.path) }),
     [Main.OPEN_FOLDER]: (data) => selectFolder(data),
     [Main.OPEN_FILE]: (data) => selectFiles(data),
+    // SYNC
+    [Main.CAN_SYNC]: (data) => canSync(data),
+    [Main.GET_TEAMS]: (data) => getSyncTeams(data),
+    [Main.CLOUD_DATA]: (data) => hasTeamData(data),
+    [Main.CLOUD_CHANGED]: (data) => hasDataChanged(data),
+    [Main.CLOUD_SYNC]: (data) => syncData(data),
+    [Main.GET_CONVERSATION_ID]: (data) => getConversationId(data.teamId),
+    [Main.SEND_SOCKET_MESSAGE]: (data) => sendSocketMessage(data),
     // Provider-based routing
     [Main.PROVIDER_LOAD_SERVICES]: async (data) => {
-        await ContentProviderRegistry.loadServices(data.providerId)
+        if (data.cloudOnly) markAsNewSync()
+        await ContentProviderRegistry.loadServices(data.providerId, data.cloudOnly || false)
     },
     [Main.PROVIDER_DISCONNECT]: (data) => {
         ContentProviderRegistry.disconnect(data.providerId, data.scope)
         return { success: true }
     },
     [Main.PROVIDER_STARTUP_LOAD]: async (data) => {
-        await ContentProviderRegistry.startupLoad(data.providerId, data.scope || "", data.data)
+        await ContentProviderRegistry.startupLoad(data.providerId, data.scope || "", data.data, data.cloudOnly)
     },
     // Content Library
     [Main.GET_CONTENT_PROVIDERS]: () => {
@@ -201,7 +218,13 @@ export const mainResponses: MainResponses = {
             return null
         }
         return await provider.checkMediaLicense(data.mediaId)
-    }
+    },
+    // Timecode
+    [Main.TIMECODE_START]: (data) => timecodeStart(data),
+    [Main.TIMECODE_STOP]: () => timecodeStop(),
+    [Main.TIMECODE_VALUE]: (data) => updateTimecodeValue(data),
+    [Main.TIMECODE_STATUS]: (data) => console.log(data),
+    [Main.TIMECODE_AUDIO_DATA]: (data) => processAudioData(data)
 }
 
 /// ///////
@@ -214,6 +237,10 @@ export function startImport(data: { channel: string; format: { name: string; ext
     if (needsFileAndNoFileSelected) return
 
     importShow(data.channel, files || null, data.settings || {})
+}
+
+function importFiles(data: { id: string; paths: string[] }) {
+    importShow(data.id, data.paths, {})
 }
 
 // BIBLE
@@ -244,6 +271,15 @@ export function loadScripture(msg: { id: string; name: string }) {
     return bible
 }
 
+function readBiblesFolder() {
+    const bibleFolder: string = getDataFolderPath("scriptures")
+    const names = readFolder(bibleFolder)
+    return names.map((name) => {
+        const filePath = path.join(bibleFolder, name)
+        return { path: filePath, name: name.replace(/\.fsb$/i, "") }
+    })
+}
+
 // SHOW
 export function loadShow(msg: { id: string; name: string }) {
     const showsFolder = getDataFolderPath("shows")
@@ -251,19 +287,6 @@ export function loadShow(msg: { id: string; name: string }) {
     const show = loadFile(filePath, msg.id)
 
     return show
-}
-
-export function getMachineId(): string {
-    try {
-        return machineIdSync()
-    } catch (err) {
-        console.warn("Could not get machine ID:", err)
-
-        // fallback to a hash of hostname + username + platform
-        const crypto = require("crypto")
-        const fallbackId = `${os.hostname()}-${os.userInfo().username}-${os.platform()}`
-        return crypto.createHash("sha256").update(fallbackId).digest("hex")
-    }
 }
 
 function getVersion() {
@@ -275,8 +298,22 @@ function getVersion() {
     }
 }
 
+async function getConversationId(teamId: string): Promise<string | null> {
+    return ChurchAppsChat.getOrCreateConversation(teamId)
+}
+
+async function sendSocketMessage(data: { churchId: string; teamId: string; displayName: string; content: string }): Promise<boolean> {
+    const conversationId = await ChurchAppsChat.getOrCreateConversation(data.teamId)
+    if (!conversationId) return false
+    return ChurchAppsChat.sendMessage({ churchId: data.churchId, conversationId, displayName: data.displayName, content: data.content })
+}
+
 function getOS() {
     return { platform: os.platform(), name: os.hostname(), arch: os.arch() } as OS
+}
+
+function getDeviceName() {
+    return (os.hostname() || "").replace(".local", "")
 }
 
 function checkRamUsage() {

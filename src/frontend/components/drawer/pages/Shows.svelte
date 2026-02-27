@@ -3,7 +3,7 @@
     // import VirtualList from "@sveltejs/svelte-virtual-list"
     // import VirtualList from "./VirtualList2.svelte"
     import type { ShowList } from "../../../../types/Show"
-    import { activeEdit, activeFocus, activePopup, activeProject, activeShow, activeTagFilter, categories, drawer, focusMode, labelsDisabled, shows, sorted, sortedShowsList } from "../../../stores"
+    import { activeEdit, activeFocus, activePopup, activeProfile, activeProject, activeShow, activeTagFilter, categories, drawer, focusedArea, focusMode, labelsDisabled, shows, sorted, sortedShowsList } from "../../../stores"
     import { translateText } from "../../../utils/language"
     import { getAccess } from "../../../utils/profile"
     import { formatSearch, isRefinement, showSearch, tokenize } from "../../../utils/search"
@@ -20,6 +20,7 @@
     import Center from "../../system/Center.svelte"
     import SelectElem from "../../system/SelectElem.svelte"
     import VirtualList from "../VirtualList.svelte"
+    import { ShowObj } from "../../../classes/Show"
 
     export let active: string | null
     export let searchValue: string
@@ -34,8 +35,8 @@
     //     if (JSON.stringify(updateSorted) !== JSON.stringify(updatedSorted)) updatedSorted = clone(showsSorted)
     // }
 
-    const profile = getAccess("shows")
-    const readOnly = profile.global === "read"
+    $: profile = $activeProfile ? getAccess("shows") : {}
+    $: readOnly = profile.global === "read"
 
     let filteredShows: ShowList[] = []
     let filteredStored: ShowList[] = []
@@ -137,7 +138,7 @@
 
     let showLoading = false
     function keydown(e: KeyboardEvent) {
-        if (e.target?.closest(".search")) {
+        if (e.target?.closest(".drawer_search")) {
             // get preview of shows
             if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault()
@@ -209,8 +210,9 @@
 
         const { ctrl } = e.detail
         if (ctrl) {
+            let show = new ShowObj()
             const selectedIndex = $activeShow?.index === undefined ? undefined : $activeShow.index + 1
-            history({ id: "UPDATE", newData: { remember: { project: $activeProject, index: selectedIndex } }, location: { page: "show", id: "show" } })
+            history({ id: "UPDATE", newData: { data: show, remember: { project: $activeProject, index: selectedIndex } }, location: { page: "show", id: "show" } })
         } else {
             activePopup.set("show")
         }
@@ -248,7 +250,7 @@
 
 <Autoscroll style="overflow-y: auto;flex: 1;">
     <!-- bind:this={listElem} -->
-    <div class="column {readOnly ? '' : 'context #drawer_show'}">
+    <div class="column {readOnly ? '' : 'context #drawer_show'}" on:mouseup={() => focusedArea.set("show_drawer")}>
         {#if filteredShows.length}
             {#if createFromSearch && searchValue.length && typeof searchValue === "string" && activeIsSearch}
                 <div class="warning">

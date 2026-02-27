@@ -3,25 +3,22 @@
 <script lang="ts">
     import { onDestroy } from "svelte"
     import { uid } from "uid"
-    import { Main } from "../../../types/IPC/Main"
     import { OutData } from "../../../types/Output"
     import type { Styles } from "../../../types/Settings"
     import type { AnimationData, LayoutRef, OutBackground, OutSlide, Slide, SlideData, Template, Overlays as TOverlays } from "../../../types/Show"
-    import { requestMain } from "../../IPC/main"
-    import { allOutputs, colorbars, currentWindow, customMessageCredits, drawSettings, drawTool, effects, media, outputs, overlays, showsCache, styles, templates, transitionData } from "../../stores"
+    import { allOutputs, colorbars, currentWindow, drawSettings, drawTool, effects, media, outputs, overlays, showsCache, styles, templates, transitionData } from "../../stores"
     import { wait } from "../../utils/common"
     import { custom } from "../../utils/transitions"
     import Draw from "../draw/Draw.svelte"
     import { clone } from "../helpers/array"
-    import { decodeExif, defaultLayers, getCurrentStyle, getMetadata, getOutputLines, getOutputTransitions, getResolution, getSlideFilter, getStyleTemplate, joinMetadata, OutputMetadata, setTemplateStyle } from "../helpers/output"
-    import { replaceDynamicValues } from "../helpers/showActions"
+    import { defaultLayers, getCurrentStyle, getMetadata, getOutputLines, getOutputTransitions, getResolution, getSlideFilter, getStyleTemplate, setTemplateStyle } from "../helpers/output"
     import { _show } from "../helpers/shows"
     import Image from "../media/Image.svelte"
     import Zoomed from "../slide/Zoomed.svelte"
     import { updateAnimation } from "./animation"
     import EffectOutput from "./effects/EffectOutput.svelte"
     import Background from "./layers/Background.svelte"
-    import Metadata from "./layers/Metadata.svelte"
+    import Overlay from "./layers/Overlay.svelte"
     import Overlays from "./layers/Overlays.svelte"
     import PdfOutput from "./layers/PdfOutput.svelte"
     import SlideContent from "./layers/SlideContent.svelte"
@@ -142,7 +139,7 @@
         function formatSlide(currentSlide) {
             if (!currentSlide) return null
             let newSlide = clone(currentSlide)
-            newSlide.items = setTemplateStyle(slide, currentStyle, newSlide.items, outputId)
+            newSlide.items = setTemplateStyle(slide, currentStyle, newSlide.items, outputId, newSlide.customDynamicValues)
             return newSlide
         }
     }
@@ -161,7 +158,7 @@
         if (currentSlide) setTemplateItems()
         getStyleTemplateData()
     }
-    const setTemplateItems = () => (currentSlide!.items = setTemplateStyle(slide!, currentStyle, currentSlide!.items, outputId))
+    const setTemplateItems = () => (currentSlide!.items = setTemplateStyle(slide!, currentStyle, currentSlide!.items, outputId, currentSlide!.customDynamicValues))
     let styleTemplate: Template | null = null
     const getStyleTemplateData = () => (styleTemplate = getStyleTemplate(slide!, currentStyle))
     $: templateBackground = styleTemplate?.settings?.backgroundPath || ""
@@ -178,21 +175,7 @@
     }
 
     // metadata
-    let metadata: OutputMetadata = {}
-    $: metadata = getMetadata(metadata, $showsCache[slide?.id || ""], currentStyle, $templates, slide)
-
-    // media exif metadata
-    $: getExifData = metadata.media
-    $: if (getExifData && background?.path) getExif()
-    async function getExif() {
-        metadata.value = ""
-
-        const data = await requestMain(Main.READ_EXIF, { id: background?.path || "" })
-        if (!metadata.media || data.id !== background?.path) return
-
-        let message = decodeExif(data)
-        metadata.value = joinMetadata(message, currentStyle.metadataDivider)
-    }
+    $: metadataItems = getMetadata($showsCache[(slide as any)?.id || ""], currentStyle, slide, $templates)
 
     // ANIMATE
     let animationData: AnimationData = {}
@@ -254,11 +237,6 @@
 
     // values
     $: backgroundColor = currentOutput.transparent ? "transparent" : styleTemplate?.settings?.backgroundColor || currentSlide?.settings?.color || currentStyle.background || slide?.settings?.backgroundColor || "black"
-    $: messageText = $showsCache[slide?.id || ""]?.message?.text?.replaceAll("\n", "<br>") || ""
-    // metadata display
-    $: firstActiveSlideIndex = currentLayout.findIndex((a) => !a.data.disabled)
-    $: lastActiveSlideIndex = currentLayout.length - 1 - [...currentLayout].reverse().findIndex((a) => !a.data.disabled)
-    $: displayMetadata = metadata.value?.length && (metadata.display === "always" || (metadata.display?.includes("first") && (slide?.index === firstActiveSlideIndex || slide?.index === 0)) || (metadata.display?.includes("last") && (slide?.index === lastActiveSlideIndex || slide?.index === currentLayout.length - 1)))
     // background image
     $: styleBackground = currentStyle?.clearStyleBackgroundOnText && (slide || background) ? "" : currentStyle?.backgroundImage || ""
     $: styleBackgroundData = { path: styleBackground, ...($media[styleBackground] || {}), loop: true }
@@ -290,13 +268,6 @@
             actualCurrentLineId = clone(currentLineId)
         })
     }
-
-    // UPDATE DYNAMIC VALUES e.g. {time_} EVERY SECOND
-    let updateDynamic = 0
-    const dynamicInterval = setInterval(() => {
-        updateDynamic++
-    }, 1000)
-    onDestroy(() => clearInterval(dynamicInterval))
 </script>
 
 <Zoomed id={outputId} background={backgroundColor} checkered={(preview || mirror) && backgroundColor === "transparent"} backgroundDuration={transitions.media?.type === "none" ? 0 : (transitions.media?.duration ?? 800)} align={alignPosition} center {style} {resolution} {mirror} {drawZoom} {cropping} bind:ratio>
@@ -306,7 +277,7 @@
     {/if}
 
     <!-- background -->
-    {#if (layers.includes("background") || backgroundData?.ignoreLayer) && backgroundData}
+    {#if (backgroundData?.ignoreLayer ? layers.includes("slide") : layers.includes("background")) && backgroundData}
         <Background data={backgroundData} {outputId} transition={transitions.media} {currentStyle} {slideFilter} {ratio} animationStyle={animationData.style?.background || ""} {mirror} />
     {/if}
 
@@ -339,20 +310,12 @@
         </span>
     {:else if actualSlide && actualSlide?.type !== "pdf"}
         <SlideContent {outputId} outSlide={actualSlide} isClearing={isSlideClearing} slideData={actualSlideData} currentSlide={actualCurrentSlide} {currentStyle} {animationData} currentLineId={actualCurrentLineId} {lines} {ratio} {mirror} {preview} transition={transitions.text} transitionEnabled={!mirror || preview} {styleIdOverride} />
+
+        <!-- metadata -->
+        <Overlay overlay={{ items: metadataItems }} isClearing={isSlideClearing} {outputId} transition={transitions.text} />
     {/if}
 
     {#if layers.includes("overlays")}
-        <!-- message -->
-        {#if messageText}
-            <Metadata value={messageText.includes("{") ? replaceDynamicValues(messageText, { showId: actualSlide?.id, layoutId: actualSlide?.layout, slideIndex: actualSlide?.index }, updateDynamic) : messageText} style={metadata.messageStyle || ""} transition={metadata.messageTransition || transitions.overlay} />
-        {/if}
-
-        <!-- metadata -->
-        {#if displayMetadata || ((layers.includes("background") || backgroundData?.ignoreLayer) && $customMessageCredits)}
-            <!-- value={metadata.value ? (metadata.value.includes("{") ? createMetadataLayout(metadata.value, { showId: actualSlide?.id, layoutId: actualSlide?.layout, slideIndex: actualSlide?.index }, updateDynamic) : metadata.value) : $customMessageCredits || ""} -->
-            <Metadata value={metadata.value || $customMessageCredits || ""} style={metadata.style || ""} conditions={metadata.condition} isClearing={isSlideClearing} {outputId} transition={metadata.transition || transitions.overlay} />
-        {/if}
-
         <!-- effects -->
         {#if effectsOverSlide}
             <EffectOutput ids={effectsOverSlide} transition={transitions.overlay} {mirror} />
@@ -367,9 +330,9 @@
 
     {#if actualSlide?.attributionString && layers.includes("slide")}
         {#if mirror}
-            <p class="attributionString">{actualSlide.attributionString}</p>
+            <p class="attributionString">{actualSlide.attributionString.slice(0, 135)}</p>
         {:else}
-            <p class="attributionString" transition:custom={transitions.text}>{actualSlide.attributionString}</p>
+            <p class="attributionString" transition:custom={transitions.text}>{actualSlide.attributionString.slice(0, 135)}</p>
         {/if}
     {/if}
 

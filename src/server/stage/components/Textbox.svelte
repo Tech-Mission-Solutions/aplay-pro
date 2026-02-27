@@ -11,6 +11,7 @@
     import { send } from "../util/socket"
     import { dictionary, updateTransposed, variables } from "../util/stores"
     import ListView from "./ListView.svelte"
+    import { getItemText } from "../helpers/textStyle"
 
     export let showId: string
     export let item: Item
@@ -236,14 +237,30 @@
 
     // UPDATE DYNAMIC VALUES e.g. {time_} EVERY SECOND
     // & update instantly when variables or item change
+    $: slideText = getItemText(item)
+    $: hasDynamicValues = slideText.includes("{")
+
+    // only update if text contains dynamic values
+    $: if (hasDynamicValues) startInterval()
+    else stopInterval()
+    let dynamicInterval: NodeJS.Timeout | null = null
+    function startInterval() {
+        stopInterval()
+        dynamicInterval = setInterval(update, 1000)
+    }
+    function stopInterval() {
+        if (dynamicInterval) clearInterval(dynamicInterval)
+        dynamicInterval = null
+    }
+
     let updateDynamic = 0
     $: if ($variables || item) setTimeout(update)
-    const dynamicInterval = setInterval(update, 1000)
     function update() {
+        if (!hasDynamicValues) return
         updateDynamic++
     }
     onDestroy(() => {
-        clearInterval(dynamicInterval)
+        stopInterval()
         if (eventTimeout) clearTimeout(eventTimeout)
         if (blockTimeout) clearTimeout(blockTimeout)
     })
@@ -507,6 +524,7 @@
         font-family: unset;
         line-height: 1.1;
         /* -webkit-text-stroke-color: #000000;
+        paint-order: stroke fill;
         text-shadow: 2px 2px 10px #000000; */
 
         /* border-style: solid;

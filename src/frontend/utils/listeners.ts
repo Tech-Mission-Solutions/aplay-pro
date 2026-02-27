@@ -2,7 +2,7 @@ import { get } from "svelte/store"
 import { OUTPUT, REMOTE, STAGE } from "../../types/Channels"
 import { AudioPlayer } from "../audio/audioPlayer"
 import { midiInListen } from "../components/actions/midi"
-import { getActiveOutputs } from "../components/helpers/output"
+import { getAllActiveOutputIds, getAllNormalOutputs } from "../components/helpers/output"
 import { loadShows } from "../components/helpers/setShow"
 import { getShowCacheId, updateCachedShow, updateCachedShows, updateShowsList } from "../components/helpers/show"
 import {
@@ -16,6 +16,7 @@ import {
     audioChannelsData,
     audioData,
     cachedShowsData,
+    categories,
     colorbars,
     customMessageCredits,
     customMetadata,
@@ -55,15 +56,26 @@ import {
     timers,
     transitionData,
     triggers,
-    variableTags,
     variables,
+    variableTags,
     volume
 } from "../stores"
 import { hasNewerUpdate } from "./common"
 import { driveConnect } from "./drive"
-import { convertBackgrounds } from "./remoteTalk"
+import { convertBackgrounds, getMixerPayload } from "./remoteTalk"
 import { send } from "./request"
 import { arrayToObject, eachConnection, filterObjectArray, sendData, timedout } from "./sendData"
+
+// simple debounce helper (shared for mixer pushes)
+const debounce = (fn: (...args: any[]) => void, wait: number) => {
+    let t: any
+    return (...args: any[]) => {
+        clearTimeout(t)
+        t = setTimeout(() => fn(...args), wait)
+    }
+}
+
+const sendRemoteMixer = debounce(() => send(REMOTE, ["GET_MIXER"], getMixerPayload()), 50)
 
 export function storeSubscriber() {
     shows.subscribe(async (data) => {
@@ -111,6 +123,18 @@ export function storeSubscriber() {
         if (Object.keys(data).length < 100) updateCachedShows(data)
     })
 
+    // show category metadata display
+    categories.subscribe(async (data) => {
+        if (await hasNewerUpdate("LISTENER_CATEGORIES", 50)) return
+
+        send(OUTPUT, ["CATEGORIES"], data)
+    })
+
+    groups.subscribe(async (data) => {
+        if (await hasNewerUpdate("LISTENER_GROUPS", 50)) return
+
+        send(OUTPUT, ["GROUPS"], data)
+    })
     templates.subscribe(async (data) => {
         if (await hasNewerUpdate("LISTENER_TEMPLATES", 50)) return
 
@@ -177,6 +201,9 @@ export function storeSubscriber() {
         // used for stage mirror data
         send(OUTPUT, ["ALL_OUTPUTS"], data)
 
+        // REMOTE mixer updates (labels/available outputs)
+        sendRemoteMixer()
+
         // let it update properly
         setTimeout(() => {
             sendData(REMOTE, { channel: "OUT" })
@@ -218,27 +245,24 @@ export function storeSubscriber() {
     draw.subscribe((data) => {
         // if (await hasNewerUpdate("LISTENER_DRAW")) return
 
-        const allOutputs = getActiveOutputs(get(outputs), false, false, true)
-        const activeOutputs = getActiveOutputs(get(outputs), true, false, true)
-        allOutputs.forEach((id) => {
-            if (activeOutputs.includes(id)) send(OUTPUT, ["DRAW"], { id, data })
+        const activeOutputIds = getAllActiveOutputIds()
+        getAllNormalOutputs().forEach(({ id }) => {
+            if (activeOutputIds.includes(id)) send(OUTPUT, ["DRAW"], { id, data })
             else send(OUTPUT, ["DRAW"], { id, data: null })
         })
     })
     drawTool.subscribe((data) => {
         // WIP changing tool while output is not active, will not update tool in output if set to active before changing tool again
-        const allOutputs = getActiveOutputs(get(outputs), false, false, true)
-        const activeOutputs = getActiveOutputs(get(outputs), true, false, true)
-        allOutputs.forEach((id) => {
-            if (activeOutputs.includes(id)) send(OUTPUT, ["DRAW_TOOL"], { id, data })
+        const activeOutputIds = getAllActiveOutputIds()
+        getAllNormalOutputs().forEach(({ id }) => {
+            if (activeOutputIds.includes(id)) send(OUTPUT, ["DRAW_TOOL"], { id, data })
             else send(OUTPUT, ["DRAW_TOOL"], { id, data: "focus" })
         })
     })
     drawSettings.subscribe((data) => {
-        const allOutputs = getActiveOutputs(get(outputs), false, false, true)
-        const activeOutputs = getActiveOutputs(get(outputs), true, false, true)
-        allOutputs.forEach((id) => {
-            if (activeOutputs.includes(id)) send(OUTPUT, ["DRAW_SETTINGS"], data)
+        const activeOutputIds = getAllActiveOutputIds()
+        getAllNormalOutputs().forEach(({ id }) => {
+            if (activeOutputIds.includes(id)) send(OUTPUT, ["DRAW_SETTINGS"], data)
             else {
                 send(OUTPUT, ["DRAW_TOOL"], { id, data: "focus" })
                 send(OUTPUT, ["DRAW"], { id, data: null })
@@ -309,15 +333,23 @@ export function storeSubscriber() {
 
     volume.subscribe((data) => {
         send(OUTPUT, ["VOLUME"], data)
+
+        // REMOTE mixer updates
+        sendRemoteMixer()
     })
     gain.subscribe((data) => {
         send(OUTPUT, ["GAIN"], data)
     })
     audioChannelsData.subscribe((data) => {
         send(OUTPUT, ["AUDIO_CHANNELS_DATA"], data)
+
+        // REMOTE mixer updates
+        sendRemoteMixer()
     })
 
-    equalizerConfig.subscribe((data) => {
+    equalizerConfig.subscribe(async (data) => {
+        if (await hasNewerUpdate("EQUALIZER_CONFIG_CACHE", 50)) return
+
         send(OUTPUT, ["EQUALIZER_CONFIG"], data)
     })
 
@@ -424,10 +456,12 @@ const initalOutputData = {
     STYLES: "styles",
     TRANSITION: "transitionData",
     SHOWS: "showsCache",
+    CATEGORIES: "categories",
 
     TEMPLATES: "templates",
     OVERLAYS: "overlays",
     EVENTS: "events",
+    GROUPS: "groups",
 
     DRAW: { data: "draw" },
     DRAW_TOOL: { data: "drawTool" },

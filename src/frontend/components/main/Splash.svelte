@@ -1,11 +1,13 @@
 <script lang="ts">
-    import { activePopup, activeProject, projects, projectView, showRecentlyUsedProjects, shows, special, version } from "../../stores"
+    import { onMount } from "svelte"
+    import { activePopup, activeProject, projects, projectView, quickSearchActive, showRecentlyUsedProjects, shows, special, version } from "../../stores"
     import { history } from "../helpers/history"
     import Icon from "../helpers/Icon.svelte"
     import T from "../helpers/T.svelte"
     import Link from "../inputs/Link.svelte"
     import MaterialButton from "../inputs/MaterialButton.svelte"
     import Center from "../system/Center.svelte"
+    import { getVOTD } from "./votd"
 
     function createProject() {
         // if opened project is empty go to project list (to reduce confusion)
@@ -36,6 +38,12 @@
 
         return finalText.replaceAll("\n", "<br>").replace(/\s+/g, " ").trim()
     }
+
+    let votd: string = ""
+    onMount(async () => {
+        if ($special.splashText) return
+        votd = await getVOTD()
+    })
 </script>
 
 <Center class="context #splash">
@@ -61,9 +69,18 @@
                 <Icon id="launch" white />
             </Link>
         </p>
+    {:else if votd}
+        <p class="votd" style="padding-top: 30px" data-title="Verse of the Day [votd.org]">
+            <Link url="https://votd.org/">
+                {votd}
+            </Link>
+        </p>
     {/if}
 
     <span style="padding-top: 30px" class="buttons">
+        <MaterialButton icon="search" title="main.quick_search" on:click={() => quickSearchActive.set(true)}>
+            <T id="main.quick_search" />
+        </MaterialButton>
         <MaterialButton icon="project" title="tooltip.project" on:click={createProject}>
             <T id="new.project" />
         </MaterialButton>
@@ -100,6 +117,18 @@
     .buttons :global(button) {
         justify-content: start;
         padding: 8px 12px;
+    }
+
+    .votd {
+        padding: 0 10px;
+        max-width: 580px;
+        white-space: normal;
+        text-align: left;
+        font-style: italic;
+        font-size: 0.9em;
+    }
+    .votd :global(a) {
+        text-decoration: none;
     }
 
     @media screen and (max-height: 500px) {

@@ -17,7 +17,8 @@
     import TextInput from "../../inputs/TextInput.svelte"
     import Loader from "../../main/Loader.svelte"
     import Center from "../../system/Center.svelte"
-    import { formatBibleText, getVerseIdParts, getVersePartLetter, joinRange, loadJsonBible, moveSelection, outputIsScripture, playScripture, scriptureRangeSelect, splitText, swapPreviewBible } from "./scripture"
+    import { createScriptureShow, formatBibleText, getVerseIdParts, getVersePartLetter, joinRange, loadJsonBible, moveSelection, outputIsScripture, playScripture, scriptureRangeSelect, sortScriptureSelection, splitText, swapPreviewBible } from "./scripture"
+    import { wait } from "../../../utils/common"
 
     export let active: string | null
     export let searchValue: string
@@ -63,22 +64,41 @@
         }
     }
 
-    async function loadCollectionBookChapter() {
-        if (!isCollection || !activeReference.book || !activeReference.chapters.length) return
+    // Track what book/chapter each scripture's data is loaded for
+    let collectionLoadedFor: { [scriptureId: string]: { book: number | string | null; chapter: number | string | null } } = {}
+
+    // Reset tracking when the active scripture/collection changes
+    $: if (activeScriptureId) collectionLoadedFor = {}
+
+    // Load book/chapter data for all collection scriptures when navigating
+    async function loadCollectionBookChapter(targetBook: number | string, targetChapter: number | string) {
+        if (!isCollection) return
 
         for (const scriptureId of activeScriptures) {
             if (scriptureId === previewBibleId) continue
             const scriptureData = data[scriptureId]
             if (!scriptureData?.bibleData) continue
 
+            const currentLoaded = collectionLoadedFor[scriptureId]
+            const bookNeedsReload = !scriptureData.bookData || currentLoaded?.book !== targetBook
+            const chapterNeedsReload = !scriptureData.chapterData || currentLoaded?.chapter !== targetChapter || bookNeedsReload
+
             try {
-                if (!scriptureData.bookData) {
-                    scriptureData.bookData = await scriptureData.bibleData.getBook(activeReference.book)
+                // Load book if needed (book changed or not loaded)
+                if (bookNeedsReload) {
+                    scriptureData.bookData = await scriptureData.bibleData.getBook(targetBook)
+                    // Clear chapter data when book changes since it's for the old book
+                    delete scriptureData.chapterData
                 }
-                if (!scriptureData.chapterData && scriptureData.bookData) {
-                    scriptureData.chapterData = await scriptureData.bookData.getChapter(Number(activeReference.chapters[0]))
+                // Load chapter if needed (chapter changed or not loaded)
+                if (chapterNeedsReload && scriptureData.bookData) {
+                    scriptureData.chapterData = await scriptureData.bookData.getChapter(Number(targetChapter))
                 }
-                data = data
+
+                // Update tracking for this scripture
+                collectionLoadedFor[scriptureId] = { book: targetBook, chapter: targetChapter }
+
+                data = data // trigger reactivity
             } catch (err) {
                 console.error("Error loading collection book/chapter:", scriptureId, err)
             }
@@ -86,7 +106,9 @@
     }
 
     // Trigger loading book/chapter for all collection scriptures when reference changes
-    $: if (isCollection && activeReference.book && activeReference.chapters.length) loadCollectionBookChapter()
+    $: if (isCollection && activeReference.book && activeReference.chapters.length) {
+        loadCollectionBookChapter(activeReference.book, activeReference.chapters[0])
+    }
 
     const GOLDEN_ANGLE = 137.508
     const BASE_HUE = 330
@@ -105,7 +127,6 @@
 
         const { id, subverse } = getVerseIdParts(verseId)
         const isSplit = subverse > 0
-        const chars = Number($scriptureSettings.longVersesChars || 100)
 
         return activeScriptures
             .map((scriptureId) => {
@@ -122,7 +143,7 @@
                     const fullText = verse.getHTML() || verse?.data?.text || ""
 
                     if (isSplit && fullText) {
-                        const splitParts = splitText(fullText, chars)
+                        const splitParts = splitText(fullText, splitChars, splitTolerance)
                         if (splitParts.length > 1) {
                             return { id: scriptureId, name, text: splitParts[subverse - 1] || "", isSplit: true }
                         }
@@ -177,7 +198,6 @@
     function checkCollectionSplitSupport(): { [verseNumber: number]: number } {
         if (!isCollection || !$scriptureSettings.splitLongVerses || !verses) return {}
 
-        const chars = Number($scriptureSettings.longVersesChars || 100)
         const splitCounts: { [verseNumber: number]: number } = {}
 
         activeScriptures.forEach((scriptureId) => {
@@ -190,7 +210,7 @@
                     const fullText = verseObj.getHTML() || verseObj?.data?.text || ""
                     if (!fullText) return
 
-                    const splitParts = splitText(fullText, chars)
+                    const splitParts = splitText(fullText, splitChars, splitTolerance)
                     if (splitParts.length > 1) {
                         splitCounts[verse.number] = Math.max(splitCounts[verse.number] || 0, splitParts.length)
                     }
@@ -201,7 +221,13 @@
         return splitCounts
     }
 
-    $: collectionSplitCounts = isCollection && $scriptureSettings.splitLongVerses ? checkCollectionSplitSupport() : {}
+    // Extract values to ensure proper reactivity
+    $: splitChars = Number($scriptureSettings.longVersesChars || 100)
+    $: splitTolerance = Number($scriptureSettings.longVersesTolerance || 0)
+    $: splitEnabled = $scriptureSettings.splitLongVerses
+
+    let collectionSplitCounts: { [verseNumber: number]: number } = {}
+    $: collectionSplitCounts = isCollection && splitEnabled ? checkCollectionSplitSupport() : {}
 
     let splittedVerses: (Verse & { id: string })[] = []
     $: splittedVerses = updateSplitted(verses, $scriptureSettings, collectionSplitCounts)
@@ -236,11 +262,10 @@
         if (!verses) return []
         if (!$scriptureSettings.splitLongVerses) return verses.map((verse) => ({ ...verse, id: (verse.number || "").toString() + (verse.endNumber ? "-" + verse.endNumber : "") }))
 
-        const chars = Number($scriptureSettings.longVersesChars || 100)
         const newVerses: (Verse & { id: string })[] = []
         verses.forEach((verse) => {
             const sanitizedVerse = sanitizeVerseText(verse.text)
-            const newVerseStrings = splitText(sanitizedVerse, chars)
+            const newVerseStrings = splitText(sanitizedVerse, splitChars, splitTolerance)
             const end = verse.endNumber ? `-${verse.endNumber}` : ""
             const numParts = Math.max(newVerseStrings.length, collectionSplitCounts[verse.number] || 0)
 
@@ -408,6 +433,7 @@
 
     let previousSelection: (number | string)[] = []
     let isSelected = false
+    let selectedTimeout: NodeJS.Timeout | null = null
     function updateVersesSelection(e: any, verseNumber: string, isClick: boolean = false) {
         const selectedVerses = clone(activeReference.verses)
 
@@ -421,11 +447,23 @@
         previousSelection = clone(selectedVerses[selectedVerses.length - 1])
 
         isSelected = true
-        setTimeout(() => (isSelected = false), 100)
+        if (selectedTimeout) clearTimeout(selectedTimeout)
+        selectedTimeout = setTimeout(() => (isSelected = false), 100)
 
         const keys = e.ctrlKey || e.metaKey || e.shiftKey
         if (keys || !selectedVerses[selectedVerses.length - 1]?.find((a) => a && (a.toString() === verseNumber || a === getVerseId(verseNumber)))) {
             selectedVerses[selectedVerses.length - 1] = scriptureRangeSelect(e, selectedVerses[selectedVerses.length - 1], verseNumber, splittedVerses)
+
+            // Remove plain verse IDs if split versions exist (e.g., remove "1" if "1_1", "1_2" are present)
+            const currentSelection = selectedVerses[selectedVerses.length - 1]
+            const splitVerseIds = currentSelection.filter((id) => id.toString().includes("_"))
+            if (splitVerseIds.length > 0) {
+                const baseIdsToRemove = new Set(splitVerseIds.map((id) => id.toString().split("_")[0]))
+                selectedVerses[selectedVerses.length - 1] = currentSelection.filter((id) => {
+                    const idStr = id.toString()
+                    return idStr.includes("_") || !baseIdsToRemove.has(idStr)
+                })
+            }
 
             // deselecting a verse
             if (!selectedVerses[selectedVerses.length - 1]?.find((id) => id.toString() === verseNumber)) {
@@ -458,9 +496,12 @@
 
     $: if (searchValue.length) referenceSearch()
 
+    let selectAllTimeout: NodeJS.Timeout | null = null
     let freezeTimeout: NodeJS.Timeout | null = null
     let freezeInput: string | null = null
     async function referenceSearch() {
+        if (selectAllTimeout) clearTimeout(selectAllTimeout)
+
         // if search value ends with any number, unfreeze
         if (/\d$/.test(searchValue) || searchValue.length < (freezeInput?.length || 0)) {
             if (freezeTimeout) clearTimeout(freezeTimeout)
@@ -499,8 +540,15 @@
             openChapter([result.chapter])
 
             // VERSES
-            if (result.verses.length) openVerse([result.verses])
-            else setTimeout(selectAllVerses)
+            if (result.verses.length) {
+                if (splittedVerses) {
+                    openVerse([splittedVerses.filter((a) => result.verses.includes(a.number)).map((a) => a.id)])
+                } else {
+                    openVerse([result.verses])
+                }
+            } else {
+                selectAllTimeout = setTimeout(selectAllVerses)
+            }
         }
     }
 
@@ -685,9 +733,17 @@
         }
 
         if (e.key === "Enter") {
-            // Enter in search to play
+            // Enter in search to add to project or play
             if (e.target?.closest(".search")) {
-                playScripture()
+                if (e.ctrlKey || e.metaKey) {
+                    playScripture()
+                    ;(document.activeElement as any)?.blur()
+                } else {
+                    createScriptureShow()
+
+                    const searchElem = document.activeElement
+                    setTimeout(() => (searchElem ? (searchElem as any).focus() : null))
+                }
                 return
             }
 
@@ -750,11 +806,14 @@
     let chapterLengths: { [key: number]: number } = {}
     $: if ($activeTriggerFunction === "scripture_next") _moveSelection(false)
     $: if ($activeTriggerFunction === "scripture_previous") _moveSelection(true)
-    function _moveSelection(moveLeft: boolean) {
+    async function _moveSelection(moveLeft: boolean) {
         if (!activeReference.book) return
 
+        // WIP this seems like duplicated code
+        // most of the time the code underneath is never run I think, but it's the main code
+
         // Check if we're dealing with split verses
-        const currentVerses = activeReference.verses[0] || []
+        const currentVerses = sortScriptureSelection(activeReference.verses[0] || [])
         const currentVerseId = currentVerses[0]?.toString()
         const selectionCount = currentVerses.length
         if (currentVerseId && splittedVerses.length) {
@@ -769,6 +828,8 @@
                     for (let i = 0; i < selectionCount; i++) {
                         newSelection.push(splittedVerses[newIndex + i].id)
                     }
+
+                    await wait(1) // this fixes API next not changing selection
                     openVerse([newSelection])
                     if (isActiveInOutput) setTimeout(playScripture)
                     return
@@ -801,7 +862,7 @@
         const selection = {
             book: Number(activeReference.book),
             chapters: [Number(activeReference.chapters[0])],
-            verses: activeReference.verses[0] || []
+            verses: sortScriptureSelection(activeReference.verses[0] || [])
         }
 
         // store
@@ -818,7 +879,7 @@
     function getReference(_updater: any) {
         const book = data[previewBibleId]?.bookData?.name || ""
         const referenceDivider = $scriptureSettings.referenceDivider || ":"
-        const range = joinRange(activeReference.verses[0] || [])
+        const range = joinRange(sortScriptureSelection(activeReference.verses[0] || []))
         const reference = `${book} ${activeReference.chapters}${referenceDivider}${range}`
         return reference
     }
@@ -902,7 +963,7 @@
                         {#if chapters?.length}
                             {#each chapters as chapter}
                                 {@const id = chapter.number.toString()}
-                                {@const isActive = activeReference.chapters.find((cid) => cid.toString() === id)}
+                                {@const isActive = activeReference.chapters.find((cid) => cid?.toString() === id)}
 
                                 <span
                                     {id}
@@ -921,7 +982,7 @@
                             <Loader />
                         {/if}
                     </div>
-                    <div class="verses context #scripture_verse" bind:this={versesScrollElem} class:center={!splittedVerses.length}>
+                    <div class="verses context #scripture_verse" class:showFloatingButtons={$resized.rightPanelDrawer > 5 && splittedVerses.length > 10} bind:this={versesScrollElem} class:center={!splittedVerses.length}>
                         {#if splittedVerses.length}
                             {#each splittedVerses as content}
                                 {@const { id, subverse, endNumber } = getVerseIdParts(content.id)}
@@ -1103,6 +1164,14 @@
     .main .verses {
         flex: 1;
         flex-flow: wrap;
+    }
+
+    .main .grid .verses.showFloatingButtons::after {
+        content: "";
+        display: block;
+        width: 250px;
+        height: 50px;
+        flex-shrink: 0;
     }
 
     .main div.center {

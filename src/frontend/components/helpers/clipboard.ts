@@ -4,6 +4,7 @@ import { Main } from "../../../types/IPC/Main"
 import type { Clipboard } from "../../../types/Main"
 import type { Folder, Project } from "../../../types/Projects"
 import type { Item } from "../../../types/Show"
+import { getProjectsInFolder } from "../../converters/project"
 import { sendMain } from "../../IPC/main"
 import {
     actions,
@@ -21,6 +22,7 @@ import {
     categories,
     clipboard,
     currentOutputSettings,
+    deletedDefaults,
     drawerTabsData,
     effects,
     events,
@@ -42,7 +44,6 @@ import {
     selected,
     shows,
     showsCache,
-    special,
     stageShows,
     styles,
     templateCategories,
@@ -53,8 +54,9 @@ import {
     variables,
     videoMarkers
 } from "../../stores"
-import { newToast, triggerFunction } from "../../utils/common"
+import { newToast, setStatus, triggerFunction } from "../../utils/common"
 import { translateText } from "../../utils/language"
+import { confirmCustom } from "../../utils/popup"
 import { removeSlide } from "../context/menuClick"
 import { deleteTimer } from "../drawer/timers/timers"
 import { updateSortedStageItems } from "../edit/scripts/itemHelpers"
@@ -68,7 +70,6 @@ import { select } from "./select"
 import { loadShows } from "./setShow"
 import { checkName, getLayoutRef } from "./show"
 import { _show } from "./shows"
-import { confirmCustom } from "../../utils/popup"
 
 export function copy(clip: Clipboard | null = null, getData = true, shouldDuplicate = false) {
     let copyData: Clipboard | null = clip
@@ -96,7 +97,10 @@ export function copy(clip: Clipboard | null = null, getData = true, shouldDuplic
         return { id: null, data: copyData, index: copyObj.data?.[0]?.index }
     }
 
-    if (copyData.data) clipboard.set(copyData)
+    if (copyData.data) {
+        clipboard.set(copyData)
+        setStatus("copied", 5)
+    }
 
     console.info("COPIED:", copyObj)
     console.info("CLIPBOARD:", get(clipboard))
@@ -105,7 +109,7 @@ export function copy(clip: Clipboard | null = null, getData = true, shouldDuplic
 }
 
 // pasting text in editbox is it's own function
-export function paste(clip: Clipboard | null = null, extraData: any = {}, customElem: HTMLElement | null = null) {
+export function paste(clip: Clipboard | null = null, extraData: any = {}, customElem: HTMLElement | null = null, isDuplicating = false) {
     if (!clip) clip = get(clipboard)
     let activeElem = document.activeElement
 
@@ -126,6 +130,7 @@ export function paste(clip: Clipboard | null = null, extraData: any = {}, custom
     // custom media paste: only paste on selected ones
     if (clip.id === "media") {
         mediaPaste(clip.data[0])
+        setStatus("pasted", 2)
         return
     }
 
@@ -133,7 +138,11 @@ export function paste(clip: Clipboard | null = null, extraData: any = {}, custom
         if (clip.id) console.info("No paste action:", clip.id)
         return
     }
+
     pasteActions[clip.id](clip.data, extraData)
+
+    if (isDuplicating) setStatus("duplicated", 2)
+    else setStatus("pasted", 2)
 
     console.info("PASTED:", clip)
 }
@@ -147,6 +156,7 @@ export function cut(clip: Clipboard | null = null) {
         console.info("CUTTED TEXT", selection.toString())
         return
     }
+
     // Handle other types
     const copyData = copy(clip)
     if (!copyData) return
@@ -182,7 +192,7 @@ export function duplicate(clip: Clipboard | null = null) {
 
     const copyData = copy(clip, true, true)
     if (!copyData?.data) return false
-    paste(copyData.data, { index: (copyData as any).index })
+    paste(copyData.data, { index: (copyData as any).index }, null, true)
 
     console.info("DUPLICATED:", copyData)
     return true
@@ -269,7 +279,7 @@ const selectActions = {
     edit_items: () => {
         let itemCount = 0
 
-        if (!get(activeEdit).type || get(activeEdit).type === "show") {
+        if ((get(activeEdit).type || "show") === "show") {
             const ref = getLayoutRef()
             const editSlide = ref[get(activeEdit).slide!]
             const showItems = _show().slides([editSlide.id]).get()[0]?.items
@@ -378,7 +388,8 @@ const selectActions = {
         selected.set({ id: "template", data: newSelection })
     },
     media: () => selectAllMedia.set(true),
-    audio: () => selectAllAudio.set(true)
+    audio: () => selectAllAudio.set(true),
+    timeline: () => triggerFunction("timeline_selectAll")
 }
 
 const copyActions = {
@@ -587,11 +598,13 @@ const pasteActions = {
         data.slides.forEach((slide, i) => {
             // dont add child if it is already copied
             if (slide.group === null && addedChildren.includes(slide.id)) return
+            if (slide.group === null) slide.group = ""
 
             slide.id = uid()
             newSlides.push(slide)
 
             // has children
+            let childrenLayouts: any = {}
             if (slide.children) {
                 // let children: string[] = []
                 // children = slide.children.filter((child: string) => copiedIds.includes(child))
@@ -607,10 +620,13 @@ const pasteActions = {
 
                     addedChildren.push(childId)
 
+                    const oldId = childSlide.id
                     childSlide.id = uid()
                     delete childSlide.oldChild
                     clonedChildren.push(childSlide.id)
                     newSlides.push(childSlide)
+
+                    childrenLayouts[childSlide.id] = data.layouts?.[i]?.[oldId] || {}
                 })
 
                 slide.children = clonedChildren
@@ -626,6 +642,8 @@ const pasteActions = {
             // add layout
             const layout = data.layouts?.[i]
             if (!layout) return
+
+            if (Object.keys(childrenLayouts).length) layout.children = childrenLayouts
             layouts[i] = layout
         })
         // TODO: children next to each other should be grouped
@@ -637,6 +655,12 @@ const pasteActions = {
             const showMedia = _show().get()?.media || {}
             _show().set({ key: "media", value: { ...showMedia, ...data.media } })
         }
+
+        // WIP fix the pasting
+
+        // fix paste order
+        // newSlides.reverse()
+        // layouts.reverse()
 
         history({ id: "SLIDES", newData: { data: newSlides, layouts, index: index !== undefined ? index + 1 : undefined } })
     },
@@ -674,6 +698,7 @@ const pasteActions = {
         projects.update((a) => {
             if (!a[get(activeProject) || ""]?.shows) return a
             a[get(activeProject) || ""].shows.push(...data)
+            a[get(activeProject) || ""].modified = Date.now()
             return a
         })
     },
@@ -733,8 +758,17 @@ const deleteActions = {
         }
 
         const layout = data.layout || _show().get("settings.activeLayout")
-        const slide = data.slideId || getLayoutRef()[data.slide]?.id
-        if (!slide) return
+        const ref = getLayoutRef()
+        const slideId = data.slideId || ref[data.slide]?.id
+        if (!slideId) return
+
+        const slideRef = ref.find((a) => a.id === slideId)
+        const groupId = slideRef?.parent?.id || slideRef?.id
+        const currentShow = get(showsCache)[get(activeShow)?.id || ""]
+        if (currentShow.locked || currentShow?.slides?.[groupId || ""]?.locked) {
+            newToast("output.state_locked")
+            return
+        }
 
         history({
             id: "deleteItem",
@@ -743,7 +777,7 @@ const deleteActions = {
                 show: get(activeShow)!,
                 items: get(activeEdit).items,
                 layout,
-                slide
+                slide: slideId
             }
         })
 
@@ -825,7 +859,31 @@ const deleteActions = {
             return a
         })
     },
-    folder: (data: any) => historyDelete("UPDATE", data, { updater: "project_folder" }),
+    folder: async (data: any) => {
+        let projectIds: string[] = []
+        let folderIds: string[] = []
+
+        data.map((a) => {
+            const { projectIds: pIds, folderIds: fIds } = getProjectsInFolder(a.id)
+            projectIds = projectIds.concat(pIds)
+            folderIds = folderIds.concat(fIds)
+        })
+
+        // remove duplicates
+        const folderIdsData = [...new Set([...folderIds, ...data.map((a) => a.id)])].map((id) => ({ id }))
+
+        if (!projectIds.length) {
+            historyDelete("UPDATE", folderIdsData, { updater: "project_folder" })
+            return
+        }
+
+        if (!(await confirmCustom(translateText("Deleting this folder will also delete all projects and folders within it.<br>popup.delete_show_confirmation?")))) return
+
+        const projectIdsData = [...new Set(projectIds)].map((id) => ({ id }))
+
+        historyDelete("UPDATE", projectIdsData, { updater: "project" })
+        historyDelete("UPDATE", folderIdsData, { updater: "project_folder" })
+    },
     project: (data: any) => historyDelete("UPDATE", data, { updater: "project" }),
     project_template: (data: any) => historyDelete("UPDATE", data, { updater: "project_template" }),
     stage: (data: any) => historyDelete("UPDATE", data, { updater: "stage" }),
@@ -1051,6 +1109,7 @@ const deleteActions = {
             activeItems.forEach((itemId) => {
                 delete a[data.id].items[itemId]
             })
+            a[data.id].modified = Date.now()
             return a
         })
         activeStage.set({ ...get(activeStage), items: [] })
@@ -1084,6 +1143,7 @@ const duplicateActions = {
         projects.update((a) => {
             if (!a[get(activeProject)!]?.shows) return a
             a[get(activeProject)!].shows.push(...data)
+            a[get(activeProject)!].modified = Date.now()
             return a
         })
     },
@@ -1107,10 +1167,13 @@ const duplicateActions = {
         updateSortedStageItems()
     },
     layout: (data: any) => {
-        const layoutId = data?.[0] || get(showsCache)[get(activeShow)!.id]?.settings?.activeLayout
+        const showId = get(activeShow)?.id
+        if (!showId) return
+
+        const layoutId = data?.[0] || get(showsCache)[showId]?.settings?.activeLayout
         if (!layoutId) return
 
-        const newLayout = clone(get(showsCache)[get(activeShow)!.id].layouts[layoutId])
+        const newLayout = clone(get(showsCache)[showId].layouts[layoutId])
         if (!newLayout) return
 
         newLayout.name += " 2"
@@ -1195,6 +1258,8 @@ const duplicateActions = {
     },
     profile: (data: any) => {
         data.forEach(({ id }) => {
+            if (!id) return
+
             const profile = clone(get(profiles)[id])
             id = uid()
             history({ id: "UPDATE", newData: { data: profile, replace: { name: profile.name + " 2" } }, oldData: { id }, location: { page: "settings", id: "settings_profile" } })
@@ -1294,14 +1359,13 @@ function mediaPaste(data: any) {
 const exludedCategories = ["all", "unlabeled", "favourites", "effects_library", "pixabay"]
 function historyDelete(id, data, { updater } = { updater: "" }) {
     data = data.filter((a) => !exludedCategories.includes(a.id || a))
-    data.forEach((a: any) => history({ id, newData: { id: a.id || a }, location: { page: get(activePage) as any, id: updater || undefined } }))
 
     // set as deleted (for defaults)
     if (["template", "overlay", "effect"].includes(updater)) {
-        special.update((a) => {
-            if (updater === "template") a.deletedTemplates = getDeletedArray("deletedTemplates")
-            if (updater === "overlay") a.deletedOverlays = getDeletedArray("deletedOverlays")
-            if (updater === "effect") a.deletedEffects = getDeletedArray("deletedEffects")
+        deletedDefaults.update((a) => {
+            if (updater === "template") a.templates = getDeletedArray("templates")
+            if (updater === "overlay") a.overlays = getDeletedArray("overlays")
+            if (updater === "effect") a.effects = getDeletedArray("effects")
             return a
 
             function getDeletedArray(key: string) {
@@ -1322,6 +1386,8 @@ function historyDelete(id, data, { updater } = { updater: "" }) {
             }
         })
     }
+
+    data.forEach((a: any) => history({ id, newData: { id: a.id || a }, location: { page: get(activePage) as any, id: updater || undefined } }))
 }
 
 async function duplicateShows(selectedData: any) {

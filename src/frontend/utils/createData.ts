@@ -4,7 +4,7 @@ import type { MainFilePaths } from "../../types/Main"
 import type { Overlay, Template } from "../../types/Show"
 import { DEFAULT_ITEM_STYLE } from "../components/edit/scripts/itemHelpers"
 import { setShow } from "../components/helpers/setShow"
-import { activePopup, audioFolders, effects, folders, mediaFolders, outputs, overlays, projects, remotePassword, shows, special, templates, variables } from "../stores"
+import { activePopup, audioFolders, deletedDefaults, effects, folders, mediaFolders, outputs, overlays, projects, remotePassword, shows, templates, variables } from "../stores"
 import { stageShows, templateCategories } from "./../stores"
 import { translateText } from "./language"
 import { save } from "./save"
@@ -90,8 +90,8 @@ const randomNumber = (from: number, to: number): number => Math.floor(Math.rando
 // OVERLAYS
 
 export function setExampleEffects() {
-    special.update((a) => {
-        delete a.deletedEffects
+    deletedDefaults.update((a) => {
+        delete a.effects
         return a
     })
 
@@ -99,7 +99,7 @@ export function setExampleEffects() {
 }
 
 function createDefaultEffects() {
-    const deletedIds = get(special).deletedEffects || []
+    const deletedIds = get(deletedDefaults).effects || []
     const defaultEffects = getDefaultEffects()
 
     effects.update((a) => {
@@ -169,8 +169,8 @@ function getDefaultEffects() {
 }
 
 export function setExampleOverlays() {
-    special.update((a) => {
-        delete a.deletedOverlays
+    deletedDefaults.update((a) => {
+        delete a.overlays
         return a
     })
 
@@ -178,7 +178,7 @@ export function setExampleOverlays() {
 }
 
 function createDefaultOverlays() {
-    const deletedIds = get(special).deletedOverlays || []
+    const deletedIds = get(deletedDefaults).overlays || []
     const defaultOverlays = getDefaultOverlays()
 
     overlays.update((a) => {
@@ -300,8 +300,8 @@ function getDefaultOverlays() {
 // TEMPLATES
 
 export function setExampleTemplates() {
-    special.update((a) => {
-        delete a.deletedTemplates
+    deletedDefaults.update((a) => {
+        delete a.templates
         return a
     })
 
@@ -317,8 +317,8 @@ export function setExampleTemplates() {
 export function setDefaultScriptureTemplates() {
     const templatesList = getDefaultScriptureTemplates()
 
-    special.update((a) => {
-        a.deletedTemplates = (get(special).deletedTemplates || []).filter((id) => !Object.keys(templatesList).includes(id))
+    deletedDefaults.update((a) => {
+        a.templates = (get(deletedDefaults).templates || []).filter((id) => !Object.keys(templatesList).includes(id))
         return a
     })
 
@@ -331,7 +331,7 @@ export function setDefaultScriptureTemplates() {
 }
 
 function createDefaultTemplates() {
-    const deletedIds = get(special).deletedTemplates || []
+    const deletedIds = get(deletedDefaults).templates || []
     const defaultTemplates = getDefaultTemplates()
 
     templates.update((a) => {
@@ -356,23 +356,9 @@ function getDefaultTemplates() {
         category: "song", // "metadata"
         items: [
             {
-                style: "top: 910px;left: 30px;width: 1860px;height: 150px;opacity: 0.8;",
+                style: "top: 910px;left: 30px;width: 1860px;height: 150px;",
                 align: "",
-                lines: [{ align: "", text: [{ value: translateText("tools.metadata"), style: "font-size: 30px;text-shadow: 2px 2px 4px rgb(0 0 0 / 80%);" }] }]
-            }
-        ]
-    }
-    // message
-    a.message = {
-        isDefault: true,
-        name: translateText("meta.message"),
-        color: null,
-        category: "song", // "metadata"
-        items: [
-            {
-                style: "top: 50px;left: 30px;width: 1860px;height: 150px;opacity: 0.8;",
-                align: "",
-                lines: [{ align: "", text: [{ value: translateText("meta.message"), style: "font-size: 50px;text-shadow: 2px 2px 4px rgb(0 0 0 / 80%);" }] }]
+                lines: [{ align: "", text: [{ value: translateText("tools.metadata"), style: "font-size: 30px;color: rgb(255 255 255 / 0.8);text-shadow: 2px 2px 4px rgb(0 0 0 / 80%);" }] }]
             }
         ]
     }
@@ -845,11 +831,11 @@ function getDefaultScriptureTemplates() {
                 ]
             },
             {
-                style: "top: 900px;left: 30px;width: 1860px;height: 150px;opacity: 0.8;",
+                style: "top: 900px;left: 30px;width: 1860px;height: 150px;",
                 align: "",
                 lines: [
-                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;" }] },
-                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;" }] }
+                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;color: rgb(255 255 255 / 0.8);" }] },
+                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;color: rgb(255 255 255 / 0.7);" }] }
                 ]
             }
         ]
@@ -890,11 +876,11 @@ function getDefaultScriptureTemplates() {
                 ]
             },
             {
-                style: "top: 900px;left: 30px;width: 1860px;height: 150px;opacity: 0.8;",
+                style: "top: 900px;left: 30px;width: 1860px;height: 150px;",
                 align: "",
                 lines: [
-                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;" }] },
-                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;" }] }
+                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;color: rgb(255 255 255 / 0.8);" }] },
+                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;color: rgb(255 255 255 / 0.7);" }] }
                 ]
             }
         ]
@@ -949,11 +935,11 @@ function getDefaultScriptureTemplates() {
                 ]
             },
             {
-                style: "top: 900px;left: 30px;width: 1860px;height: 150px;opacity: 0.8;",
+                style: "top: 900px;left: 30px;width: 1860px;height: 150px;",
                 align: "",
                 lines: [
-                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;" }] },
-                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;" }] }
+                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;color: rgb(255 255 255 / 0.8);" }] },
+                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;color: rgb(255 255 255 / 0.7);" }] }
                 ]
             }
         ]
@@ -1022,11 +1008,11 @@ function getDefaultScriptureTemplates() {
                 ]
             },
             {
-                style: "top: 900px;left: 30px;width: 1860px;height: 150px;opacity: 0.8;",
+                style: "top: 900px;left: 30px;width: 1860px;height: 150px;",
                 align: "",
                 lines: [
-                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;" }] },
-                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;" }] }
+                    { align: "", text: [{ value: "{scripture_reference}", style: "font-size: 55px;color: rgb(255 255 255 / 0.8);" }] },
+                    { align: "", text: [{ value: "{scripture_name}", style: "font-size: 40px;color: rgb(255 255 255 / 0.7);" }] }
                 ]
             }
         ]
@@ -1196,35 +1182,36 @@ export function getDefaultElements() {
     createDefaultEffects()
 }
 
+// "message" is removed
 const templateIds = ["metadata", "message", "header", "text", "big", "default", "small", "bigBold", "defaultBold", "smallBold", "blur_box", "faded", "box", "trendy", "trendy_curved", "fade", "lowerThird", "lowerThirdWhite", "lowerThirdBlue", "lowerThirdColor", "lowerThirdPastel", "scripture", "scripture_2", "scripture_3", "scripture_4", "scriptureLT", "scriptureLT_2", "blueHeader", "blueMain", "bullets"]
 function getDeletedTemplates() {
-    if (get(special).deletedTemplates) return
+    if (get(deletedDefaults).templates) return
 
     const deletedIds = templateIds.filter((id) => !get(templates)[id])
-    special.update((a) => {
-        a.deletedTemplates = deletedIds
+    deletedDefaults.update((a) => {
+        a.templates = deletedIds
         return a
     })
 }
 
 const overlayIds = ["watermark", "visual", "clock", "clock_analog", "name", "rounded", "vignette"]
 function getDeletedOverlays() {
-    if (get(special).deletedOverlays) return
+    if (get(deletedDefaults).overlays) return
 
     const deletedIds = overlayIds.filter((id) => !get(overlays)[id])
-    special.update((a) => {
-        a.deletedOverlays = deletedIds
+    deletedDefaults.update((a) => {
+        a.overlays = deletedIds
         return a
     })
 }
 
 const effectIds = ["ocean", "spotlights", "rain", "fireworks"]
 function getDeletedEffects() {
-    if (get(special).deletedEffects) return
+    if (get(deletedDefaults).effects) return
 
     const deletedIds = effectIds.filter((id) => !get(effects)[id])
-    special.update((a) => {
-        a.deletedEffects = deletedIds
+    deletedDefaults.update((a) => {
+        a.effects = deletedIds
         return a
     })
 }

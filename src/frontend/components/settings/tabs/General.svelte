@@ -24,10 +24,11 @@
     function getReplacerTitle() {
         let titles: string[] = []
         projectReplacers.forEach((a) => {
-            titles.push(`${a.title}: {${a.id}}`)
+            if (a.id === "D0") titles.push("")
+            else titles.push(`• <b>${a.title}:</b> {${a.id}}`)
         })
 
-        return titles.join(", ")
+        return titles.join("<br>")
     }
 
     // WIP set calendar starting day
@@ -81,7 +82,10 @@
 
 <MaterialPopupButton label={translateText("popup.manage_groups", $dictionary)} name={groupsString} value={groupsString ? "." : ""} popupId="manage_groups" icon="groups" />
 <MaterialTextInput label="settings.capitalize_words" title="settings.comma_seperated" value={$special.capitalize_words || ""} defaultValue="Jesus, Lord" on:change={(e) => updateSpecial(e.detail, "capitalize_words", true)} />
+<!-- "text_can_overflow": "Allow text outside of the textbox bounds", -->
+<!-- <MaterialToggleSwitch label="settings.text_can_overflow" checked={$special.textCanOverflow !== false} defaultValue={true} on:change={(e) => updateSpecial(e.detail, "textCanOverflow", true)} /> -->
 <MaterialToggleSwitch label="settings.transparent_slides" checked={$special.transparentSlides} defaultValue={false} on:change={(e) => updateSpecial(e.detail, "transparentSlides")} />
+<MaterialToggleSwitch label="settings.style_template_preview" checked={$special.styleTemplatePreview !== false} defaultValue={true} on:change={(e) => updateSpecial(e.detail, "styleTemplatePreview", true)} />
 <MaterialToggleSwitch label="settings.full_colors" checked={$fullColors} defaultValue={false} on:change={(e) => fullColors.set(e.detail)} />
 <MaterialToggleSwitch label="settings.next_item_on_last_slide" checked={$special.nextItemOnLastSlide !== false} defaultValue={true} on:change={(e) => updateSpecial(e.detail, "nextItemOnLastSlide", true)} />
 <MaterialToggleSwitch label="settings.slide_number_keys" checked={$special.numberKeys} defaultValue={false} on:change={(e) => updateSpecial(e.detail, "numberKeys")} />

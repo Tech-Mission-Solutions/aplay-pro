@@ -43,10 +43,8 @@
     $: url = `http://${useHostname ? hostname : ip}:${port}`
     $: if (url) generateQR(url)
 
-    function mousedown(e: any) {
-        if (e.target.closest("a")) {
-            activePopup.set(null)
-        }
+    function mouseup(e: any) {
+        if (e.target.closest("a")) activePopup.set(null)
     }
 
     let qrImg = ""
@@ -112,6 +110,8 @@
 
 <MaterialButton class="popup-options {options ? 'active' : ''}" icon="options" iconSize={1.3} title={options ? "actions.close" : "create_show.more_options"} on:click={() => (options = !options)} white />
 
+<MaterialButton class="popup-reset" icon="help" iconSize={1.1} title="titlebar.help" on:click={() => sendMain(Main.URL, "https://freeshow.app/docs/connecting")} white />
+
 {#if options}
     <div class="reserved" class:isReserved>
         <MaterialNumberInput label="settings.port" value={port} defaultValue={RESERVED_PORTS[id]?.[0]} min={1025} max={65535} on:change={(e) => updatePort(e)} />
@@ -134,7 +134,7 @@
         <MaterialToggleSwitch label="settings.use_hostname" checked={$special.connectionHostname} defaultValue={false} on:change={(e) => updateSpecial("connectionHostname", e.detail)} />
     {/if}
 {:else}
-    <div on:mousedown={mousedown}>
+    <div on:mouseup={mouseup}>
         {#if id === "companion"}
             <!-- <Link url="https://freeshow.app/api">
                 API Docs

@@ -1,5 +1,6 @@
 import { getContentProviderAccess } from "../data/contentProviders"
 import { AmazingLifeProvider } from "./amazingLife/AmazingLifeProvider"
+import { CanvaProvider } from "./canva/CanvaProvider"
 import type { ContentProvider } from "./base/ContentProvider"
 import { ContentProviderFactory } from "./base/ContentProvider"
 import type { ContentProviderId } from "./base/types"
@@ -23,6 +24,7 @@ export class ContentProviderRegistry {
         ContentProviderFactory.register("churchApps", ChurchAppsProvider)
         ContentProviderFactory.register("planningcenter", PlanningCenterProvider)
         ContentProviderFactory.register("amazinglife", AmazingLifeProvider)
+        ContentProviderFactory.register("canva", CanvaProvider)
 
         this.initialized = true
         // console.log("Content provider registry initialized")
@@ -87,12 +89,17 @@ export class ContentProviderRegistry {
     /**
      * Load services from a content provider
      */
-    static async loadServices(providerId: ContentProviderId): Promise<void> {
+    static async loadServices(providerId: ContentProviderId, cloudOnly: boolean): Promise<void> {
         this.ensureInitialized()
 
         const provider = this.getProvider(providerId)
         if (!provider) {
             console.error(`Content provider '${providerId}' not found`)
+            return
+        }
+
+        if (cloudOnly) {
+            await this.connect(providerId, provider.supportedScopes[0])
             return
         }
 
@@ -107,7 +114,7 @@ export class ContentProviderRegistry {
     /**
      * Perform startup load for a content provider
      */
-    static async startupLoad(providerId: ContentProviderId, scope: string, data?: any): Promise<void> {
+    static async startupLoad(providerId: ContentProviderId, scope: string, data?: any, cloudOnly?: boolean): Promise<void> {
         this.ensureInitialized()
 
         const provider = this.getProvider(providerId)
@@ -117,6 +124,11 @@ export class ContentProviderRegistry {
         }
 
         if (!getContentProviderAccess(providerId, scope)) {
+            return
+        }
+
+        if (cloudOnly) {
+            await this.connect(providerId, provider.supportedScopes[0])
             return
         }
 

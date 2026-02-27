@@ -3,7 +3,7 @@
     import type { ContentProviderId } from "../../../../electron/contentProviders/base/types"
     import { Main } from "../../../../types/IPC/Main"
     import { requestMain, sendMain } from "../../../IPC/main"
-    import { activePage, activePopup, activeShow, activeTriggerFunction, companion, connections, contentProviderData, disabledServers, maxConnections, outputs, popupData, ports, providerConnections, serverData } from "../../../stores"
+    import { activePage, activePopup, activeShow, activeTriggerFunction, cloudSyncData, companion, connections, contentProviderData, disabledServers, maxConnections, outputs, popupData, ports, providerConnections, serverData, special } from "../../../stores"
     import { contentProviderSync } from "../../../utils/startup"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
@@ -95,10 +95,31 @@
     // Camera
     // Answer / Guess / Poll
 
+    $: cloudOnly = { churchApps: !!$special.churchAppsCloudOnly }
     function contentProviderConnect(providerId: ContentProviderId) {
-        if (!$providerConnections[providerId]) {
-            sendMain(Main.PROVIDER_LOAD_SERVICES, { providerId })
+        if (!$providerConnections[providerId] || cloudOnly[providerId]) {
+            if (providerId === "churchApps") {
+                special.update((a) => {
+                    delete a.churchAppsCloudOnly
+                    return a
+                })
+
+                if ($cloudSyncData.enabled === undefined) {
+                    cloudSyncData.set({ enabled: false, id: "churchApps" })
+                }
+            }
+
+            sendMain(Main.PROVIDER_LOAD_SERVICES, { providerId, cloudOnly: cloudOnly[providerId] || false })
         } else {
+            if ($cloudSyncData.enabled && providerId === $cloudSyncData.id) {
+                // should remain connected to cloud
+                special.update((a) => {
+                    a.churchAppsCloudOnly = true
+                    return a
+                })
+                return
+            }
+
             requestMain(Main.PROVIDER_DISCONNECT, { providerId }, (a) => {
                 if (!a.success) return
                 providerConnections.update((c) => {
@@ -165,7 +186,7 @@
     </InputRow>
 {/each}
 
-{#if !$providerConnections.planningcenter && !$providerConnections.churchApps && !$providerConnections.amazinglife}
+{#if $providerConnections.churchApps ? cloudOnly.churchApps : !$providerConnections.planningcenter && !$providerConnections.churchApps && !$providerConnections.amazinglife}
     <!-- No provider connected - show connection options -->
     <Title label="Content Provider" icon="list" />
 
@@ -197,6 +218,9 @@
         <MaterialButton icon="cloud_sync" on:click={syncContentProvider}>
             <T id="cloud.sync" />
         </MaterialButton>
+        <MaterialButton on:click={() => sendMain(Main.URL, "https://planningcenter.com")} title="Planning Center" white>
+            <Icon id="launch" white />
+        </MaterialButton>
     </InputRow>
     <MaterialToggleSwitch label="Always use local instance of songs" checked={$contentProviderData.planningcenter?.localAlways} defaultValue={false} on:change={(e) => updateProvider("planningcenter", "localAlways", e.detail)} />
 {:else if $providerConnections.churchApps}
@@ -214,7 +238,15 @@
         <MaterialButton title="settings.sync_categories_tip" icon="options" on:click={() => activePopup.set("sync_categories")}>
             <T id="popup.sync_categories" />
         </MaterialButton>
+        <MaterialButton title="<b>popup.sync_categories:</b> settings.sync_categories_tip" icon="options" on:click={() => activePopup.set("sync_categories")} />
+        <MaterialButton on:click={() => sendMain(Main.URL, "https://b1.church")} title="B1.Church" white>
+            <Icon id="launch" white />
+        </MaterialButton>
     </InputRow>
+
+    {#if $cloudSyncData.enabled}
+        <p class="tip">Note: This is unrelated to the Cloud sync found in "Files". This is for the content manager / curriculum.</p>
+    {/if}
 {:else if $providerConnections.amazinglife}
     <!-- APlay connected -->
     <Title label="Content Provider: APlay" icon="list" />
@@ -246,3 +278,11 @@
   <p><T id="settings.allowed_connections" /></p>
   <span>(all, only phones, (laptops), ...)</span>
 </div> -->
+
+<style>
+    .tip {
+        font-size: 0.8em;
+        opacity: 0.6;
+        margin: 10px 0;
+    }
+</style>

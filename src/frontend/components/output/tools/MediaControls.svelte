@@ -117,7 +117,7 @@
                 <div class="divider" />
 
                 <MaterialButton
-                    title="media._loop"
+                    title={"media._loop" + (videoData.loop !== false ? ": settings.enabled" : "")}
                     on:click={() => {
                         videoData.loop = !videoData.loop
                         sendToOutput()
@@ -144,7 +144,7 @@
             {#if background?.type === "player"}
                 <p>{$playerVideos[background?.id || ""]?.name || "—"}</p>
             {:else}
-                <p>{mediaName}</p>
+                <p>{mediaName || "—"}</p>
             {/if}
         </span>
 
@@ -167,7 +167,7 @@
                 </Button>
                 <Button
                     center
-                    title={translateText("media._loop")}
+                    title={translateText("media._loop" + (videoData.loop ? ": settings.enabled" : ""))}
                     on:click={() => {
                         videoData.loop = !videoData.loop
                         sendToOutput()

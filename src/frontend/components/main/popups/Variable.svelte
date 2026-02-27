@@ -1,6 +1,6 @@
 <script lang="ts">
     import { uid } from "uid"
-    import { drawerTabsData, selected, variables } from "../../../stores"
+    import { activePopup, drawerTabsData, selected, variables } from "../../../stores"
     import { translateText } from "../../../utils/language"
     import { clone, moveToPos } from "../../helpers/array"
     import { createStore, updateStore } from "../../helpers/historyStores"
@@ -213,6 +213,23 @@
         })
     }
 
+    function resetTextSetValues() {
+        if (!currentVariable.textSets) return
+
+        currentVariable.textSets = currentVariable.textSets.map(() => ({}))
+
+        variables.update((a) => {
+            a[variableId] = currentVariable
+            return a
+        })
+    }
+
+    function nameKeydown(e: any) {
+        if (currentVariable.type === "text" && e.key === "Enter" && e.target?.value) {
+            activePopup.set(null)
+        }
+    }
+
     let showMoreRN = false
 </script>
 
@@ -229,7 +246,7 @@
         <MaterialButton class="popup-back" icon="back" iconSize={1.3} title="actions.back" on:click={() => (chosenType = "")} />
     {/if}
 
-    <MaterialTextInput label="inputs.name" style="margin-bottom: 10px;" disabled={!created && !!currentVariable.name} value={currentVariable.name} on:change={(e) => updateValue(e.detail, "name")} autofocus={!currentVariable.name} />
+    <MaterialTextInput label="inputs.name" style="margin-bottom: 10px;" disabled={!created && !!currentVariable.name} value={currentVariable.name} on:change={(e) => updateValue(e.detail, "name")} autofocus={!currentVariable.name} on:keydown={nameKeydown} />
 
     {#if currentVariable.type === "number"}
         <MaterialNumberInput label="variables.default_value" value={currentVariable.default || 0} step={1} {min} {max} on:change={(e) => updateValue(e.detail, "default")} />
@@ -292,6 +309,8 @@
             </div>
         {/if}
     {:else if currentVariable.type === "text_set"}
+        <MaterialButton class="popup-options" icon="reset" iconSize={1.1} title="actions.reset" on:click={resetTextSetValues} white />
+
         {#each currentVariable.textSets?.length ? currentVariable.textSets : [{}] as textSet, i}
             <div class="text_set" style={i === 0 ? "" : "margin-top: 10px;"} class:active={(currentVariable.textSets?.length ?? 1) > 1 && (currentVariable.activeTextSet ?? 0) === i}>
                 <p style="border-bottom: 1px solid var(--primary-lighter);" class="part"><span style="color: var(--secondary);">#</span>{i + 1}</p>

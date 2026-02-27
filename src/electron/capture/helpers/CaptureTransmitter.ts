@@ -68,7 +68,7 @@ export class CaptureTransmitter {
 
     static stopChannel(captureId: string, key: string) {
         const combinedKey = `${captureId}-${key}`
-        if (!this.channels[combinedKey].timer) return
+        if (!this.channels[combinedKey]?.timer) return
 
         // console.log("STOP CHANNEL:", key)
         clearInterval(this.channels[combinedKey].timer)
@@ -129,6 +129,8 @@ export class CaptureTransmitter {
 
     // NDI
     static sendBufferToNdi(captureId: string, image: NativeImage, { size }: { size: { width: number; height: number } }) {
+        if (!NdiSender.NDI[captureId]?.sender) return
+
         const buffer = image.toBitmap()
         const ratio = image.getAspectRatio()
         // this.ndiFrameCount++

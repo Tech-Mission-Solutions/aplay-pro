@@ -51,6 +51,7 @@
     $: templateBackground = template.settings?.backgroundPath
 
     // auto change template based on number of bibles (if default)
+    // if collection, but only one of the Bibles load, biblesContent will be length 1 & not change the template, which is fine, but maybe confusing
     $: if (activeScriptureId || templateId || biblesContent.length) setTimeout(checkTemplate, 100)
     $: isDefault = typeof templateId === "string" ? templateId.includes("scripture") && !templateId.includes("LT") : false
     function checkTemplate() {
@@ -64,9 +65,11 @@
     }
 
     $: {
-        // if (selectedVerses.length || $scriptureSettings) slides = getScriptureSlides({ biblesContent, selectedChapters, selectedVerses }, true)
-        if (selectedVerses.length || $scriptureSettings) slides = getScriptureSlidesNew({ biblesContent, selectedChapters, selectedVerses }, true).slides
+        if (selectedVerses.length || $scriptureSettings) getSlides({ biblesContent, selectedChapters, selectedVerses })
         else slides = [[]]
+    }
+    async function getSlides(data: any) {
+        slides = (await getScriptureSlidesNew(data, true)).slides
     }
 
     $: showVersion = biblesContent.find((a) => a?.attributionRequired) || $scriptureSettings.showVersion
@@ -159,10 +162,12 @@
     let referenceMenuOpened = false
 
     $: onlyOneNormalOutput = getAllNormalOutputs().length === 1
-    $: styleScriptureTemplate = onlyOneNormalOutput ? $styles[styleId]?.templateScripture : ""
+    $: styleScriptureTemplate = onlyOneNormalOutput ? $styles[styleId]?.templateScripture || "" : ""
 
+    // auto convert
+    $: if (useOldSystem && usingDefault && (!styleScriptureTemplate || styleScriptureTemplate.includes("scripture"))) convertToNew()
     $: useOldSystem = useOldScriptureSystem(templateId, $templates) && !styleScriptureTemplate
-    $: usingDefault = templateId.includes("scripture")
+    $: usingDefault = typeof templateId === "string" ? templateId.includes("scripture") : false
     async function convertToNew() {
         if (!usingDefault) {
             if (!(await confirmCustom("This will apply the default template, and convert that to the new format. Your current template will not change.<br>You can use it as an example to adapt your existing templates. Continue?"))) return
@@ -170,6 +175,7 @@
 
         setDefaultScriptureTemplates()
         update("template", "scripture")
+        useOldSystem = false
     }
 
     let expanded = false
@@ -205,7 +211,7 @@
             {/key}
 
             {#if attributionString}
-                <p class="attributionString">{attributionString}</p>
+                <p class="attributionString">{attributionString.slice(0, 135)}</p>
             {/if}
         {/if}
     </Zoomed>
@@ -214,7 +220,7 @@
     <div class="settings border">
         <!-- Template -->
         <InputRow style={templateBackground ? "" : "margin-bottom: 10px;"}>
-            <MaterialPopupButton label="info.template" disabled={!!styleScriptureTemplate} value={templateId} name={template?.name} popupId="select_template" icon="templates" on:change={(e) => update("template", e.detail)} allowEmpty={!isDefault} />
+            <MaterialPopupButton id="scripture_drawer" label="info.template" disabled={!!styleScriptureTemplate} value={templateId} name={template?.name} popupId="select_template" icon="templates" on:change={(e) => update("template", e.detail)} allowEmpty={!isDefault} />
             {#if (templateId && template) || styleScriptureTemplate}
                 <MaterialButton title="titlebar.edit" icon="edit" on:click={editTemplate} />
             {/if}
@@ -229,7 +235,7 @@
 
         {#if useOldSystem || (styleScriptureTemplate ? useOldScriptureSystem(styleScriptureTemplate) : false)}
             <p style="margin-bottom: 10px;font-size: 0.9rem;opacity: 0.7;white-space: normal;">
-                You are using an outdated scripture template! - <Link url="https://freeshow.app/docs/scripture#template">Read more</Link>
+                You are using a template with no scripture values! - <Link url="https://freeshow.app/docs/scripture#template">Read more</Link>
             </p>
         {/if}
         {#if useOldSystem}
@@ -237,7 +243,7 @@
                 {#if usingDefault}
                     Convert template to new system
                 {:else}
-                    Switch to new scripture system
+                    Use default template
                 {/if}
             </MaterialButton>
         {/if}
@@ -256,7 +262,7 @@
         {#if expanded}
             <!-- Verse numbers -->
             <InputRow arrow={useOldSystem && $scriptureSettings.verseNumbers} bind:open={verseMenuOpened}>
-                <MaterialToggleSwitch label="scripture.verse_numbers" style="width: 100%;" checked={$scriptureSettings.verseNumbers} defaultValue={false} on:change={(e) => update("verseNumbers", e.detail)} />
+                <MaterialToggleSwitch label="scripture.verse_numbers" style="width: 100%;" checked={$scriptureSettings.verseNumbers} on:change={(e) => update("verseNumbers", e.detail)} />
 
                 <svelte:fragment slot="menu">
                     {#if $scriptureSettings.verseNumbers}
@@ -278,6 +284,7 @@
                     {#if $scriptureSettings.splitLongVerses}
                         <MaterialToggleSwitch label="scripture.split_long_verses_suffix" checked={$scriptureSettings.splitLongVersesSuffix} defaultValue={false} on:change={(e) => update("splitLongVersesSuffix", e.detail)} />
                         <MaterialNumberInput label="edit.size" value={$scriptureSettings.longVersesChars || 100} defaultValue={100} min={50} on:change={(e) => update("longVersesChars", e.detail)} />
+                        <MaterialNumberInput label="scripture.tolerance" value={$scriptureSettings.longVersesTolerance || 0} defaultValue={0} min={0} max={100} on:change={(e) => update("longVersesTolerance", e.detail)} />
                     {/if}
                 </svelte:fragment>
             </InputRow>

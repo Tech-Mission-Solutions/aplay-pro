@@ -1,10 +1,12 @@
 import { get } from "svelte/store"
 import type { Item, Show, ShowList, Shows, Slide, TrimmedShow, TrimmedShows } from "../../../types/Show"
-import { cachedShowsData, customMetadata, dictionary, groupNumbers, groups, shows, showsCache, sorted, sortedShowsList } from "../../stores"
+import { activeEdit, activeFocus, activePage, activeProject, activeShow, cachedShowsData, customMetadata, dictionary, focusMode, groupNumbers, groups, projects, refreshEditSlide, shows, showsCache, sorted, sortedShowsList } from "../../stores"
 import { translateText } from "../../utils/language"
 import { clone, keysToID, removeValues, sortByName, sortByNameAndNumber } from "./array"
 import { GetLayout } from "./get"
 import { history } from "./history"
+import { loadShows } from "./setShow"
+import { swichProjectItem } from "./showActions"
 import { _show } from "./shows"
 
 // check if name exists and add number
@@ -28,7 +30,7 @@ export function checkName(name = "", showId = "") {
 export function formatToFileName(name = "") {
     name = name.replaceAll(":", ",")
     // remove illegal file name characters
-    name = name.trim().replace(/[/\\?%*:|"<>╠]/g, "")
+    name = name.trim().replace(/[/\\?%*:|│"<>╠┤╡╝╖┐¬]/g, "")
     // max 255 length
     if (name.length > 255) name = name.slice(0, 255)
 
@@ -54,6 +56,45 @@ export function getLabelId(label: string, replaceNumbers = true) {
     // .replace(/[0-9-]/g, "")
 }
 
+export function openShow(showId: string) {
+    if (!showId || !get(shows)[showId]) return
+
+    // set active show in project
+    let pos: number | null = null
+    if (get(activeProject) !== null) {
+        let i = get(projects)[get(activeProject) || ""]?.shows?.findIndex((p) => p.id === showId) ?? -1
+        if (i > -1) pos = i
+    }
+
+    let newShow: any = { id: showId, type: "show" }
+
+    if (get(focusMode)) {
+        let inProject = get(projects)[get(activeProject) || ""]?.shows?.find((p) => p.id === showId)
+        if (inProject) {
+            activeFocus.set({ id: showId, index: pos ?? undefined })
+            return
+        } else {
+            focusMode.set(false)
+        }
+    }
+
+    if (pos !== null) {
+        newShow.index = pos
+
+        // async waiting for show to load
+        setTimeout(async () => {
+            // preload show (so the layout can be changed)
+            await loadShows([showId])
+            if (get(showsCache)[showId]) swichProjectItem(pos, showId)
+        })
+    }
+
+    activeShow.set(newShow)
+
+    if (get(activeEdit).id) activeEdit.set({ type: "show", slide: 0, items: [], showId })
+    if (get(activePage) === "edit") refreshEditSlide.set(true)
+}
+
 // check if label exists as a global label
 export function getGlobalGroup(group: string, returnInputIfNull = false): string {
     const groupId = getLabelId(group)
@@ -74,7 +115,8 @@ export function getGlobalGroup(group: string, returnInputIfNull = false): string
 }
 
 // get group number (dynamic counter)
-export function getGroupName({ show, showId }: { show: Show; showId: string }, slideID: string, groupName: string | null, layoutIndex: number, addHTML = false, layoutNumber = true) {
+export function getGroupName({ show, showId }: { show: Show | null; showId: string }, slideID: string, groupName: string | null, layoutIndex: number, addHTML = false, layoutNumber = true) {
+    if (!show) return groupName || ""
     if (groupName === ".") return "." // . as name will be hidden
 
     let name = groupName
@@ -301,7 +343,7 @@ export function updateCachedShow(showId: string, show: Show, layoutId = "") {
     return { layout, endIndex, template, groups: sortedGroups }
 }
 
-export function removeTemplatesFromShow(showId: string, enableHistory = false) {
+export function removeTemplatesFromShow(showId: string, slideId?: string, enableHistory = false) {
     if (!get(showsCache)[showId]) return
 
     // remove show template
@@ -312,14 +354,26 @@ export function removeTemplatesFromShow(showId: string, enableHistory = false) {
         _show(showId).set({ key: "settings.template", value: null })
     }
 
-    // remove any slide templates
-    showsCache.update((a) => {
-        const show = a[showId]
-        Object.values(show.slides || {}).forEach((slide) => {
-            if (slide.settings?.template) delete slide.settings.template
+    if (slideId) {
+        // remove slide template
+        showsCache.update((a) => {
+            const show = a[showId]
+            if (!show?.slides?.[slideId]?.settings?.template) return a
+
+            delete show.slides[slideId].settings.template
+
+            return a
         })
-        return a
-    })
+    } else if (enableHistory) {
+        // remove any slide templates
+        showsCache.update((a) => {
+            const show = a[showId]
+            Object.values(show.slides || {}).forEach((slide) => {
+                if (slide.settings?.template) delete slide.settings.template
+            })
+            return a
+        })
+    }
 }
 
 export function getLayoutRef(showId = "active", _updater?: Shows | Show) {
