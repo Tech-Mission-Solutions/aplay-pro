@@ -167,7 +167,11 @@
         style = ""
         // $fullColors &&
         if (viewMode !== "lyrics" || noQuickEdit) colorStyle += `background-color: black;` // ${color}
-        if (!$fullColors && (viewMode !== "lyrics" || noQuickEdit)) colorStyle += `color: ${color};`
+        if (!$fullColors && (viewMode !== "lyrics" || noQuickEdit)) {
+            const rgb = hexToRgb(color || "")
+            const isBlack = rgb.r < 30 && rgb.g < 30 && rgb.b < 30
+            if (!isBlack) colorStyle += `color: ${color};`
+        }
         if (viewMode === "lyrics" && !noQuickEdit) colorStyle += "background-color: transparent;"
         if (viewMode !== "grid" && viewMode !== "simple" && viewMode !== "groups" && !noQuickEdit && viewMode !== "lyrics") style += `width: calc(${100 / columns}% - 6px)`
     }
@@ -272,7 +276,7 @@
                     <!-- border-bottom: 1px dashed {color}; -->
                     <div class="label" data-title={removeTagsAndContent(name || "")} style="color: {color};margin-bottom: 5px;">
                         <span style="color: var(--text);opacity: 0.85;font-size: 0.9em;">{index + 1}</span>
-                        <span class="text">{@html name === null ? "" : name === "." ? "" : name || "—"}</span>
+                        <span class="text">{@html name === null || name === "." ? "" : name || "—"}</span>
                     </div>
                 {/if}
                 <Zoomed
@@ -409,7 +413,13 @@
                         <!-- <div class="label" title={name || ""} style="border-bottom: 2px solid {color};"> -->
                         <!-- font-size: 0.8em; -->
                         <span style="color: {$fullColors ? getContrast(color || '') : 'var(--text)'};opacity: 0.85;font-size: 0.9em;">{index + 1}</span>
-                        <span class="text" style={name === null ? "opacity: 0;" : ""}>{@html name === null ? "-" : name === "." ? "" : name || "—"}</span>
+                        <span class="text" style={name === null || name === "." ? "opacity: 0;" : ""}>{@html name === null || name === "." ? "-" : name || "—"}</span>
+
+                        <!-- group is locked! -->
+                        {#if slide.locked || show?.slides?.[layoutSlide?.parent || ""]?.locked}
+                            <span class="lock"><Icon id="lock" size={0.7} style="color: var(--text);opacity: 0.3;" white /></span>
+                        {/if}
+
                         <!--HTML SHOW
                         <button class="open-in-browser-btn" title="Open slide in browser" on:click={handleOpenInBrowserClick}>
                             <Icon id="open_in_new" />

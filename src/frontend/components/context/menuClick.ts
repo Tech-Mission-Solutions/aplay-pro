@@ -35,6 +35,7 @@ import {
     currentOutputSettings,
     drawer,
     drawerTabsData,
+    editingProjectTemplate,
     effects,
     effectsLibrary,
     eventEdit,
@@ -91,7 +92,6 @@ import { playPauseGlobal } from "../drawer/timers/timers"
 import { addChords } from "../edit/scripts/chords"
 import { rearrangeItems, rearrangeStageItems } from "../edit/scripts/itemHelpers"
 import { getItemText, getSelectionRange } from "../edit/scripts/textStyle"
-import { exportProject } from "../export/project"
 import { clone, removeDuplicates, sortObjectNumbers } from "../helpers/array"
 import { copy, cut, deleteAction, duplicate, paste, selectAll } from "../helpers/clipboard"
 import { history, redo, undo } from "../helpers/history"
@@ -582,27 +582,6 @@ const clickActions = {
 
         history({ id: "UPDATE", newData: { data: show, remember: { project: get(activeProject) } }, location: { page: "show", id: "show" } })
     },
-    lock_show: (obj: ObjData) => {
-        if (!obj.sel) return
-        const shouldBeLocked = !get(shows)[obj.sel.data[0]?.id]?.locked
-
-        showsCache.update((a) => {
-            obj.sel!.data.forEach((b) => {
-                if (!a[b.id]) return
-                a[b.id].locked = shouldBeLocked
-
-                removeTemplatesFromShow(b.id)
-            })
-            return a
-        })
-        shows.update((a) => {
-            obj.sel!.data.forEach((b) => {
-                if (shouldBeLocked) a[b.id].locked = true
-                else delete a[b.id].locked
-            })
-            return a
-        })
-    },
     lock_group: (obj: ObjData) => {
         if (obj.sel?.id !== "group") return
 
@@ -741,13 +720,6 @@ const clickActions = {
         history({ id: "UPDATE", newData: { replace: { parent } }, location: { page: "show", id: "project" } })
     },
     newFolder: (obj: ObjData) => {
-        if (obj.contextElem?.closest(".projectItem")) {
-            let parent = obj.sel?.data[0]?.id || obj.contextElem.id || "/"
-            if (parent === "projectsArea") parent = "/"
-            history({ id: "UPDATE", newData: { replace: { parent } }, location: { page: "show", id: "project_folder" } })
-            return
-        }
-
         if (obj.contextElem?.classList.contains("#category_media") || obj.sel?.id === "category_media") {
             sendMain(Main.OPEN_FOLDER, { channel: "MEDIA", title: translateText("new.folder") })
             return
@@ -755,6 +727,14 @@ const clickActions = {
 
         if (obj.contextElem?.classList.contains("#category_audio") || obj.sel?.id === "category_audio") {
             sendMain(Main.OPEN_FOLDER, { channel: "AUDIO", title: translateText("new.folder") })
+            return
+        }
+
+        // ?.closest(".projectItem") // might be at root
+        if (obj.contextElem) {
+            let parent = obj.sel?.data[0]?.id || obj.contextElem.id || "/"
+            if (parent === "projectsArea" || parent === "projects") parent = "/"
+            history({ id: "UPDATE", newData: { replace: { parent } }, location: { page: "show", id: "project_folder" } })
             return
         }
     },
@@ -778,7 +758,10 @@ const clickActions = {
             const path = obj.contextElem.id
             const currentShow = get(activeShow)
             const mediaData = get(media)[path]
-            const projectShowRef = currentShow?.index !== undefined ? get(projects)[get(activeProject) || ""]?.shows?.[currentShow.index] : null
+            const isTemplate = !!get(editingProjectTemplate)
+            const projectId = isTemplate ? get(editingProjectTemplate) : get(activeProject)
+            const currentProject = isTemplate ? get(projectTemplates)[projectId || ""] : get(projects)[projectId || ""]
+            const projectShowRef = currentShow?.index !== undefined ? currentProject?.shows?.[currentShow.index] : null
             const name = currentShow?.name || projectShowRef?.name || mediaData?.name || mediaData?.contentFile?.name || removeExtension(getFileName(path))
             const mediaType = currentShow?.type || projectShowRef?.type || mediaData?.contentFile?.type || getMediaType(getExtension(path))
 
@@ -832,30 +815,6 @@ const clickActions = {
             if (!theme) return
             send(EXPORT, ["THEME"], { content: theme })
 
-            return
-        }
-
-        if (obj.contextElem?.classList.value.includes("project")) {
-            if (obj.sel?.id !== "project" && !get(activeProject)) return
-            const projectId: string = obj.sel?.data[0]?.id || get(activeProject)
-            exportProject(get(projects)[projectId], projectId)
-            // WIP set sourcePath to export path
-            return
-        }
-    },
-    import: (obj: ObjData) => {
-        if (obj.contextElem?.classList.value.includes("#projectsTab")) {
-            const extensions = ["project", "shows", "json", "zip"]
-            const name = translateText("formats.project")
-            sendMain(Main.IMPORT, { channel: "freeshow_project", format: { extensions, name } })
-            return
-        }
-    },
-    save_to_file: (obj: ObjData) => {
-        if (obj.contextElem?.classList.value.includes("project")) {
-            if (obj.sel?.id !== "project" && !get(activeProject)) return
-            const projectId: string = obj.sel?.data[0]?.id || get(activeProject)
-            exportProject(get(projects)[projectId], projectId, get(projects)[projectId]?.sourcePath)
             return
         }
     },
@@ -929,19 +888,11 @@ const clickActions = {
             return
         }
 
-        const index: number = obj.sel?.data[0] ? obj.sel.data[0].index + 1 : get(projects)[get(activeProject)!]?.shows?.length || 0
-        history({ id: "UPDATE", newData: { key: "shows", index }, oldData: { id: get(activeProject) }, location: { page: "show", id: "section" } })
-    },
-    lock_sections: () => {
-        const projectId = get(activeProject)
-        if (!projectId) return
-
-        projects.update((a) => {
-            if (!a[projectId]) return a
-
-            a[projectId].sectionsLocked = !a[projectId].sectionsLocked
-            return a
-        })
+        const isTemplate = !!get(editingProjectTemplate)
+        const projectId = isTemplate ? get(editingProjectTemplate) : get(activeProject)
+        const currentProject = isTemplate ? get(projectTemplates)[projectId || ""] : get(projects)[projectId || ""]
+        const index: number = obj.sel?.data[0] ? obj.sel.data[0].index + 1 : currentProject?.shows?.length || 0
+        history({ id: "UPDATE", newData: { key: "shows", index }, oldData: { id: projectId }, location: { page: "show", id: "section" } })
     },
     mark_played: (obj: ObjData) => {
         const indexes = (obj.sel?.data || []).map((item) => Number(item.index))
@@ -1114,6 +1065,10 @@ const clickActions = {
             activePopup.set("trigger")
         } else if (obj.sel.id === "audio_stream") {
             activePopup.set("audio_stream")
+        } else if (obj.contextElem?.classList?.contains("#project_template")) {
+            activeProject.set(null)
+            editingProjectTemplate.set(obj.contextElem.id)
+            projectView.set(false)
         } else if (obj.contextElem?.classList.value.includes("#event")) {
             eventEdit.set(obj.contextElem.id)
             activePopup.set("edit_event")

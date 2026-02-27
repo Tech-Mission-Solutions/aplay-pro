@@ -37,11 +37,6 @@
         delete: () => {
             hide = !!$shows[$selected.data[0]?.id]?.locked
         },
-        save_to_file: () => {
-            const project = $projects[$activeProject || ""]
-            hide = !project?.sourcePath
-            customTitle = project?.sourcePath || ""
-        },
         private: () => {
             let show = $shows[$selected.data[0]?.id]
             if (!show) return
@@ -85,14 +80,6 @@
             menu.icon = "styles"
             if (!$styles[styleId]) disabled = true
             menu.label += `: ${styleId ? $styles[styleId]?.name || "error.not_found" : "main.none"}`
-        },
-        lock_sections: () => {
-            const projectId = $activeProject || ""
-            enabled = !!$projects[projectId]?.sectionsLocked
-        },
-        lock_show: () => {
-            if (!$shows[$selected.data[0]?.id]?.locked) return
-            enabled = !!$shows[$selected.data[0].id].locked
         },
         lock_group: () => {
             if ($selected.id !== "group") return
