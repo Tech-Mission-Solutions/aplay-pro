@@ -33,28 +33,28 @@
     import { addItem } from "../scripts/itemHelpers"
     import { getSlideText, setCaretAtEnd } from "../scripts/textStyle"
 
-  $: currentShowId = $activeShow?.id || $activeEdit.showId || ""
-  $: currentShow = $showsCache[currentShowId]
-  $: if (currentShowId && currentShow && $activeEdit.slide === null && _show(currentShowId).slides().get().length) activeEdit.set({ slide: 0, items: [], showId: currentShowId })
-  $: ref = currentShowId && currentShow ? getLayoutRef(currentShowId) : []
-  $: Slide = $activeEdit.slide !== null && ref?.[$activeEdit.slide!] ? _show(currentShowId).slides([ref[$activeEdit.slide!]?.id]).get()?.[0] : null
+    $: currentShowId = $activeShow?.id || $activeEdit.showId || ""
+    $: currentShow = $showsCache[currentShowId]
+    $: if (currentShowId && currentShow && $activeEdit.slide === null && _show(currentShowId).slides().get().length) activeEdit.set({ slide: 0, items: [], showId: currentShowId })
+    $: ref = currentShowId && currentShow ? getLayoutRef(currentShowId) : []
+    $: Slide = $activeEdit.slide !== null && ref?.[$activeEdit.slide!] ? _show(currentShowId).slides([ref[$activeEdit.slide!]?.id]).get()?.[0] : null
 
-  let lines: [string, number][] = []
-  let mouse: any = null
-  let newStyles: { [key: string]: string | number } = {}
-  $: active = $activeEdit.items
+    let lines: [string, number][] = []
+    let mouse: any = null
+    let newStyles: { [key: string]: string | number } = {}
+    $: active = $activeEdit.items
 
-  let width = 0
-  let height = 0
-  // Slide?.settings?.resolution
-  $: resolution = getResolution(null, { $outputs, $styles })
+    let width = 0
+    let height = 0
+    // Slide?.settings?.resolution
+    $: resolution = getResolution(null, { $outputs, $styles })
 
-  let ratio = 1
+    let ratio = 1
 
-  $: layoutSlide = ref?.[$activeEdit.slide!]?.data || {}
-  // get backgruond
-  $: bgId = layoutSlide.background || null
-  let loadFullImage = false // true
+    $: layoutSlide = ref?.[$activeEdit.slide!]?.data || {}
+    // get backgruond
+    $: bgId = layoutSlide.background || null
+    let loadFullImage = false // true
 
     // get ghost background
     $: if (!bgId && !Slide?.settings?.backgroundImage) {
@@ -69,7 +69,6 @@
             }
         })
     }
-  }
 
     $: background = bgId && currentShowId ? currentShow?.media[bgId] : Slide?.settings?.backgroundImage ? { path: Slide.settings.backgroundImage, type: getMediaType(getExtension(Slide.settings.backgroundImage)), id: "" } : null
     $: backgroundPath = background?.path || ""
@@ -92,17 +91,18 @@
         mediaPath = media.path
         thumbnailPath = media.thumbnail
     }
-  }
 
-  let chordsMode = false
-  function toggleChords() {
-    chordsMode = !chordsMode
-  }
+    $: currentOutput = getFirstActiveOutput($outputs)
+    $: transparentOutput = !!currentOutput?.transparent
+    $: currentStyle = $styles[currentOutput?.style || ""] || {}
 
     let mediaStyle: MediaStyle = {}
     $: if (mediaPath) mediaStyle = getMediaStyle($media[bgPath], currentStyle)
 
-  $: slideFilter = getSlideFilter(layoutSlide)
+    $: {
+        if (active.length) setTimeout(updateStyles)
+        else newStyles = {}
+    }
 
     // const CHANGE_POS_TIME = 2000
     // let changePosTimeout = null
@@ -163,48 +163,74 @@
 
             refreshEditSlide.set(true)
         }
-      }
-    })
-  )
+    }
 
-  let profile = getAccess("shows")
-  $: isLocked = currentShow?.locked || profile.global === "read" || profile[currentShow?.category || ""] === "read"
+    let altTimeout: NodeJS.Timeout | null = null
+    let altTemp = false
+    let altKeyPressed = false
+    function keydown(e: KeyboardEvent) {
+        if (!e.altKey && altTimeout) clearTimeout(altTimeout)
 
-  // remove overflow if scrollbars are flickering over 25 times per second
-  let hideOverflow = false
-  // let changedTimes: number = 0
-  // $: if (ratio) changedTimes++
-  // $: if (!ratioTimeout && changedTimes > 2) startTimeout()
-  // $: if (ratio && hideOverflow && !ratioTimeout && changedTimes > 1) hideOverflow = false
+        if (e.altKey) {
+            if (altTemp) return
+            altTemp = true
+            // e.preventDefault()
 
-  // let ratioTimeout = null
-  // function startTimeout() {
-  //     ratioTimeout = setTimeout(() => {
-  //         if (changedTimes > 5) hideOverflow = true
-  //         changedTimes = 0
-  //         setTimeout(() => {
-  //             ratioTimeout = null
-  //         }, 10)
-  //     }, 200)
-  // }
+            // only activate alt preview hide after a little time (still works instantly)
+            altTimeout = setTimeout(() => {
+                if (altTemp && document.hasFocus()) altKeyPressed = true
+            }, 300)
+        }
+    }
+    function keyup(e) {
+        if (e.altKey) return
 
-  // $: styleTemplate = getStyleTemplate(null, currentStyle)
-  // || styleTemplate.settings?.backgroundColor
+        altTemp = false
+        altKeyPressed = false
+    }
+    function blurred() {
+        altTemp = false
+        altKeyPressed = false
+    }
 
-  $: checkered = (transparentOutput || $special.transparentSlides) && !background
+    // paste any images in clipboard
+    async function paste(e: ClipboardEvent) {
+        const mediaData = await getMediaFileFromClipboard(e)
+        if (mediaData) addItem("media", null, { src: mediaData })
+    }
 
-  // NOTES
+    // ZOOM
+    let scrollElem: HTMLDivElement | undefined
+    let zoom = 1
+    function updateZoom(e: any) {
+        zoom = e.detail
+        centerZoom()
+    }
 
-  let bottomHeight = 40
+    function centerZoom() {
+        // always center scroll when zooming
+        if (zoom >= 1) return
 
-  $: notes = Slide?.notes?.replaceAll("\n", "&nbsp;")
-  $: notesVisible = !!notes // && !chordsMode
+        // allow elem to update after zooming
+        setTimeout(() => {
+            const elem = scrollElem?.querySelector(".droparea")
+            if (!elem) return
 
-  const shortcutItems: { id: ItemType; icon?: string }[] = [{ id: "text" }, { id: "media", icon: "image" }, { id: "timer" }]
+            const centerX = (elem.scrollWidth - elem.clientWidth) / 2
+            const centerY = (elem.scrollHeight - elem.clientHeight) / 2
 
-  $: widthOrHeight = getStyleResolution(resolution, width, height, "fit", { zoom })
+            elem.scrollTo({ left: centerX, top: centerY })
+        })
+    }
 
-  $: hasTextContent = getSlideText(Slide)?.length
+    // CHORDS
+    let usedChords: string[] = []
+    $: slideChords = Slide ? getUsedChords(Slide) : []
+    $: allChords = Object.values(currentShow?.slides || {})
+        .map(getUsedChords)
+        .flat()
+    // combine and remove duplicates
+    $: usedChords = slideChords.length + allChords.length ? [...new Set([...slideChords, ...allChords])] : []
 
     let chordsAction = ""
     function setDefaultChordsAction() {
@@ -325,11 +351,11 @@
 {/if}
 
 <div class="editArea">
-  <div class="parent" class:noOverflow={zoom >= 1} bind:this={scrollElem} bind:offsetWidth={width} bind:offsetHeight={height}>
-    {#if Slide}
-      <DropArea id="edit" file>
-        <Zoomed background={(transparentOutput || $special.transparentSlides) && !background ? "transparent" : background ? "black" : Slide?.settings?.color || currentStyle.background || "black"} {checkered} border={checkered} {resolution} style={widthOrHeight} bind:ratio {hideOverflow} center={zoom >= 1}>
-          <!-- <div class="chordsButton" style="zoom: {1 / ratio};">
+    <div class="parent" class:noOverflow={zoom >= 1} bind:this={scrollElem} bind:offsetWidth={width} bind:offsetHeight={height}>
+        {#if Slide}
+            <DropArea id="edit" file>
+                <Zoomed background={(transparentOutput || $special.transparentSlides) && !background ? "transparent" : background ? "black" : Slide?.settings?.color || currentStyle.background || "black"} {checkered} border={checkered} {resolution} style={widthOrHeight} bind:ratio {hideOverflow} center={zoom >= 1}>
+                    <!-- <div class="chordsButton" style="zoom: {1 / ratio};">
                         <Button on:click={toggleChords}>
                             <Icon id="chords" white={!chordsMode} />
                         </Button>
@@ -342,23 +368,23 @@
                         </div>
                     {/if}
 
-          <!-- overlays -->
-          <div class="overlays preview" style="opacity: 0.5;">
-            {#if !altKeyPressed && layoutSlide.overlays?.length}
-              {#each layoutSlide.overlays as id}
-                {#if $overlays[id]}
-                  {#each $overlays[id].items as item}
-                    <Textbox {item} ref={{ type: "overlay", id }} />
-                  {/each}
-                {/if}
-              {/each}
-            {/if}
-          </div>
+                    <!-- overlays -->
+                    <div class="overlays preview" style="opacity: 0.5;">
+                        {#if !altKeyPressed && layoutSlide.overlays?.length}
+                            {#each layoutSlide.overlays as id}
+                                {#if $overlays[id]}
+                                    {#each $overlays[id].items as item}
+                                        <Textbox {item} ref={{ type: "overlay", id }} />
+                                    {/each}
+                                {/if}
+                            {/each}
+                        {/if}
+                    </div>
 
-          <!-- edit -->
-          {#if !isLocked}
-            <Snaplines bind:lines bind:newStyles bind:mouse {ratio} {active} />
-          {/if}
+                    <!-- edit -->
+                    {#if !isLocked}
+                        <Snaplines bind:lines bind:newStyles bind:mouse {ratio} {active} />
+                    {/if}
 
                     {#key $activeEdit.slide || $activeEdit.id}
                         {#each Slide.items as item, index}
@@ -375,79 +401,28 @@
             </Center>
         {/if}
     </div>
-  {/if}
 
-  {#if !$focusMode && !isLocked}
-    <!-- && Slide?.items?.length -->
-    {#if !chordsMode && !widthOrHeight.includes("height")}
-      <FloatingInputs bottom={notesVisible ? bottomHeight : 10} side="center">
-        {#each shortcutItems as item}
-          <MaterialButton title="settings.add: items.{item.id}" on:click={() => addItem(item.id)}>
-            <Icon id={item.icon || item.id} size={1.3} white />
-          </MaterialButton>
-        {/each}
-      </FloatingInputs>
+    {#if notesVisible}
+        <div class="notes" role="none" on:click={() => triggerFunction("slide_notes")}>
+            <Icon id="notes" right white />
+            <p>{@html notes}</p>
+        </div>
     {/if}
 
-    <FloatingInputs bottom={notesVisible ? bottomHeight : 10} arrow let:open>
-      <MaterialZoom hidden={!open} columns={zoom} min={0.2} max={4} defaultValue={1} addValue={0.1} on:change={updateZoom} />
-
-      {#if open}
-        <div class="divider"></div>
-
-        <!-- open slide notes -->
-        <MaterialButton icon="notes" title="items.slide_notes" on:click={() => triggerFunction("slide_notes")} />
-
-        <div class="divider"></div>
-
-        {#if hasTextContent}
-          <MaterialButton title="edit.insert_virtual_break" on:click={() => triggerFunction("insert_virtual_break")}>
-            <Icon id="add" white />
-            {#if !$labelsDisabled}<T id="edit.insert_virtual_break" />{/if}
-          </MaterialButton>
-
-          <div class="divider"></div>
-        {/if}
-      {/if}
-
-      <!-- no need to add chords on scripture/events -->
-      {#if !currentShow?.reference?.type && Slide && !isLocked && hasTextContent}
-        <!-- {#if open || slideChords.length} -->
-        <MaterialButton isActive={chordsMode} on:click={toggleChords} title="edit.chords">
-          <Icon id="chords" white={!slideChords.length} />
-          <!-- {#if open && !$labelsDisabled}<T id="edit.chords" />{/if} -->
-        </MaterialButton>
-        <!-- {/if} -->
-
-        {#if open}
-          <div class="divider"></div>
-        {/if}
-      {/if}
-
-      <MaterialButton title="show.text" on:click={() => textEditActive.set(true)}>
-        <Icon id="text_edit" white />
-        <!-- {#if open && !$labelsDisabled}<p><T id="show.text" /></p>{/if} -->
-      </MaterialButton>
-    </FloatingInputs>
-
-    {#if chordsMode}
-      <FloatingInputs side="left" bottom={notesVisible ? bottomHeight : 10} arrow let:open>
-        <div slot="menu">
-          <MaterialButton on:click={transposeUp} title="edit.transpose_up">
-            <Icon id="arrow_up" size={1.3} white />
-          </MaterialButton>
-          <MaterialButton on:click={transposeDown} title="edit.transpose_down">
-            <Icon id="arrow_down" size={1.3} white />
-          </MaterialButton>
-        </div>
-
-        {#if open}
-          <div class="divider"></div>
+    {#if !$focusMode && !isLocked}
+        <!-- && Slide?.items?.length -->
+        {#if !chordsMode && !widthOrHeight.includes("height")}
+            <FloatingInputs bottom={notesVisible ? bottomHeight : 10} side="center">
+                {#each shortcutItems as item}
+                    <MaterialButton title="settings.add: items.{item.id}" on:click={() => addItem(item.id)}>
+                        <Icon id={item.icon || item.id} size={1.3} white />
+                    </MaterialButton>
+                {/each}
+            </FloatingInputs>
         {/if}
 
-        <MaterialButton isActive={!chordsAction} on:click={setDefaultChordsAction}>
-          <p><T id="popup.choose_chord" /></p>
-        </MaterialButton>
+        <FloatingInputs bottom={notesVisible ? bottomHeight : 10} arrow let:open>
+            <MaterialZoom hidden={!open} columns={zoom} min={0.2} max={4} defaultValue={1} addValue={0.1} on:change={updateZoom} />
 
             {#if open}
                 <div class="divider"></div>
@@ -519,60 +494,59 @@
             </FloatingInputs>
         {/if}
     {/if}
-  {/if}
 </div>
 
 <style>
-  .default {
-    position: absolute;
-    top: 10px;
-    left: 10px;
+    .default {
+        position: absolute;
+        top: 10px;
+        left: 10px;
 
-    width: 42px;
-    height: 42px;
+        width: 42px;
+        height: 42px;
 
-    display: flex;
-    align-items: center;
-    justify-content: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
 
-    background-color: var(--primary-darkest);
-    border: 1px solid var(--primary-lighter);
+        background-color: var(--primary-darkest);
+        border: 1px solid var(--primary-lighter);
 
-    padding: 10px;
-    border-radius: 50%;
+        padding: 10px;
+        border-radius: 50%;
 
-    z-index: 999;
-  }
+        z-index: 999;
+    }
 
-  .editArea {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
+    .editArea {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
 
-  .parent {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    overflow: auto;
-    /* justify-content: center;
+    .parent {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        overflow: auto;
+        /* justify-content: center;
         align-items: center; */
-    /* padding: 10px; */
+        /* padding: 10px; */
 
-    /* WIP try to fix scrollbar content flickering */
-    /* setting .slide elem to overflow: hidden; works... */
-    /* overflow: overlay;
+        /* WIP try to fix scrollbar content flickering */
+        /* setting .slide elem to overflow: hidden; works... */
+        /* overflow: overlay;
         z-index: 1; */
-    /* scrollbar-gutter: stable both-edges; */
-  }
+        /* scrollbar-gutter: stable both-edges; */
+    }
 
-  /* disable "glitchy" scroll bars */
-  .parent.noOverflow :global(.droparea) {
-    overflow: hidden;
-  }
+    /* disable "glitchy" scroll bars */
+    .parent.noOverflow :global(.droparea) {
+        overflow: hidden;
+    }
 
-  /* .chordsButton {
+    /* .chordsButton {
         position: absolute;
         top: 0;
         right: 0;
@@ -583,22 +557,22 @@
         z-index: 3;
     } */
 
-  .notes {
-    background-color: var(--primary-darkest);
-    border-top: 1px solid var(--primary-lighter);
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    /* position: absolute;bottom: 0;transform: translateY(-100%); */
-    padding: 0 8px;
-    min-height: 30px;
+    .notes {
+        background-color: var(--primary-darkest);
+        border-top: 1px solid var(--primary-lighter);
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+        /* position: absolute;bottom: 0;transform: translateY(-100%); */
+        padding: 0 8px;
+        min-height: 30px;
 
-    display: flex;
-    align-items: center;
-    justify-content: start;
-    /* justify-content: center; */
-  }
+        display: flex;
+        align-items: center;
+        justify-content: start;
+        /* justify-content: center; */
+    }
 
-  .notes p :global(*) {
-    display: inline;
-  }
+    .notes p :global(*) {
+        display: inline;
+    }
 </style>
