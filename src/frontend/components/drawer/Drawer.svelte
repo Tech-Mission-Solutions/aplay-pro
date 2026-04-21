@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { DrawerTabIds } from "../../../types/Tabs"
-    import { activeDrawerTab, activeEdit, activePage, activePopup, activeProject, activeShow, activeTriggerFunction, drawer, drawerOpenedInEdit, drawerTabsData, focusMode, labelsDisabled, os, previousShow, projects, quickTextCache, selected } from "../../stores"
+    import { activeDrawerTab, activeEdit, activePage, activePopup, activeProject, activeShow, activeTriggerFunction, dictionary, drawer, drawerOpenedInEdit, drawerTabsData, focusMode, labelsDisabled, os, previousShow, projects, quickTextCache, scriptureSettings, selected } from "../../stores"
     import { DEFAULT_DRAWER_HEIGHT, DEFAULT_WIDTH, MENU_BAR_HEIGHT } from "../../utils/common"
     import { translateText } from "../../utils/language"
     import { getAccess } from "../../utils/profile"
@@ -219,7 +219,7 @@
             {/each}
         </span>
 
-        <input bind:this={searchElem} class:hidden={!searchActive && !searchValue.length} class="search edit drawer_search" type="text" placeholder={translateText("main.search...")} bind:value={searchValue} on:input={search} use:selectTextOnFocus />
+        <input bind:this={searchElem} class:hidden={!searchActive && !searchValue.length} class="search edit drawer_search" type="text" placeholder={translateText("main.search...", $dictionary)} bind:value={searchValue} on:input={search} use:selectTextOnFocus />
         {#if !searchActive && !searchValue.length}
             <Button class="search" style="border-bottom: 2px solid var(--secondary);" on:click={() => (searchActive = true)} title={translateText("tabs.search_tip [Ctrl+F]")} bold={false}>
                 <Icon id="search" size={1.4} white right={!$labelsDisabled && !$focusMode} />
@@ -229,6 +229,11 @@
             {#if $activeDrawerTab === "scripture"}
                 <div class="clearSearch autocomplete">
                     <Icon id="autofill" white />
+                </div>
+                <div class="clearSearch options" on:mousedown|stopPropagation on:mouseup|stopPropagation>
+                    <Button style="height: 100%;" title={translateText("edit.options")} on:click={() => activePopup.set("drawer_search_options")}>
+                        <Icon id="options" white={!$scriptureSettings.enterSwapped} />
+                    </Button>
                 </div>
             {/if}
             <div class="clearSearch">
@@ -328,11 +333,14 @@
         height: calc(100% - 4px);
         z-index: 1;
     }
+    .clearSearch.options {
+        right: 40px;
+    }
     .clearSearch.autocomplete {
-        right: 45px;
+        right: 90px;
         display: flex;
         align-items: center;
-        opacity: 0.3;
+        opacity: 0.2;
         pointer-events: none;
     }
 

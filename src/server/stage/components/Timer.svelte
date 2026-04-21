@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onDestroy } from "svelte"
     import type { Item } from "../../../types/Show"
     import { getStyles } from "../../common/util/style"
     import { getCurrentTimerValue, joinTimeBig } from "../../common/util/time"
@@ -42,6 +43,31 @@
     }
 
     $: shouldWarn = !!timer.warn && getTimerOverflow(currentTime, (timer.warnOffset || 30) + 1)
+
+    // BLINKING WHEN OVERFLOWING
+
+    // don't blink if paused?
+    let blinkingInterval: NodeJS.Timeout | null = null
+    $: if (shouldWarn && !overflow && timer.warnFlash) startBlinking()
+    else stopBlinking()
+    onDestroy(stopBlinking)
+
+    const INTERVAL = 1200
+    let blinkingOff = false
+    function startBlinking() {
+        if (blinkingInterval) return
+        blinkingInterval = setInterval(() => {
+            blinkingOff = true
+            setTimeout(() => {
+                blinkingOff = false
+            }, INTERVAL * 0.2)
+        }, INTERVAL)
+    }
+
+    function stopBlinking() {
+        if (blinkingInterval) clearInterval(blinkingInterval)
+        blinkingInterval = null
+    }
 </script>
 
 {#if item?.timer?.viewType === "line"}
@@ -51,11 +77,13 @@
 {:else}
     <div class="align autoFontSize" style="{style}{(item?.align || '').replaceAll('text-align', 'justify-content')}">
         <div style="display: flex;white-space: nowrap;{overflow ? 'color: ' + (timer.overflowColor || '#FF4136') + ';' : shouldWarn ? 'color: ' + (timer.warnColor || '#FF8000') + ';' : ''}">
-            {#if overflow && negative}
-                <span>-</span>
-            {/if}
+            {#if !blinkingOff}
+                {#if overflow && negative}
+                    <span>-</span>
+                {/if}
 
-            {timeValue}
+                {timeValue}
+            {/if}
         </div>
     </div>
 {/if}

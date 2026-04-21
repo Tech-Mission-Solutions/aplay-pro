@@ -44,6 +44,7 @@ import {
     fullColors,
     gain,
     globalTags,
+    globalRegexes,
     groupNumbers,
     groups,
     labelsDisabled,
@@ -54,6 +55,7 @@ import {
     mediaFolders,
     mediaOptions,
     mediaTags,
+    playerTags,
     metronome,
     openedFolders,
     outLocked,
@@ -108,6 +110,7 @@ import { audioStreams, companion } from "./../stores"
 import { socketDisconnect, syncWithCloud } from "./cloudSync"
 import { newToast, setStatus } from "./common"
 import { syncDrive } from "./drive"
+import { isOutCleared } from "../components/helpers/output"
 
 export function save(closeWhenFinished = false, customTriggers: SaveActions = {}) {
     // don't save again while saving
@@ -242,11 +245,13 @@ export function getSyncedSettings(): { [key in SaveListSyncedSettings]: any } {
         playerVideos,
         videoMarkers,
         mediaTags,
+        playerTags,
         actionTags,
         variableTags,
         customizedIcons,
         companion,
         globalTags,
+        globalRegexes,
         customMetadata,
         effects,
         deletedDefaults
@@ -262,15 +267,21 @@ export async function saveComplete({ closeWhenFinished, customTriggers }: { clos
         console.info("SAVED!")
     }
 
-    // cloud sync
+    // cloud sync (only when autosaving or closing)
     if ((customTriggers?.autosave || closeWhenFinished) && (get(providerConnections).churchApps || !get(driveData)?.mainFolderId)) {
         if (closeWhenFinished) {
             alertMessage.set("actions.closing")
             activePopup.set("alert")
         }
 
-        // only sync when autosaving or closing
-        if (!customTriggers?.autosave || !alreadySaved) await syncWithCloud(false, closeWhenFinished)
+        let shouldSync = true
+        if (customTriggers?.autosave) {
+            // don't sync if already saved or if a slide is currently outputted
+            if (alreadySaved || !isOutCleared("slide")) shouldSync = false
+        }
+
+        if (shouldSync) await syncWithCloud(false, closeWhenFinished)
+
         if (closeWhenFinished) {
             await socketDisconnect()
             closeApp()
@@ -343,6 +354,7 @@ export function unsavedUpdater() {
 
 const customSavedListener = {
     showsCache: (data: Shows) => {
+        if (!data) return data
         Object.keys(data).forEach((id) => {
             if (!data[id]?.slides) return
 
@@ -357,6 +369,7 @@ const customSavedListener = {
         return data
     },
     projects: (data: Projects) => {
+        if (!data) return data
         removeDeleted(keysToID(data)).forEach((a) => {
             data[a.id].shows?.map((show) => {
                 delete show.layout
@@ -427,6 +440,7 @@ const saveList: { [key in SaveList]: any } = {
     emitters,
     videoMarkers,
     mediaTags,
+    playerTags,
     actionTags,
     variableTags,
     customizedIcons,
@@ -443,6 +457,7 @@ const saveList: { [key in SaveList]: any } = {
     timecode: null,
     companion: null,
     globalTags,
+    globalRegexes: null,
     customMetadata: null,
     contentProviderData,
     effects,

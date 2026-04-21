@@ -19,6 +19,7 @@ import {
     activeFocus,
     activeMediaTagFilter,
     activePage,
+    activePlayerTagFilter,
     activePopup,
     activeRecording,
     activeRename,
@@ -50,6 +51,7 @@ import {
     outputs,
     overlayCategories,
     overlays,
+    playerVideos,
     popupData,
     previousShow,
     profiles,
@@ -82,11 +84,10 @@ import { translateText } from "../../utils/language"
 import { confirmCustom } from "../../utils/popup"
 import { send } from "../../utils/request"
 import { initializeClosing, save } from "../../utils/save"
-import { closeContextMenu } from "../../utils/shortcuts"
 import { updateThemeValues } from "../../utils/updateSettings"
 import { getActionTriggerId } from "../actions/actions"
 import { moveStageConnection } from "../actions/apiHelper"
-import { createScriptureShow } from "../drawer/bible/scripture"
+import { createScriptureShow, openActiveInRouteBible } from "../drawer/bible/scripture"
 import { stopMediaRecorder } from "../drawer/live/recorder"
 import { playPauseGlobal } from "../drawer/timers/timers"
 import { addChords } from "../edit/scripts/chords"
@@ -101,6 +102,7 @@ import { select } from "../helpers/select"
 import { checkName, formatToFileName, getLayoutRef, openShow, removeTemplatesFromShow, updateShowsList } from "../helpers/show"
 import { sendMidi } from "../helpers/showActions"
 import { _show } from "../helpers/shows"
+import { getMenuTagId, openTagManager, toggleSelectionTags, toggleTagFilter } from "../helpers/tags"
 import { clearSlide } from "../output/clear"
 import { defaultThemes } from "../settings/tabs/defaultThemes"
 import { activeProject } from "./../../stores"
@@ -343,12 +345,10 @@ const clickActions = {
 
     // TAGS
     manage_show_tags: () => {
-        closeContextMenu()
-        popupData.set({ type: "show" })
-        activePopup.set("manage_tags")
+        openTagManager("show")
     },
     tag_set: (obj: ObjData) => {
-        const tagId = obj.menu.id
+        const tagId = getMenuTagId(obj.menu)
         if (tagId === "create") {
             clickActions.manage_show_tags()
             return
@@ -356,51 +356,36 @@ const clickActions = {
 
         const disable = get(shows)[obj.sel?.data[0]?.id]?.quickAccess?.tags?.includes(tagId)
 
-        obj.sel?.data?.forEach(({ id }) => {
-            // WIP similar to Tag.svelte - toggleTag()
-            const quickAccess = get(shows)[id]?.quickAccess || {}
+        toggleSelectionTags({
+            data: obj.sel?.data,
+            tagId,
+            disable: !!disable,
+            getTags: ({ id }) => get(shows)[id]?.quickAccess?.tags,
+            applyTags: ({ id }, tags) => {
+                const quickAccess = get(shows)[id]?.quickAccess || {}
+                quickAccess.tags = tags
 
-            const tags = quickAccess.tags || []
-            const existingIndex = tags.indexOf(tagId)
-            if (disable) {
-                if (existingIndex > -1) tags.splice(existingIndex, 1)
-            } else {
-                if (existingIndex < 0) tags.push(tagId)
-            }
-
-            quickAccess.tags = tags
-
-            shows.update((a) => {
-                a[id].quickAccess = quickAccess
-                return a
-            })
-            if (get(showsCache)[id]) {
-                showsCache.update((a) => {
+                shows.update((a) => {
                     a[id].quickAccess = quickAccess
                     return a
                 })
+                if (get(showsCache)[id]) {
+                    showsCache.update((a) => {
+                        a[id].quickAccess = quickAccess
+                        return a
+                    })
+                }
             }
-
-            // history({ id: "UPDATE", newData: { data: quickAccess, key: "quickAccess" }, oldData: { id }, location: { page: "show", id: "show_key", override: "toggle_tag" } })
         })
     },
     tag_filter: (obj: ObjData) => {
-        const tagId = obj.menu.id || ""
-
-        const activeTags = get(activeTagFilter)
-        const currentIndex = activeTags.indexOf(tagId)
-        if (currentIndex < 0) activeTags.push(tagId)
-        else activeTags.splice(currentIndex, 1)
-
-        activeTagFilter.set(activeTags || [])
+        toggleTagFilter(activeTagFilter, getMenuTagId(obj.menu))
     },
     manage_media_tags: () => {
-        closeContextMenu()
-        popupData.set({ type: "media" })
-        activePopup.set("manage_tags")
+        openTagManager("media")
     },
     media_tag_set: (obj: ObjData) => {
-        const tagId = obj.menu.id || ""
+        const tagId = getMenuTagId(obj.menu)
         if (tagId === "create") {
             clickActions.manage_media_tags()
             return
@@ -408,40 +393,56 @@ const clickActions = {
 
         const disable = get(media)[get(selected).data[0]?.path]?.tags?.includes(tagId)
 
-        obj.sel?.data?.forEach(({ path }) => {
-            const tags = get(media)[path]?.tags || []
-
-            const existingIndex = tags.indexOf(tagId)
-            if (disable) {
-                if (existingIndex > -1) tags.splice(existingIndex, 1)
-            } else {
-                if (existingIndex < 0) tags.push(tagId)
+        toggleSelectionTags({
+            data: obj.sel?.data,
+            tagId,
+            disable: !!disable,
+            getTags: ({ path }) => get(media)[path]?.tags,
+            applyTags: ({ path }, tags) => {
+                media.update((a) => {
+                    if (!a[path]) a[path] = {}
+                    a[path].tags = tags
+                    return a
+                })
             }
-
-            media.update((a) => {
-                if (!a[path]) a[path] = {}
-                a[path].tags = tags
-                return a
-            })
         })
     },
     media_tag_filter: (obj: ObjData) => {
-        const tagId = obj.menu.id || ""
+        toggleTagFilter(activeMediaTagFilter, getMenuTagId(obj.menu))
+    },
+    manage_player_tags: () => {
+        openTagManager("player")
+    },
+    player_tag_set: (obj: ObjData) => {
+        const tagId = getMenuTagId(obj.menu)
+        if (tagId === "create") {
+            clickActions.manage_player_tags()
+            return
+        }
 
-        const activeTags = get(activeMediaTagFilter)
-        const currentIndex = activeTags.indexOf(tagId)
-        if (currentIndex < 0) activeTags.push(tagId)
-        else activeTags.splice(currentIndex, 1)
+        const disable = get(playerVideos)[get(selected).data[0]]?.tags?.includes(tagId)
 
-        activeMediaTagFilter.set(activeTags || [])
+        toggleSelectionTags({
+            data: obj.sel?.data,
+            tagId,
+            disable: !!disable,
+            getTags: (id) => get(playerVideos)[id]?.tags,
+            applyTags: (id, tags) => {
+                playerVideos.update((a) => {
+                    if (a[id]) a[id].tags = tags
+                    return a
+                })
+            }
+        })
+    },
+    player_tag_filter: (obj: ObjData) => {
+        toggleTagFilter(activePlayerTagFilter, getMenuTagId(obj.menu))
     },
     manage_action_tags: () => {
-        closeContextMenu()
-        popupData.set({ type: "action" })
-        activePopup.set("manage_tags")
+        openTagManager("action")
     },
     action_tag_set: (obj: ObjData) => {
-        const tagId = obj.menu.id || ""
+        const tagId = getMenuTagId(obj.menu)
         if (tagId === "create") {
             clickActions.manage_action_tags()
             return
@@ -449,39 +450,27 @@ const clickActions = {
 
         const disable = get(actions)[get(selected).data[0]?.id]?.tags?.includes(tagId)
 
-        obj.sel?.data?.forEach(({ id }) => {
-            const tags = get(actions)[id]?.tags || []
-
-            const existingIndex = tags.indexOf(tagId)
-            if (disable) {
-                if (existingIndex > -1) tags.splice(existingIndex, 1)
-            } else {
-                if (existingIndex < 0) tags.push(tagId)
+        toggleSelectionTags({
+            data: obj.sel?.data,
+            tagId,
+            disable: !!disable,
+            getTags: ({ id }) => get(actions)[id]?.tags,
+            applyTags: ({ id }, tags) => {
+                actions.update((a) => {
+                    if (a[id]) a[id].tags = tags
+                    return a
+                })
             }
-
-            actions.update((a) => {
-                if (a[id]) a[id].tags = tags
-                return a
-            })
         })
     },
     manage_variable_tags: () => {
-        closeContextMenu()
-        popupData.set({ type: "variable" })
-        activePopup.set("manage_tags")
+        openTagManager("variable")
     },
     action_tag_filter: (obj: ObjData) => {
-        const tagId = obj.menu.id || ""
-
-        const activeTags = get(activeActionTagFilter)
-        const currentIndex = activeTags.indexOf(tagId)
-        if (currentIndex < 0) activeTags.push(tagId)
-        else activeTags.splice(currentIndex, 1)
-
-        activeActionTagFilter.set(activeTags || [])
+        toggleTagFilter(activeActionTagFilter, getMenuTagId(obj.menu))
     },
     variable_tag_set: (obj: ObjData) => {
-        const tagId = obj.menu.id || ""
+        const tagId = getMenuTagId(obj.menu)
         if (tagId === "create") {
             clickActions.manage_variable_tags()
             return
@@ -489,31 +478,21 @@ const clickActions = {
 
         const disable = get(variables)[get(selected).data[0]?.id]?.tags?.includes(tagId)
 
-        obj.sel?.data?.forEach(({ id }) => {
-            const tags = get(variables)[id]?.tags || []
-
-            const existingIndex = tags.indexOf(tagId)
-            if (disable) {
-                if (existingIndex > -1) tags.splice(existingIndex, 1)
-            } else {
-                if (existingIndex < 0) tags.push(tagId)
+        toggleSelectionTags({
+            data: obj.sel?.data,
+            tagId,
+            disable: !!disable,
+            getTags: ({ id }) => get(variables)[id]?.tags,
+            applyTags: ({ id }, tags) => {
+                variables.update((a) => {
+                    if (a[id]) a[id].tags = tags
+                    return a
+                })
             }
-
-            variables.update((a) => {
-                if (a[id]) a[id].tags = tags
-                return a
-            })
         })
     },
     variable_tag_filter: (obj: ObjData) => {
-        const tagId = obj.menu.id || ""
-
-        const activeTags = get(activeVariableTagFilter)
-        const currentIndex = activeTags.indexOf(tagId)
-        if (currentIndex < 0) activeTags.push(tagId)
-        else activeTags.splice(currentIndex, 1)
-
-        activeVariableTagFilter.set(activeTags || [])
+        toggleTagFilter(activeVariableTagFilter, getMenuTagId(obj.menu))
     },
     action_history: () => {
         activePopup.set("action_history")
@@ -750,6 +729,7 @@ const clickActions = {
     },
     newScripture: () => activePopup.set("import_scripture"),
 
+    route_bible: () => openActiveInRouteBible(),
     createCollection: () => {
         activePopup.set("create_collection")
     },
@@ -938,12 +918,16 @@ const clickActions = {
     slide_transition: (obj: ObjData) => {
         if (obj.sel?.id !== "slide") return
 
+        popupData.set({})
         activePopup.set("transition")
     },
     disable: (obj: ObjData) => {
         if (obj.sel?.id === "slide") {
             const showId = get(activeShow)?.id
             if (!showId) return
+
+            const shouldBeDisabled = !obj.enabled
+            const disableGroups = get(slidesOptions).mode === "groups"
 
             showsCache.update((a) => {
                 obj.sel!.data.forEach((b) => {
@@ -953,10 +937,23 @@ const clickActions = {
                     if (!slides) return
 
                     if (ref.type === "child") {
-                        if (!slides[ref.parent!.index].children) slides[ref.parent!.index].children = {}
-                        slides[ref.parent!.index].children![ref.id] = { ...slides[ref.parent!.index].children![ref.id], disabled: !obj.enabled }
-                    } else slides[ref.index].disabled = !obj.enabled
+                        toggleDisabledChild(ref.parent!.index, ref.id)
+                    } else if (slides[ref.index]) {
+                        slides[ref.index].disabled = shouldBeDisabled
+
+                        if (disableGroups) {
+                            const childIds = _show().get("slides")[slides[ref.index].id]?.children || []
+                            childIds.forEach((childId) => toggleDisabledChild(ref.index, childId))
+                        }
+                    }
+
+                    function toggleDisabledChild(parentIndex: number, childId: string) {
+                        if (!slides[parentIndex]) return
+                        if (!slides[parentIndex].children) slides[parentIndex].children = {}
+                        slides[parentIndex].children[childId] = { ...(slides[parentIndex].children[childId] || {}), disabled: shouldBeDisabled }
+                    }
                 })
+
                 return a
             })
             return
@@ -1010,7 +1007,8 @@ const clickActions = {
             activePage.set("edit")
             setTimeout(() => selected.set({ id: null, data: [] }))
         } else if (obj.sel.id === "media") {
-            const path = obj.sel.data[0].path
+            const path = obj.sel.data[0]?.path
+            if (!path) return
             activeEdit.set({ type: "media", id: path, items: [] })
             activePage.set("edit")
             if (!get(activeShow) || (get(activeShow)!.type || "show") !== "show") activeShow.set({ id: path, type: getMediaType(getExtension(path)) })
@@ -1024,7 +1022,8 @@ const clickActions = {
             popupData.set({ active: onlineTab, id })
             activePopup.set("player")
         } else if (obj.sel.id === "audio") {
-            const path = obj.sel.data[0].path
+            const path = obj.sel.data[0]?.path
+            if (!path) return
             activeEdit.set({ type: "audio", id: path, items: [] })
             activePage.set("edit")
             if (!get(activeShow) || (get(activeShow)!.type || "show") !== "show") activeShow.set({ id: path, type: "audio" })
@@ -1079,6 +1078,43 @@ const clickActions = {
         } else if (obj.contextElem?.classList.value.includes("#edit_custom_action")) {
             activePopup.set("custom_action")
         }
+    },
+    change_style: (obj: ObjData) => {
+        const outputId = obj.contextElem?.id || ""
+        const output = get(outputs)[outputId]
+        if (!output) return
+
+        if (output.stageOutput) {
+            popupData.set({
+                active: output.stageOutput,
+                trigger: (stageId: string) => {
+                    outputs.update((a) => {
+                        a[outputId].stageOutput = stageId
+                        return a
+                    })
+                }
+            })
+
+            // activeStage.set({ id: output.stageOutput, items: [] })
+            activePopup.set("select_stage_layout")
+            return
+        }
+
+        if (!output.style) return
+
+        popupData.set({
+            active: output.style,
+            trigger: (styleId: string) => {
+                outputs.update((a) => {
+                    a[outputId].style = styleId
+                    return a
+                })
+            }
+        })
+
+        // activeStyle.set(output.style)
+        // settingsTab.set("styles")
+        activePopup.set("select_style")
     },
     edit_style: (obj: ObjData) => {
         const outputId = obj.contextElem?.id || ""
@@ -1648,6 +1684,8 @@ const clickActions = {
     },
     cut_in_half: (obj: ObjData) => {
         if (obj.sel?.id === "slide") {
+            if (!Array.isArray(obj.sel?.data) || !obj.sel.data.length) return
+
             const oldLayoutRef = clone(getLayoutRef())
             const previousSpiltIds: string[] = []
 
@@ -1822,20 +1860,6 @@ function changeSlideAction(obj: ObjData, id: string) {
         return
     }
 
-    if (id === "animate") {
-        if (!layoutActions[id]) {
-            layoutActions[id] = { actions: [{ type: "change", duration: 3, id: "text", key: "font-size", extension: "px" }] }
-            history({ id: "SHOW_LAYOUT", newData: { key: "actions", data: layoutActions, indexes }, location: { page: "show", override: "animate_slide" } })
-        }
-
-        const data = { data: layoutActions[id], indexes }
-
-        popupData.set(data)
-        activePopup.set("animate")
-
-        return
-    }
-
     if (id === "nextTimer") {
         const nextTimer = clone(ref[layoutSlide]?.data?.nextTimer) || 0
 
@@ -1868,6 +1892,8 @@ function changeSlideAction(obj: ObjData, id: string) {
 }
 
 export async function removeSlide(initialData: any[], type: "delete" | "remove" = "delete") {
+    if (!Array.isArray(initialData)) return
+
     const ref = getLayoutRef()
     const parents: any[] = []
     const childs: any[] = []
@@ -1894,6 +1920,8 @@ export async function removeSlide(initialData: any[], type: "delete" | "remove" 
         const prompt = translateText("confirm.statement_slide_exists_layout confirm.question_delete")
         if (selectedInDifferentLayout && !(await confirmCustom(prompt))) return
     }
+
+    if (!Array.isArray(data) || !data.length) return
 
     // sort so the correct slide indexes are removed
     data = sortObjectNumbers(data, "index")
@@ -2018,12 +2046,17 @@ function checkIfAddedToDifferentLayout(ref: LayoutRef[], data: any[]) {
 
 const formatting = {
     find_replace: (t: string, data) => {
+        if (!t) return ""
         if (!data.findValue) return t
 
         let flags = "g"
         if (data.caseSentitive === false) flags += "i"
-        const regExp = new RegExp(data.findValue, flags)
-        return t.replace(regExp, data.replaceValue)
+        try {
+            const regExp = new RegExp(data.findValue, flags)
+            return t.replace(regExp, data.replaceValue)
+        } catch {
+            return t
+        }
     },
     uppercase: (t: string) => t.toUpperCase(),
     lowercase: (t: string) => t.toLowerCase(),

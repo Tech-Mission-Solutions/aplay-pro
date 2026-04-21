@@ -141,7 +141,7 @@ export function paste(clip: Clipboard | null = null, extraData: any = {}, custom
         return
     }
 
-    pasteActions[clip.id](clip.data, extraData)
+    pasteActions[clip.id](clip.data, extraData, isDuplicating)
 
     if (isDuplicating) setStatus("duplicated", 2)
     else setStatus("pasted", 2)
@@ -168,6 +168,9 @@ export function cut(clip: Clipboard | null = null) {
 }
 
 export function deleteAction(clip: Clipboard | { id: null; data: Clipboard; index: any }, type = "delete") {
+    // selected timeline actions
+    if (document.querySelector(".timeline-track .action-marker.selected")) return
+
     console.info("DELETE", clip.id, clip.data)
     if (!clip?.id) return false
     if (!deleteActions[clip.id]) return false
@@ -570,7 +573,7 @@ const pasteActions = {
         })
         history({ id: "UPDATE", newData: { data: items, key: "slides", keys: [ref.id], subkey: "items", index: -1 }, oldData: { id: get(activeShow)!.id }, location: { page: "edit", id: "show_key" } })
     },
-    slide: (data: any, { index }: any = {}) => {
+    slide: (data: any, { index }: any = {}, isDuplicating: boolean = false) => {
         if (!data) return
 
         // clone slides
@@ -603,7 +606,7 @@ const pasteActions = {
         data.slides.forEach((slide, i) => {
             // dont add child if it is already copied
             if (slide.group === null && addedChildren.includes(slide.id)) return
-            if (slide.group === null) slide.group = ""
+            if (!isDuplicating && slide.group === null) slide.group = ""
 
             slide.id = uid()
             const slideIndex = newSlides.length
@@ -673,7 +676,7 @@ const pasteActions = {
 
         history({ id: "SLIDES", newData: { data: newSlides, layouts, index: index !== undefined ? index + 1 : undefined } })
     },
-    group: (data: any) => pasteActions.slide(data),
+    group: (data: any, extraData: any = {}, isDuplicating: boolean = false) => pasteActions.slide(data, extraData, isDuplicating),
     overlay: (data: any) => {
         data?.forEach((slide) => {
             const newSlide = clone(slide)
@@ -731,6 +734,7 @@ const pasteActions = {
 
         const stage = clone(get(stageShows)[stageId])
         const newItemIds: string[] = []
+        if (!stage?.items) return
 
         data.forEach((item) => {
             const newItemId = uid(5)
@@ -787,18 +791,63 @@ const deleteActions = {
 
         const slideRef = ref.find((a) => a.id === slideId)
         const groupId = slideRef?.parent?.id || slideRef?.id
-        const currentShow = get(showsCache)[get(activeShow)?.id || ""]
+        const showId = get(activeShow)?.id || ""
+        const items = get(activeEdit).items || []
+        const currentShow = get(showsCache)[showId]
         if (currentShow.locked || currentShow?.slides?.[groupId || ""]?.locked) {
             newToast("output.state_locked")
             return
         }
+
+        // WIP keyframes should be bound by id and not index, as item index position can change
+        // remove any associated slide timeline keyframes
+        // WIP history
+        // if (currentShow.slides?.[slideId]?.timeline) {
+        //     showsCache.update((a) => {
+        //         const timeline = a[showId].slides[slideId].timeline
+        //         if (!timeline?.actions) return a
+
+        //         const newActions: TimelineAction[] = []
+        //         timeline.actions.forEach((action) => {
+        //             const indexes = action.data.indexes || []
+        //             if (!indexes.length) {
+        //                 newActions.push(action)
+        //                 return
+        //             }
+
+        //             const newIndexes = indexes.filter((i) => !items.includes(i))
+        //             if (!newIndexes.length) return
+
+        //             if (newIndexes.length !== indexes.length) action.data.indexes = newIndexes
+        //             newActions.push(action)
+        //         })
+
+        //         // we then have to decrease the existing indexes to match the new items
+        //         newActions.forEach((action) => {
+        //             const indexes = action.data.indexes || []
+        //             if (!indexes.length) return
+
+        //             const newIndexes = indexes.map((i) => {
+        //                 let newIndex = i
+        //                 items.forEach((removedIndex) => {
+        //                     if (i > removedIndex) newIndex = newIndex - 1
+        //                 })
+        //                 return newIndex
+        //             })
+        //             action.data.indexes = newIndexes
+        //         })
+
+        //         timeline.actions = newActions
+        //         return a
+        //     })
+        // }
 
         history({
             id: "deleteItem",
             location: {
                 page: "edit",
                 show: get(activeShow)!,
-                items: get(activeEdit).items,
+                items,
                 layout,
                 slide: slideId
             }
@@ -1133,6 +1182,8 @@ const deleteActions = {
         if (!data.id || !activeItems.length) return
 
         stageShows.update((a) => {
+            if (!a[data.id]) return a
+
             activeItems.forEach((itemId) => {
                 delete a[data.id].items[itemId]
             })
@@ -1196,6 +1247,7 @@ const duplicateActions = {
         const stageId: string = data.id || ""
         const selectedItemIds: string[] = data.items || []
         const stage = clone(get(stageShows)[stageId])
+        if (!stage?.items) return
 
         selectedItemIds.forEach((itemId) => {
             const item = clone(stage.items[itemId])
@@ -1408,7 +1460,7 @@ function historyDelete(id, data, { updater } = { updater: "" }) {
             return a
 
             function getDeletedArray(key: string) {
-                let deletedIds = [...(a[key] || []), ...data.map((a) => a.id || a)]
+                let deletedIds = data.map((a) => a.id || a)
 
                 // only defaults
                 deletedIds = deletedIds.filter((id) => {
@@ -1419,7 +1471,7 @@ function historyDelete(id, data, { updater } = { updater: "" }) {
                 })
 
                 // remove any duplicates
-                deletedIds = [...new Set(deletedIds)]
+                deletedIds = [...(a[key] || []), ...new Set(deletedIds)]
 
                 return deletedIds
             }

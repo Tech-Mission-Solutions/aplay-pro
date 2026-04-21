@@ -6,14 +6,14 @@
     import { outputs, slidesOptions, styles, variables } from "../../stores"
     import { getItemText } from "../edit/scripts/textStyle"
     import { clone } from "../helpers/array"
-    import { getFirstActiveOutput, getOutputResolution, percentageStylePos } from "../helpers/output"
+    import { getFirstActiveOutput } from "../helpers/output"
     import { replaceDynamicValues } from "../helpers/showActions"
     import { getStyles } from "../helpers/style"
     import { applyStyleOverrides } from "./wordOverride"
 
     export let item: Item
     export let slideIndex = 0
-    export let isMirrorItem = false
+    // export let isMirrorItem = false
     export let key = false
     export let smallFontSize = false
     export let animationStyle: any = {}
@@ -21,6 +21,7 @@
     export let isStage = false
     export let customFontSize: number | null = null
     export let outputStyle: Styles | null = null
+    // export let outputId = ""
     export let ref: {
         type?: "show" | "stage" | "overlay" | "template"
         showId?: string
@@ -44,6 +45,7 @@
     export let styleOverrides: TemplateStyleOverride[] = []
     export let hideContent = false
     export let normalWrap = false
+    export let updateDynamicValues = true
 
     $: lines = createVirtualBreaks(clone(item?.lines || []), outputStyle?.skipVirtualBreaks)
     $: if (linesStart !== null && linesEnd !== null && lines.length) {
@@ -62,13 +64,13 @@
     let renderedLines: any[] = []
     $: renderedLines = styleOverrides?.length ? applyStyleOverrides(lines, styleOverrides) : lines
 
-    function getCustomStyle(style: string, outputId = "", _updater: any = null) {
+    function getCustomStyle(style: string) {
         if (!style) return ""
 
-        if (outputId && !isMirrorItem) {
-            let outputResolution = getOutputResolution(outputId, $outputs, true)
-            style = percentageStylePos(style, outputResolution)
-        }
+        // if (outputId && !isMirrorItem) {
+        //     const outputResolution = getOutputResolution(outputId, $outputs, true)
+        //     style = percentageStylePos(style, outputResolution)
+        // }
 
         // text gradient
 
@@ -95,6 +97,15 @@
 
         return style + alphaStyles
     }
+
+    //CONTINUOUS SCROLLING
+    let contentWidth = 0
+    let alignWidth = 0
+    let contentHeight = 0
+    let alignHeight = 0
+
+    $: copyCountHorizontal = contentWidth > 0 ? Math.ceil(alignWidth / (contentWidth + (item?.scrolling?.gap ?? 0))) + 2 : 2
+    $: copyCountVertical = contentHeight > 0 ? Math.ceil(alignHeight / (contentHeight + (item?.scrolling?.gap ?? 0))) + 2 : 2
 
     function getColor(style: string | undefined) {
         if (!isStage || !useOriginalTextColor || !style) return ""
@@ -134,21 +145,22 @@
 
     // FONT SIZE
 
-    let cssFontSize = 0
-    function getCustomFontSize(style: string, outputStyle: Styles | null) {
-        const fontSize = Number(getStyles(style, true)["font-size"] || 100)
-        cssFontSize = fontSize
+    function resolveFontSize(style: string, outputStyle: Styles | null) {
+        const baseFontSize = Number(getStyles(style, true)["font-size"] || 100) || 100
 
-        // get first output style
-        if (!outputStyle) {
+        let resolvedOutputStyle = outputStyle
+        if (!resolvedOutputStyle) {
             const currentOutput = getFirstActiveOutput()
-            outputStyle = $styles[currentOutput?.style || ""] || null
+            resolvedOutputStyle = $styles[currentOutput?.style || ""] || null
         }
-        if (!outputStyle) return ""
+        if (!resolvedOutputStyle) return baseFontSize
 
-        const customFontSizeRatio = (outputStyle.aspectRatio?.fontSizeRatio ?? 100) / 100
-        cssFontSize = fontSize * customFontSizeRatio
-        return `font-size: ${fontSize * customFontSizeRatio}px;`
+        const customFontSizeRatio = (resolvedOutputStyle.aspectRatio?.fontSizeRatio ?? 100) / 100
+        return baseFontSize * customFontSizeRatio
+    }
+
+    function getCustomFontSize(style: string, outputStyle: Styles | null) {
+        return `;font-size: ${resolveFontSize(style, outputStyle)}px;`
     }
 
     // CHORDS
@@ -186,7 +198,7 @@
             })
 
             chords.forEach((chord, i) => {
-                html += `<span class="chord end" style="transform: translate(${80 * (i + 1)}px, calc(${isStage ? "-55% - 2px" : "-12px"} - var(--offsetY)));">${chord.key}</span>`
+                html += `<span class="chord end" style="transform: translate(calc(${80 * (i + 1)}px - 50%), calc(${isStage ? "-55% - 2px" : "-12px"} - var(--offsetY)));">${chord.key}</span>`
             })
 
             if (!html) return
@@ -196,7 +208,12 @@
 
     // list-style${item.list?.style?.includes("disclosure") ? "-type:" : ": inside"} ${item.list?.style || "disc"};
     // font-size: inherit;
-    $: listStyle = item?.list?.enabled ? `;font-size: ${fontSize || cssFontSize || 100}px;display: list-item;list-style: inside ${item.list?.style || "disc"};` : ""
+    $: defaultResolvedFontSize = (() => {
+        const firstTextStyle = item?.lines?.[0]?.text?.[0]?.style
+        if (!firstTextStyle) return 100
+        return resolveFontSize(firstTextStyle, outputStyle)
+    })()
+    $: listStyle = item?.list?.enabled ? `;font-size: ${fontSize || defaultResolvedFontSize || 100}px;display: list-item;list-style: inside ${item.list?.style || "disc"};` : ""
 
     const dispatch = createEventDispatcher()
     const previousValue: { [key: string]: string } = {}
@@ -238,7 +255,7 @@
     $: if ($variables) setTimeout(update)
     $: if ($outputs) setTimeout(update, isStage ? 250 : 0) // time with auto size
     function update() {
-        if (!hasDynamicValues || !hasMounted) return
+        if (!hasDynamicValues || !hasMounted || !updateDynamicValues) return
         updateDynamic++
     }
 
@@ -251,55 +268,96 @@
     })
 
     $: chordFontSize = chordLines.length ? stageItem?.chords?.size || stageItem?.chordsData?.size || item?.chords?.size || 50 : 0
-    $: chordsStyle = `--chord-size: ${chordLines.length ? (fontSize || cssFontSize) * (chordFontSize / 100) : "undefined"}px;--chord-color: ${stageItem?.chords?.color || stageItem?.chordsData?.color || item?.chords?.color || "#FF851B"};`
+    $: chordsStyle = `--chord-size: ${chordLines.length ? (fontSize || defaultResolvedFontSize || 100) * (chordFontSize / 100) : "undefined"}px;--chord-color: ${stageItem?.chords?.color || stageItem?.chordsData?.color || item?.chords?.color || "#FF851B"};`
 
     // $: isScripture = ref?.id === "scripture" || ref?.showId === "temp" || $showsCache[ref.showId || ""]?.reference?.type === "scripture"
+
+    $: baseFontSize = fontSize || (style ? resolveFontSize(renderedLines[0]?.text[0]?.style, outputStyle) : 100)
 </script>
 
-<div
-    class="align"
-    class:hidden={hideContent}
-    class:isStage
-    class:scrolling={!isStage && item?.scrolling?.type}
-    class:topBottomScrolling={!isStage && item?.scrolling?.type === "top_bottom"}
-    class:bottomTopScrolling={!isStage && item?.scrolling?.type === "bottom_top"}
-    class:leftRightScrolling={!isStage && item?.scrolling?.type === "left_right"}
-    class:rightLeftScrolling={!isStage && item?.scrolling?.type === "right_left"}
-    style="--scrollSpeed: {item?.scrolling?.speed ?? 30}s;{style ? item?.align : null}"
->
-    <div class="lines" style="{style ? lineStyleBox : ''}{smallFontSize || customFontSize !== null ? '--font-size: ' + (smallFontSize ? (-1.1 * $slidesOptions.columns + 10) * 5 : customFontSize) + 'px;' : ''}{textAnimation}{chordsStyle}">
-        {#each renderedLines as line, i}
-            {#if (linesStart === null || linesEnd === null || (i >= linesStart && i < linesEnd)) && (!maxLines || (maxLinesInvert ? i > lines.length - maxLines - 1 : i < maxLines))}
-                {#if chords && chordLines[i]}
-                    <div class:first={i === 0} class="break chords" class:stageChords={!!stageItem} style="--offsetY: {(stageItem?.chords ? stageItem.chords.offsetY : item?.chords?.offsetY) || 0}px;{style ? line.align : ''}">
-                        {@html chordLines[i]}
+<div class="align" class:hidden={hideContent} class:isStage class:scrolling={!isStage && item?.scrolling?.type} style="--scrollSpeed: {(item?.scrolling?.speed ?? 30) * 1.5}s;{style ? item?.align : null};" bind:clientWidth={alignWidth} bind:clientHeight={alignHeight}>
+    <!-- scrolling lines -->
+    {#if !isStage && item?.scrolling?.type && item?.scrolling?.type !== "none"}
+        <div class="scrollWrapper" style="--copyCountHorizontal: {copyCountHorizontal}; --copyCountVertical: {copyCountVertical};" class:topBottomContinuousScrolling={!isStage && item?.scrolling?.type === "top_bottom"} class:bottomTopContinuousScrolling={!isStage && item?.scrolling?.type === "bottom_top"} class:leftRightContinuousScrolling={!isStage && item?.scrolling?.type === "left_right"} class:rightLeftContinuousScrolling={!isStage && item?.scrolling?.type === "right_left"}>
+            {#each Array.from({ length: item?.scrolling?.type === "top_bottom" || item?.scrolling?.type === "bottom_top" ? copyCountVertical : copyCountHorizontal }) as _}
+                <div class="scrollContent" style="{item?.scrolling?.type === 'top_bottom' || item?.scrolling?.type === 'bottom_top' ? 'margin-bottom' : 'margin-right'}: {item?.scrolling?.gap ?? 100}px;" bind:clientHeight={contentHeight} bind:clientWidth={contentWidth}>
+                    <!-- WIP duplicate of "lines" down below -->
+                    <div class="lines" style="{style ? lineStyleBox : ''}{smallFontSize || customFontSize !== null ? '--font-size: ' + (smallFontSize ? (-1.1 * $slidesOptions.columns + 10) * 5 : customFontSize) + 'px;' : ''}{textAnimation}{chordsStyle}">
+                        {#each renderedLines as line, i}
+                            <!-- set div height if chords, not last line, and no text content -->
+                            {@const height = chords && chordLines[i] && i < renderedLines.length - 1 && !line.text?.reduce((value, t) => (value += t.value || ""), "")?.trim()?.length ? 80 : 0}
+
+                            {#if (linesStart === null || linesEnd === null || (i >= linesStart && i < linesEnd)) && (!maxLines || (maxLinesInvert ? i > lines.length - maxLines - 1 : i < maxLines))}
+                                {#if chords && chordLines[i]}
+                                    <div class:first={i === 0} class="break chords" class:stageChords={!!stageItem} style="--offsetY: {(stageItem?.chords ? stageItem.chords.offsetY : item?.chords?.offsetY) || 0}px;{style ? line.align : ''}">
+                                        {@html chordLines[i]}
+                                    </div>
+                                {/if}
+
+                                <!-- class:height={!line.text[0]?.value.length} -->
+                                <div
+                                    class="break"
+                                    class:normalWrap={normalWrap || (isStage ? typeof stageItem?.style === "string" && (stageItem?.style.includes("justify") || stageItem?.style.includes("nowrap")) : line.align?.includes("justify") || line.align?.includes("left") || JSON.stringify(line).includes("nowrap"))}
+                                    class:reveal={(centerPreview || isStage) && item?.lineReveal && revealed < i}
+                                    class:smallFontSize={smallFontSize || customFontSize || textAnimation.includes("font-size")}
+                                    style="{style ? lineStyle : ''}{style ? line.align : ''}{height ? `height: ${height}px;` : ''}{item?.list?.enabled && line.text?.reduce((value, t) => (value += t.value || ''), '')?.length ? listStyle : ''}{item?.list?.enabled ? `color: ${getStyles(line.text[0]?.style).color || ''};` : ''}"
+                                >
+                                    {#if line.text?.length === 0}
+                                        <span class="textContainer"><br /></span>
+                                    {:else}
+                                        {#each line.text || [] as text, ti}
+                                            {@const value = text.value?.replaceAll("\n", "<br>") || "<br>"}
+                                            {@const fontRatio = text.customType?.includes("disableTemplate") && !text.customType?.includes("jw") ? customTypeRatio : 1}
+
+                                            <!-- NOTE: must be on the same line for rendering ...>{@html -->
+                                            <span class="textContainer" style="{style ? getCustomStyle(text.style) : ''}{getColor(text.style)}{customStyle}{text.customType?.includes('disableTemplate') ? text.style : ''}{fontSize ? `;font-size: ${fontSize * fontRatio}px;` : style ? getCustomFontSize(text.style, outputStyle) : ''};--base-font-size: {baseFontSize}px;">{@html getTextValue(value, i, ti, updateDynamic)}</span>
+                                        {/each}
+                                    {/if}
+                                </div>
+                            {/if}
+                        {/each}
+                    </div>
+                </div>
+            {/each}
+        </div>
+    {:else}
+        <!-- non scrolling lines -->
+        <div class="lines" style="{style ? lineStyleBox : ''}{smallFontSize || customFontSize !== null ? '--font-size: ' + (smallFontSize ? (-1.1 * $slidesOptions.columns + 10) * 5 : customFontSize) + 'px;' : ''}{textAnimation}{chordsStyle}">
+            {#each renderedLines as line, i}
+                <!-- set div height if chords, not last line, and no text content -->
+                {@const height = chords && chordLines[i] && i < renderedLines.length - 1 && !line.text?.reduce((value, t) => (value += t.value || ""), "")?.trim()?.length ? 80 : 0}
+
+                {#if (linesStart === null || linesEnd === null || (i >= linesStart && i < linesEnd)) && (!maxLines || (maxLinesInvert ? i > lines.length - maxLines - 1 : i < maxLines))}
+                    {#if chords && chordLines[i]}
+                        <div class:first={i === 0} class="break chords" class:stageChords={!!stageItem} style="--offsetY: {(stageItem?.chords ? stageItem.chords.offsetY : item?.chords?.offsetY) || 0}px;{style ? line.align : ''}">
+                            {@html chordLines[i]}
+                        </div>
+                    {/if}
+
+                    <!-- class:height={!line.text[0]?.value.length} -->
+                    <div
+                        class="break"
+                        class:normalWrap={normalWrap || (isStage ? typeof stageItem?.style === "string" && (stageItem?.style.includes("justify") || stageItem?.style.includes("nowrap")) : line.align?.includes("justify") || line.align?.includes("left") || JSON.stringify(line).includes("nowrap"))}
+                        class:reveal={(centerPreview || isStage) && item?.lineReveal && revealed < i}
+                        class:smallFontSize={smallFontSize || customFontSize || textAnimation.includes("font-size")}
+                        style="{style ? lineStyle : ''}{style ? line.align : ''}{height ? `height: ${height}px;` : ''}{item?.list?.enabled && line.text?.reduce((value, t) => (value += t.value || ''), '')?.length ? listStyle : ''}{item?.list?.enabled ? `color: ${getStyles(line.text[0]?.style).color || ''};` : ''}"
+                    >
+                        {#if line.text?.length === 0}
+                            <span class="textContainer"><br /></span>
+                        {:else}
+                            {#each line.text || [] as text, ti}
+                                {@const value = text.value?.replaceAll("\n", "<br>") || "<br>"}
+                                {@const fontRatio = text.customType?.includes("disableTemplate") && !text.customType?.includes("jw") ? customTypeRatio : 1}
+
+                                <!-- NOTE: must be on the same line for rendering ...>{@html -->
+                                <span class="textContainer" style="{style ? getCustomStyle(text.style) : ''}{getColor(text.style)}{customStyle}{text.customType?.includes('disableTemplate') ? text.style : ''}{fontSize ? `;font-size: ${fontSize * fontRatio}px;` : style ? getCustomFontSize(text.style, outputStyle) : ''};--base-font-size: {baseFontSize}px;">{@html getTextValue(value, i, ti, updateDynamic)}</span>
+                            {/each}
+                        {/if}
                     </div>
                 {/if}
-
-                <!-- class:height={!line.text[0]?.value.length} -->
-                <div
-                    class="break"
-                    class:normalWrap={normalWrap || (isStage ? stageItem.style.includes("justify") || stageItem.style.includes("nowrap") : line.align?.includes("justify") || line.align?.includes("left") || JSON.stringify(line).includes("nowrap"))}
-                    class:reveal={(centerPreview || isStage) && item?.lineReveal && revealed < i}
-                    class:smallFontSize={smallFontSize || customFontSize || textAnimation.includes("font-size")}
-                    style="{style ? lineStyle : ''}{style ? line.align : ''}{item?.list?.enabled && line.text?.reduce((value, t) => (value += t.value || ''), '')?.length ? listStyle : ''}{item?.list?.enabled ? `color: ${getStyles(line.text[0]?.style).color || ''};` : ''}"
-                >
-                    {#if line.text?.length === 0}
-                        <span class="textContainer"><br /></span>
-                    {:else}
-                        {#each line.text || [] as text, ti}
-                            {@const value = text.value?.replaceAll("\n", "<br>") || "<br>"}
-                            {@const fontRatio = text.customType?.includes("disableTemplate") && !text.customType?.includes("jw") ? customTypeRatio : 1}
-
-                            <span class="textContainer" style="{style ? getCustomStyle(text.style) : ''}{getColor(text.style)}{customStyle}{text.customType?.includes('disableTemplate') ? text.style : ''}{fontSize ? `;font-size: ${fontSize * fontRatio}px;` : style ? getCustomFontSize(text.style, outputStyle) : ''}">
-                                {@html getTextValue(value, i, ti, updateDynamic)}
-                            </span>
-                        {/each}
-                    {/if}
-                </div>
-            {/if}
-        {/each}
-    </div>
+            {/each}
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -312,6 +370,7 @@
         display: flex;
         text-align: center;
         align-items: center;
+        justify-content: center;
     }
 
     .align.hidden {
@@ -398,57 +457,12 @@
         /* scroll will always show overflowing text */
         overflow: visible !important;
     }
-    .topBottomScrolling {
-        animation: topBottom var(--scrollSpeed) linear infinite normal;
-    }
-    .bottomTopScrolling {
-        animation: bottomTop var(--scrollSpeed) linear infinite normal;
-    }
-    .leftRightScrolling {
-        animation: leftRight var(--scrollSpeed) linear infinite normal;
-    }
-    .rightLeftScrolling {
-        animation: rightLeft var(--scrollSpeed) linear infinite normal;
-    }
-
-    @keyframes topBottom {
-        from {
-            transform: translateY(-100%);
-        }
-        to {
-            transform: translateY(100%);
-        }
-    }
-    @keyframes bottomTop {
-        from {
-            transform: translateY(100%);
-        }
-        to {
-            transform: translateY(-100%);
-        }
-    }
-    @keyframes leftRight {
-        from {
-            transform: translateX(-100%);
-        }
-        to {
-            transform: translateX(100%);
-        }
-    }
-    @keyframes rightLeft {
-        from {
-            transform: translateX(100%);
-        }
-        to {
-            transform: translateX(-100%);
-        }
-    }
 
     /* chords */
     .break.chords :global(.invisible) {
         opacity: 0;
         line-height: 1.1em;
-        font-size: 100px;
+        font-size: var(--font-size);
     }
     .break.chords :global(.chord) {
         position: absolute;
@@ -485,5 +499,76 @@
 
     .lines {
         line-height: calc(var(--chord-size) * 1.2 + 4px) !important;
+    }
+
+    .scrollWrapper {
+        display: flex;
+        flex-wrap: nowrap;
+    }
+    .scrollContent {
+        flex-shrink: 0;
+    }
+    .topBottomContinuousScrolling {
+        animation: topBottomContinuous calc(var(--scrollSpeed) / var(--copyCountVertical)) linear infinite normal;
+        flex-direction: column;
+        height: max-content;
+    }
+    .bottomTopContinuousScrolling {
+        animation: bottomTopContinuous calc(var(--scrollSpeed) / var(--copyCountVertical)) linear infinite normal;
+        flex-direction: column;
+        height: max-content;
+    }
+    .leftRightContinuousScrolling {
+        animation: leftRightContinuous calc(var(--scrollSpeed) / var(--copyCountHorizontal)) linear infinite normal;
+        flex-direction: row;
+        width: max-content;
+    }
+    .rightLeftContinuousScrolling {
+        animation: rightLeftContinuous calc(var(--scrollSpeed) / var(--copyCountHorizontal)) linear infinite normal;
+        flex-direction: row;
+        width: max-content;
+    }
+
+    .leftRightContinuousScrolling .break,
+    .rightLeftContinuousScrolling .break {
+        white-space: nowrap;
+        width: auto;
+        text-wrap: none;
+    }
+
+    @keyframes rightLeftContinuous {
+        from {
+            transform: translateX(0);
+        }
+        to {
+            transform: translateX(calc(-100% / var(--copyCountHorizontal)));
+        }
+    }
+
+    @keyframes leftRightContinuous {
+        from {
+            transform: translateX(calc(-100% / var(--copyCountHorizontal)));
+        }
+        to {
+            transform: translateX(0);
+        }
+    }
+
+    @keyframes bottomTopContinuous {
+        from {
+            transform: translateY(0);
+        }
+        to {
+            transform: translateY(calc(-100% / var(--copyCountVertical)));
+        }
+    }
+
+    @keyframes topBottomContinuous {
+        from {
+            transform: translateY(calc(-100% / var(--copyCountVertical)));
+        }
+        to {
+            transform: translateY(0);
+        }
     }
 </style>

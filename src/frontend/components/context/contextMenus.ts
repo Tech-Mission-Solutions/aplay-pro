@@ -56,6 +56,9 @@ export const contextMenuItems: { [key: string]: ContextMenuItem } = {
     manage_media_tags: { label: "popup.manage_tags", icon: "edit", iconColor: "#97c7ff" },
     media_tag_set: { label: "context.setTag", icon: "tag", iconColor: "#979aff", items: ["LOAD_media_tag_set"] },
     media_tag_filter: { label: "context.filterByTags", icon: "tag", iconColor: "#979aff", items: ["LOAD_media_tag_filter"] },
+    manage_player_tags: { label: "popup.manage_tags", icon: "edit", iconColor: "#97c7ff" },
+    player_tag_set: { label: "context.setTag", icon: "tag", iconColor: "#979aff", items: ["LOAD_player_tag_set"] },
+    player_tag_filter: { label: "context.filterByTags", icon: "tag", iconColor: "#979aff", items: ["LOAD_player_tag_filter"] },
     manage_action_tags: { label: "popup.manage_tags", icon: "edit", iconColor: "#97c7ff" },
     action_tag_set: { label: "context.setTag", icon: "tag", iconColor: "#979aff", items: ["LOAD_action_tag_set"] },
     action_tag_filter: { label: "context.filterByTags", icon: "tag", iconColor: "#979aff", items: ["LOAD_action_tag_filter"] },
@@ -125,7 +128,8 @@ export const contextMenuItems: { [key: string]: ContextMenuItem } = {
     slide_transition: { label: "popup.transition", icon: "transition", iconColor: "#ffd5bb" },
     disable: { label: "actions.disable", icon: "disable", iconColor: "#ff5454" },
     edit: { label: "menu.edit", icon: "edit", iconColor: "#97c7ff" },
-    edit_style: { label: "edit.style", icon: "styles", iconColor: "#97c7ff" },
+    change_style: { label: "edit.style", icon: "styles", iconColor: "#97c7ff" },
+    edit_style: { label: "menu.edit", icon: "edit", iconColor: "#97c7ff" },
     recolor: { label: "actions.recolor", icon: "color", iconColor: "#6effbe" },
     actions: { label: "actions.slide_actions", icon: "actions", iconColor: "#d497ff", items: ["LOAD_actions"] },
     bind_to: { label: "actions.bind_to", icon: "bind", iconColor: "#d497ff", items: ["LOAD_bind_slide"] },
@@ -184,6 +188,8 @@ export const contextMenuItems: { [key: string]: ContextMenuItem } = {
     overlay_actions: { label: "tabs.actions", icon: "actions", iconColor: "#d497ff" },
     // TEMPLATES
     template_actions: { label: "tabs.actions", icon: "actions", iconColor: "#d497ff" },
+    // SCRIPTUES
+    route_bible: { label: "main.open: route.bible", icon: "launch" },
     // STAGE
     move_connections: { label: "context.move_connections", icon: "up" },
     // SETTINGS
@@ -229,7 +235,7 @@ export const contextMenuLayouts: { [key: string]: string[] } = {
     output: ["force_output", "SEPARATOR", "align_with_screen", "choose_screen"], // , "SEPARATOR", "edit"
 
     // OUTPUTS
-    output_preview: ["GROUP_edit", "edit_style", "SEPARATOR", "live_prepare", "SEPARATOR", "test_pattern"],
+    output_preview: ["GROUP_edit", "change_style", "edit_style", "SEPARATOR", "live_prepare", "SEPARATOR", "test_pattern"],
     output_active_button: ["GROUP_edit", "toggle_output", "move_to_front", "SEPARATOR", "hide_from_preview"],
 
     // DRAWER
@@ -282,7 +288,8 @@ export const contextMenuLayouts: { [key: string]: string[] } = {
     template_card_readonly: [],
     effect_card: ["GROUP_edit", "display_duration", "SEPARATOR", "place_under_slide", "SEPARATOR", "rename", "recolor", "duplicate", "delete"], // "GROUP_rename_color"
     effect_card_default: ["GROUP_edit", "duplicate", "delete"],
-    player_button: ["GROUP_open", "rename", "delete"],
+    player: ["manage_player_tags", "player_tag_filter"],
+    player_button: ["GROUP_open", "player_tag_set", "player_tag_filter", "SEPARATOR", "rename", "delete"],
     audio_button: ["GROUP_open", "effects_library_add", "favourite", "SEPARATOR", "system_open"],
     audio_effect_button: ["GROUP_rename_only", "remove", "SEPARATOR", "system_open"],
     audio_button_playlist: ["GROUP_open", "remove"],
@@ -294,7 +301,7 @@ export const contextMenuLayouts: { [key: string]: string[] } = {
     actions_readonly: ["action_tag_filter"],
     action: ["GROUP_edit", "disable", "action_tag_set", "action_tag_filter", "SEPARATOR", "duplicate", "delete"], // GROUP_duplicate_delete
     action_readonly: ["action_tag_filter"],
-    scripture_verse: ["create_show", "SEPARATOR", "selectAll"],
+    scripture_verse: ["create_show", "SEPARATOR", "selectAll", "SEPARATOR", "route_bible"],
     scripture_chapter: ["create_show"],
 
     // PROJECT

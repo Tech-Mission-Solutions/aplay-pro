@@ -651,6 +651,40 @@ export function splitItemInTwo(slideRef: LayoutRef, itemIndex: number, sel: { st
     slides[slideId] = newSlide
     slides[slideRef.id].items[itemIndex].lines = firstLines
 
+    // update scripture dynamic values
+    let numbersAdded: string[] = []
+    if (slides[slideRef.id].customDynamicValues?.scripture_text) {
+        const texts = firstLines
+            .flat()[0]
+            ?.text.filter((a) => !a.customType)
+            .map((a) => a.value)
+        texts.forEach((t, i) => {
+            if (!slides[slideRef.id].customDynamicValues.scripture_text[i]) return
+
+            numbersAdded.push(slides[slideRef.id].customDynamicValues.scripture_text[i][0])
+            slides[slideRef.id].customDynamicValues.scripture_text[i][1] = t
+            slides[slideRef.id].customDynamicValues.scripture1_text[i][1] = t
+        })
+    }
+    if (slides[slideId].customDynamicValues?.scripture_text) {
+        const texts = secondLines
+            .flat()[0]
+            ?.text.filter((a) => !a.customType)
+            .map((a) => a.value)
+        texts.forEach((t, i) => {
+            if (!slides[slideId].customDynamicValues.scripture_text[i]) return
+
+            slides[slideId].customDynamicValues.scripture_text[i][1] = t
+            slides[slideId].customDynamicValues.scripture1_text[i][1] = t
+
+            let removeNumber = numbersAdded.find((a) => a === slides[slideId].customDynamicValues.scripture_text[i][0])
+            if (removeNumber) {
+                slides[slideId].customDynamicValues.scripture_text[i][0] = "0"
+                slides[slideId].customDynamicValues.scripture1_text[i][0] = "0"
+            }
+        })
+    }
+
     // set child
     const parentId = slideRef.type === "child" ? slideRef.parent!.id : slideRef.id
     let children = _show().slides([parentId]).get("children")[0] || []
@@ -802,7 +836,7 @@ export function mergeSlides(indexes: { index: number }[]) {
     // delete slides
     allMergedSlideIds.forEach((id) => {
         // only delete if no children or they are selected!
-        const children = newShow.slides[id].children || []
+        const children = newShow.slides[id]?.children || []
         // return if at least one children is not selected
         if (children.find((childId) => !allMergedSlideIds.includes(childId))) {
             if (id === firstSlideId) {

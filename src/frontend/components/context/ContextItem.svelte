@@ -63,7 +63,7 @@
             if ($selected.id !== "show_drawer" || !$shows[$selected.data[0]?.id]?.locked) return
             disabled = !!$shows[$selected.data[0].id].locked
         },
-        edit_style: () => {
+        change_style: () => {
             let outputId = contextElem?.id || ""
             const styleId = $outputs[outputId]?.style || ""
             const stageId = $outputs[outputId]?.stageOutput || ""
@@ -78,6 +78,22 @@
 
             menu.label = "edit.style"
             menu.icon = "styles"
+            if (!$styles[styleId]) disabled = true
+            menu.label += `: ${styleId ? $styles[styleId]?.name || "error.not_found" : "main.none"}`
+        },
+        edit_style: () => {
+            let outputId = contextElem?.id || ""
+            const styleId = $outputs[outputId]?.style || ""
+            const stageId = $outputs[outputId]?.stageOutput || ""
+
+            if (stageId) {
+                menu.label = "menu.edit"
+                if (!$stageShows[stageId]) disabled = true
+                menu.label += `: ${stageId ? $stageShows[stageId]?.name || "error.not_found" : "main.none"}`
+                return
+            }
+
+            menu.label = "menu.edit"
             if (!$styles[styleId]) disabled = true
             menu.label += `: ${styleId ? $styles[styleId]?.name || "error.not_found" : "main.none"}`
         },
@@ -353,7 +369,7 @@
         // don't hide context menu
         const keepOpen = ["uppercase", "lowercase", "capitalize", "trim"] // "dynamic_values" (caret position is lost)
         if (keepOpen.includes(id)) return
-        const keepOpenToggle = ["enabled_drawer_tabs", "tag_set", "tag_filter", "media_tag_set", "media_tag_filter", "action_tag_set", "action_tag_filter", "variable_tag_set", "variable_tag_filter", "bind_slide", "bind_item"]
+        const keepOpenToggle = ["enabled_drawer_tabs", "tag_set", "tag_filter", "media_tag_set", "media_tag_filter", "player_tag_set", "player_tag_filter", "action_tag_set", "action_tag_filter", "variable_tag_set", "variable_tag_filter", "bind_slide", "bind_item"]
         if (keepOpenToggle.includes(id)) {
             enabled = !enabled
             return

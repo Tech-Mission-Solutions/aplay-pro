@@ -6,6 +6,7 @@ import { AudioPlaylist } from "../../audio/audioPlaylist"
 import { markItemsAsPlayed } from "../../converters/project"
 import { convertText } from "../../converters/txt"
 import { sendMain } from "../../IPC/main"
+import { slideTimelineSpeedMultiplier } from "../../stores"
 import { transposeText } from "../../utils/chordTranspose"
 import { triggerFunction } from "../../utils/common"
 import { togglePlayingMedia } from "../../utils/shortcuts"
@@ -14,7 +15,7 @@ import { updateTransition } from "../../utils/transitions"
 import { startMetronome } from "../drawer/audio/metronome"
 import { pauseAllTimers } from "../drawer/timers/timers"
 import { getSlideThumbnail, getThumbnail } from "../helpers/media"
-import { changeStageOutputLayout, startCamera, startScreen, toggleOutput, toggleOutputs } from "../helpers/output"
+import { changeStageOutputLayout, startCamera, startScreen, toggleOutputs } from "../helpers/output"
 import { activateTriggerSync, changeOutputStyle, nextSlideIndividual, playSlideTimers, previousSlideIndividual, randomSlide, replaceDynamicValues, selectProjectShow, sendMidi, startShowSync } from "../helpers/showActions"
 import { startTimerById, startTimerByName, stopTimers } from "../helpers/timerTick"
 import { muteOutput, unmuteOutput } from "../helpers/video"
@@ -64,6 +65,7 @@ import {
     setShowAPI,
     setTemplate,
     startPlaylistByName,
+    startProjectItemByName,
     startScripture,
     stopAudio,
     stopTimerById,
@@ -199,6 +201,7 @@ export const API_ACTIONS = {
     next_project_item: () => selectProjectShow("next"), // BC
     previous_project_item: () => selectProjectShow("previous"), // BC
     index_select_project_item: (data: API_index) => selectProjectShow(data.index), // BC
+    name_start_project_item: (data: API_strval) => startProjectItemByName(data.value),
     mark_active_as_played: (data: API_toggle_specific) => markItemsAsPlayed("active", data.value),
 
     // SHOWS
@@ -211,6 +214,7 @@ export const API_ACTIONS = {
     add_group: (data: API_group) => addGroup(data),
     set_template: (data: API_id) => setTemplate(data.id),
     set_next_slide_timer: (data: API_numval) => setNextSlideTimer(data.value),
+    change_slide_timeline_speed: (data: API_numval) => slideTimelineSpeedMultiplier.set(data.value ?? 1),
     transpose_show_up: (data: API_id) => formatText(transposeText(getPlainEditorText(data.id), 1), data.id),
     transpose_show_down: (data: API_id) => formatText(transposeText(getPlainEditorText(data.id), -1), data.id),
 
@@ -257,8 +261,8 @@ export const API_ACTIONS = {
 
     // OUTPUT
     lock_output: (data: API_output_lock) => toggleLock(data), // BC
-    toggle_output_windows: () => toggleOutputs(), // BC
-    toggle_output: (data: API_id) => toggleOutput(data.id),
+    toggle_output_windows: (data: API_toggle_specific = {}) => toggleOutputs(null, { state: data.value }), // BC
+    toggle_output: (data: API_toggle) => toggleOutputs([data.id], { state: data.value }),
     id_select_output_style: (data: API_id) => changeOutputStyle({ styleId: data.id }), // BC
     change_output_style: (data: API_output_style) => changeOutputStyle(data),
     change_stage_output_layout: (data: API_stage_output_layout) => changeStageOutputLayout(data),

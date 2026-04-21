@@ -107,6 +107,7 @@ export async function syncWithCloud(initialize: boolean = false, isClosing: bool
 
     const timeout = 5 * 60 * 1000 // 5 minutes
     const status = await requestMain(Main.CLOUD_SYNC, { id: data.id as any, churchId: data.team.churchId, teamId: data.team.id, method }, () => {}, timeout)
+    if (!status) return
 
     isSyncing = false
 
@@ -154,12 +155,13 @@ export async function syncWithCloud(initialize: boolean = false, isClosing: bool
 
 // copy media files to one media sync folder for easy syncing
 export function addToMediaFolder(filePath: string) {
+    if (get(cloudSyncData).enabled === false || !get(cloudSyncData).id || !get(special).cloudSyncMediaFolder) return
+
     // ensure it's a valid local file path
     if (!isLocalFile(filePath)) return
     if (filePath.includes("freeshow-cache") || filePath.includes("media-cache")) return
     if (!isMainWindow()) return
 
-    if (!get(special).cloudSyncMediaFolder) return
     sendMain(Main.MEDIA_FOLDER_COPY, { paths: [filePath] })
 }
 

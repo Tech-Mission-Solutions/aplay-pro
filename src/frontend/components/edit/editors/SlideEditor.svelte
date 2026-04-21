@@ -2,7 +2,7 @@
     import { onMount } from "svelte"
     import type { MediaStyle } from "../../../../types/Main"
     import type { ItemType } from "../../../../types/Show"
-    import { activeEdit, activePage, activePopup, activeShow, alertMessage, focusMode, groups, labelsDisabled, media, outputs, overlays, refreshEditSlide, showsCache, slideNotesActive, special, styles, templates, textEditActive } from "../../../stores"
+    import { activeEdit, activePopup, activeShow, alertMessage, focusMode, labelsDisabled, media, outputs, overlays, refreshEditSlide, resized, showsCache, slideNotesActive, special, styles, textEditActive } from "../../../stores"
     import { transposeText } from "../../../utils/chordTranspose"
     import { DEFAULT_WIDTH, triggerFunction } from "../../../utils/common"
     import { translateText } from "../../../utils/language"
@@ -30,6 +30,7 @@
     import DropArea from "../../system/DropArea.svelte"
     import Resizeable from "../../system/Resizeable.svelte"
     import Snaplines from "../../system/Snaplines.svelte"
+    import Timeline from "../../timeline/Timeline.svelte"
     import EditHeader from "../EditHeader.svelte"
     import Editbox from "../editbox/Editbox.svelte"
     import { getUsedChords } from "../scripts/chords"
@@ -62,8 +63,8 @@
     // get ghost background
     $: if (!bgId && !Slide?.settings?.backgroundImage) {
         ref?.forEach((a, i) => {
-            if (i <= $activeEdit.slide! && !a.data.disabled) {
-                if (slideHasAction(a.data?.actions, "clear_background")) bgId = null
+            if (a.data && i <= $activeEdit.slide! && !a.data.disabled) {
+                if (slideHasAction(a.data.actions, "clear_background")) bgId = null
                 else if (a.data.background) bgId = a.data.background
 
                 const mediaData = a.data.background ? currentShow?.media[a.data.background] : null
@@ -269,7 +270,7 @@
             if (Slide?.items.length === 1 && !$activeEdit.items.length) {
                 activeEdit.update((a) => ({ ...(a || {}), items: [0] }))
                 const elem = document.querySelector(".editItem")?.querySelector(".edit")
-                if (elem) {
+                if (elem && !$special.slideTimelineActive) {
                     elem.addEventListener("focus", () => setCaretAtEnd(elem))
                     ;(elem as HTMLElement).focus()
                 }
@@ -317,10 +318,6 @@
 
     $: hasTextContent = getSlideText(Slide)?.length
 
-    $: parentId = $activeEdit.slide !== null && ref?.[$activeEdit.slide!] ? ref[$activeEdit.slide!]?.parent?.id || ref[$activeEdit.slide!]?.id : ""
-    $: slideGroup = _show(currentShowId).slides([parentId]).get()?.[0]?.globalGroup || ""
-    $: template = Slide?.settings?.template || $groups[slideGroup]?.template || currentShow?.settings?.template || ""
-
     // BACKGROUND
 
     $: currentBackgroundPath = currentShow?.media?.[ref[$activeEdit.slide || 0]?.data.background || ""]?.path || ""
@@ -353,20 +350,6 @@
 
 {#if currentShow}
     <EditHeader showId={currentShowId} />
-{/if}
-
-{#if template && !chordsMode && !widthOrHeight.includes("height") && !$focusMode && !isLocked}
-    <div class="default" data-title={translateText(`info.template: <b>${$templates[template]?.name || "—"}</b>`)}>
-        <MaterialButton
-            style="border-radius: 50%;"
-            on:click={() => {
-                activeEdit.set({ type: "template", id: template, items: [] })
-                activePage.set("edit")
-            }}
-        >
-            <Icon id="templates" white />
-        </MaterialButton>
-    </div>
 {/if}
 
 <div class="editArea">
@@ -438,7 +421,7 @@
         </div>
     {/if}
 
-    {#if !$focusMode && !isLocked && !$slideNotesActive}
+    {#if !$focusMode && !isLocked && !$slideNotesActive && !$special.slideTimelineActive}
         <!-- && Slide?.items?.length -->
         {#if !chordsMode && !widthOrHeight.includes("height")}
             <FloatingInputs bottom={notesVisible ? bottomHeight : 10} side="center">
@@ -519,30 +502,19 @@
             </FloatingInputs>
         {/if}
     {/if}
+
+    {#if $special.slideTimelineActive}
+        <MaterialZoom hidden columns={zoom} min={0.2} max={4} defaultValue={1} addValue={0.1} on:change={updateZoom} />
+
+        <Resizeable id="slide_timeline" side="bottom" maxWidth={DEFAULT_WIDTH} minWidth={40}>
+            {#key currentShowId + "-" + $activeEdit.slide}
+                <Timeline type="slide" isClosed={$resized.slide_timeline <= 40} />
+            {/key}
+        </Resizeable>
+    {/if}
 </div>
 
 <style>
-    .default {
-        position: absolute;
-        top: 40px;
-        left: 10px;
-
-        width: 42px;
-        height: 42px;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        background-color: var(--primary-darkest);
-        border: 1px solid var(--primary-lighter);
-
-        padding: 10px;
-        border-radius: 50%;
-
-        z-index: 999;
-    }
-
     .editArea {
         width: 100%;
         height: calc(100% - 30px);
@@ -581,6 +553,10 @@
         padding: 10px !important;
         z-index: 3;
     } */
+
+    .dark :global(.paper) {
+        background-color: var(--primary-darkest);
+    }
 
     .notes {
         background-color: var(--primary-darkest);

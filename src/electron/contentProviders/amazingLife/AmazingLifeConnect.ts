@@ -106,7 +106,7 @@ export class AmazingLifeConnect {
 
             // Decode the payload (second part of JWT)
             const payload = JSON.parse(Buffer.from(tokenParts[1], "base64").toString("utf-8"))
-            console.log("payload---------------", payload)
+            //console.log("payload---------------", payload)
 
             if (!payload.exp) {
                 console.warn("No exp claim found in JWT token")
@@ -115,7 +115,7 @@ export class AmazingLifeConnect {
 
             // exp is in seconds, Date.now() is in milliseconds
             const isExpired = payload.exp * 1000 < Date.now()
-            console.log(`APlay: Token ${isExpired ? "expired" : "valid"} (exp: ${new Date(payload.exp * 1000).toISOString()})`)
+            //console.log(`APlay: Token ${isExpired ? "expired" : "valid"} (exp: ${new Date(payload.exp * 1000).toISOString()})`)
 
             return isExpired
         } catch (error) {
@@ -177,6 +177,6 @@ export class AmazingLifeConnect {
     }
 }
 
-function connectionInitialized(isFirstConnection: boolean = false): void {
+function connectionInitialized(isFirstConnection = false): void {
     sendToMain(ToMain.PROVIDER_CONNECT, { providerId: "amazinglife", success: true, isFirstConnection })
 }

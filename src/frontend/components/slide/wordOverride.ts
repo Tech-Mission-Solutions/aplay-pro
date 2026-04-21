@@ -1,4 +1,6 @@
+import { get } from "svelte/store"
 import type { TemplateStyleOverride } from "../../../types/Show"
+import { globalRegexes } from "../../stores"
 import { TemplateHelper } from "../../utils/templates"
 
 // split the rendered text so template rules can restyle matching chunks
@@ -23,7 +25,7 @@ export function applyStyleOverrides(baseLines: any[], overrides: TemplateStyleOv
 }
 
 function buildOverrideRegex(override: TemplateStyleOverride) {
-    const raw = (override.pattern || "").trim()
+    const raw = ((override.globalRegex ? get(globalRegexes)[override.globalRegex]?.value : override.pattern) || "").trim()
     if (!raw) return null
 
     if (raw.startsWith("/") && raw.lastIndexOf("/") > 0) {
@@ -99,18 +101,22 @@ function mergeOverrideStyles(baseStyle: string, override: TemplateStyleOverride)
 
     // IMPORTANT: Remove font-size from merged result since it will be set separately by fontSizePart
     // This prevents duplicate font-size declarations in the final style string
+    const fontSizePercentage = (parseInt(merged["font-size"]) || 100) / 100
     delete merged["font-size"]
 
     // Convert back to CSS string with !important for color and font-style to ensure they override
-    const result = Object.entries(merged)
-        .map(([key, value]) => {
-            // Add !important to style overrides that might be getting overridden
-            if (key === "color" || key === "font-style" || key === "font-weight") {
-                return `${key}:${value} !important`
-            }
-            return `${key}:${value}`
-        })
-        .join(";") + (Object.keys(merged).length ? ";" : "")
+    let result =
+        Object.entries(merged)
+            .map(([key, value]) => {
+                // Add !important to style overrides that might be getting overridden
+                if (key === "color" || key === "font-style" || key === "font-weight") {
+                    return `${key}:${value} !important`
+                }
+                return `${key}:${value}`
+            })
+            .join(";") + (Object.keys(merged).length ? ";" : "")
+
+    result += `font-size: calc(var(--base-font-size) * ${fontSizePercentage}) !important;`
 
     return result
 }

@@ -119,6 +119,8 @@
 
             listOffset = Math.max(0, ((activeProject.closest(".projectItem") as HTMLElement)?.offsetTop || 0) + listScrollElem.offsetTop - ($drawer.height < 400 ? 120 : 20))
         }, time)
+    } else {
+        listOffset = -1
     }
 
     function back() {
@@ -259,6 +261,14 @@
     let showProjectsOptions = false
     let showProjectDropdown = false
 
+    let isDragging = false
+    function dragStart() {
+        isDragging = true
+    }
+    function dragEnd() {
+        isDragging = false
+    }
+
     function mousedown(e: any) {
         if (!e.target.closest(".projectDropdown") && !e.target.closest(".header .right")) showProjectDropdown = false
         // if (!e.target.closest(".projectsOptions") && !e.target.closest(".header .right")) showProjectsOptions = false
@@ -300,13 +310,13 @@
     }
 </script>
 
-<svelte:window on:keydown={checkInput} on:mousedown={mousedown} />
+<svelte:window on:keydown={checkInput} on:mousedown={mousedown} on:dragenter={dragStart} on:dragstart={dragStart} on:dragend={dragEnd} on:drop={dragEnd} />
 
 <div class="main" class:focusMode={$focusMode}>
     <span class="tabs">
         {#if projectActive || recentlyUsedList.length}
             {#if !$focusMode}
-                <div class="header {recentlyUsedList.length ? '' : 'context #projectTab'}" class:shadow={listScrollY > 0} class:isScrollbarVisible data-title={translateText("remote.project: ") + `<b>${currentProject?.name || ""}</b>`}>
+                <div class="header {recentlyUsedList.length ? '' : 'context #projectTab'}" class:shadow={listScrollY > 0} class:isScrollbarVisible class:passThrough={isDragging} data-title={translateText("remote.project: ") + `<b>${currentProject?.name || ""}</b>`}>
                     <div class="left context">
                         <MaterialButton style="width: 42px;height: 100%;padding: 0.3em 0.5em;" icon="back" iconSize={1.1} title="remote.projects" on:click={back} />
                     </div>
@@ -375,7 +385,7 @@
                 </div>
             {/if}
         {:else if $editingProjectTemplate}
-            <div class="header {recentlyUsedList.length ? '' : 'context #projectTab'}" class:shadow={listScrollY > 0} class:isScrollbarVisible data-title={translateText("remote.project: ") + `<b>${currentProject?.name || ""}</b>`}>
+            <div class="header {recentlyUsedList.length ? '' : 'context #projectTab'}" class:shadow={listScrollY > 0} class:isScrollbarVisible class:passThrough={isDragging} data-title={translateText("remote.project: ") + `<b>${currentProject?.name || ""}</b>`}>
                 <div class="left context">
                     <MaterialButton style="width: 42px;height: 100%;padding: 0.3em 0.5em;" icon="back" iconSize={1.1} title="remote.projects" on:click={back} />
                 </div>
@@ -387,7 +397,7 @@
                 </div>
             </div>
         {:else}
-            <div class="header context #projects" class:shadow={listScrollY > 0} class:isScrollbarVisible data-title={translateText("<b>remote.projects</b><br>guide_description.project_manage<br>guide_description.project_create")}>
+            <div class="header context #projects" class:shadow={listScrollY > 0} class:isScrollbarVisible class:passThrough={isDragging} data-title={translateText("<b>remote.projects</b><br>guide_description.project_manage<br>guide_description.project_create")}>
                 {#if showProjectsOptions}
                     <div class="left context">
                         <MaterialButton style="width: 42px;height: 100%;padding: 0.3em 0.5em;" icon="back" iconSize={1.1} title="actions.back" on:click={() => (showProjectsOptions = false)} />
@@ -558,6 +568,10 @@
         width: calc(100% - 8px);
         /* left: 8px;
         width: calc(100% - (8px * 2)); */
+    }
+    /* allow scroll up to work while dragging */
+    .tabs .header.passThrough {
+        pointer-events: none;
     }
 
     .header .left,

@@ -52,6 +52,7 @@ import {
     projects,
     shows,
     showsCache,
+    slideTimelineSpeedMultiplier,
     slideVideoData,
     special,
     stageShows,
@@ -76,7 +77,11 @@ import { client } from "./sendData"
 import { playFolder, previewShortcuts } from "./shortcuts"
 import { restartOutputs } from "./updateSettings"
 
+let mainReceiversInitialized = false
 export function setupMainReceivers() {
+    if (mainReceiversInitialized) return
+    mainReceiversInitialized = true
+
     receiveMainGlobal()
 
     receive(OUTPUT, receiveOUTPUTasMAIN)
@@ -84,7 +89,11 @@ export function setupMainReceivers() {
     receive(CLOUD, receiveCLOUD)
 }
 
+let remoteReceiversInitialized = false
 export function remoteListen() {
+    if (remoteReceiversInitialized) return
+    remoteReceiversInitialized = true
+
     // FROM CLIENT (EXPRESS SERVERS)
     window.api.receive(REMOTE, (msg: ClientMessage) => client(REMOTE, msg))
     window.api.receive(STAGE, (msg: ClientMessage) => client(STAGE, msg))
@@ -299,6 +308,7 @@ export const receiveOUTPUTasOUTPUT: any = {
     VARIABLES: (a: any) => clone(variables.set(a)),
     TIME_FORMAT: (a: any) => timeFormat.set(a),
     SPECIAL: (a: any) => clone(special.set(a)),
+    SLIDE_TIMELINE_SPEED_MULTIPLIER: (a: any) => slideTimelineSpeedMultiplier.set(a),
     ACTIVE_TIMERS: (a: any) => activeTimers.set(a),
     // POSITION: (a: any) => outputPosition.set(a),
     PLAYER_VIDEOS: (a: any) => playerVideos.set(a),

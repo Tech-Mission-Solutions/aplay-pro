@@ -1,13 +1,14 @@
 <script lang="ts">
-    import { onDestroy } from "svelte"
-    import type { Item, OutSlide, SlideData, Transition } from "../../../../types/Show"
-    import { showsCache } from "../../../stores"
+    import { onDestroy, onMount } from "svelte"
+    import type { Item, OutSlide, SlideData, TimelineAction, Transition } from "../../../../types/Show"
+    import { showsCache, slideTimelineSpeedMultiplier } from "../../../stores"
+    import { waitUntilValueIsDefined } from "../../../utils/common"
     import { shouldItemBeShown } from "../../edit/scripts/itemHelpers"
     import { clone } from "../../helpers/array"
     import { loadCustomFonts } from "../../helpers/fonts"
     import Textbox from "../../slide/Textbox.svelte"
+    import { SlideTimeline } from "../../timeline/SlideTimeline"
     import SlideItemTransition from "../transitions/SlideItemTransition.svelte"
-    import { waitUntilValueIsDefined } from "../../../utils/common"
 
     export let outputId: string
     export let outSlide: OutSlide
@@ -107,6 +108,7 @@
 
     $: if (currentSlideItems !== undefined || currentOutSlide || currentLines) updateItems()
     let timeout: NodeJS.Timeout | null = null
+    let updateGeneration = 0
 
     // if anything is outputted & changing to something that's outputted
     let transitioningBetween = false
@@ -261,12 +263,16 @@
             return
         }
 
+        const gen = ++updateGeneration
+
         // wait for between to update out transition
         timeout = setTimeout(() => {
+            if (gen !== updateGeneration) return
             show = false
 
             // wait for previous items to start fading out (svelte will keep them until the transition is done!)
             timeout = setTimeout(() => {
+                if (gen !== updateGeneration) return
                 // Only include items that need transitioning in currentItems
                 // Persistent items are rendered separately
                 currentItems = clone(currentSlide.items || [])
@@ -280,21 +286,111 @@
 
                 // wait until half transition duration of previous items have passed as it looks better visually
                 timeout = setTimeout(() => {
+                    if (gen !== updateGeneration) return
                     show = true
 
                     // wait for between to set in transition
                     timeout = setTimeout(() => {
+                        if (gen !== updateGeneration) return
                         transitioningBetween = false
                     })
                 }, waitToShow)
             })
         })
     }
+
+    // OUTPUT SLIDE TIMELINE
+    // get current slide timeline position
+    let timelinePos = 0
+    let timelineItems = new Map<string, Item[]>()
+    let timelineActions: TimelineAction[] = []
+    let isReady = false
+    $: if (outSlide) isReady = false
+    $: if (currentSlide) setupTimeline()
+    function setupTimeline() {
+        if (isReady) return
+        timelinePos = 0
+        timelineActions = currentSlide?.timeline?.actions || []
+        // timelineItems = new Set<Item[]>() // WIP reset eventually?
+        setTimeout(() => (isReady = true))
+    }
+    onMount(() => {
+        const interval = setInterval(() => {
+            if (isClearing || !isReady || !timelineActions.length) return
+            // WIP use actual slide timeline pos when available?
+            timelinePos += 10 * $slideTimelineSpeedMultiplier
+            styleActions(timelineActions)
+
+            // loop back when reached last action
+            if (currentSlide?.timeline?.loop) {
+                const lastActionTime = Math.max(...timelineActions.map((a) => a.time + (a.duration || 0) * 1000))
+                if (timelinePos >= lastActionTime) timelinePos = 0
+            }
+        }, 10)
+
+        function styleActions(actions: TimelineAction[]) {
+            const itemStyleActions = actions.filter((a) => a.type === "style")
+            // group by style key & indexes
+            const groupedActions = new Map<string, TimelineAction[]>()
+            for (const action of itemStyleActions) {
+                const key = action.data?.key
+                if (!key) continue
+
+                const indexes = action.data?.indexes ? action.data.indexes.join(",") : ""
+                const groupKey = `${key}-${indexes}`
+
+                if (!groupedActions.has(groupKey)) groupedActions.set(groupKey, [])
+                groupedActions.get(groupKey)?.push(action)
+            }
+
+            const slideKey = `${outSlide?.id}-${outSlide?.layout}-${outSlide?.index}`
+            const items = clone(timelineItems.get(slideKey) || currentItems)
+
+            const currentTime = timelinePos
+            groupedActions.forEach((actions, _key) => {
+                const previous = getPreviousAction(actions)
+                const next = getNextAction(actions)
+                const value = SlideTimeline.interpolateValue(previous, next, currentTime)
+                if (value === null) return
+
+                const action = (previous || next)!
+                // const ref = _show(outSlide?.id || "").layouts([outSlide?.layout]).ref()[0] || []
+                // const slideId = ref[outSlide?.index || 0]?.id
+                // SlideTimeline.triggerAction(action, value, { id: outSlide.id, slideId: slideId })
+
+                const itemIndexes = action.data.indexes ?? [0]
+                itemIndexes.forEach((itemIndex) => {
+                    const item = items[itemIndex]
+                    if (!item) return
+
+                    const updatedItem = SlideTimeline.updateStyle(action, item, value)
+                    items[itemIndex] = updatedItem
+                })
+            })
+
+            timelineItems.set(slideKey, items)
+            timelineItems = timelineItems
+        }
+
+        function getPreviousAction(actions: TimelineAction[]) {
+            const now = timelinePos
+            return actions.reduce((prev, curr) => (curr.time > (prev?.time ?? -1) && curr.time <= now ? curr : prev), null as TimelineAction | null)
+        }
+
+        function getNextAction(actions: TimelineAction[]) {
+            const now = timelinePos
+            return actions.reduce((next, curr) => (curr.time > now && (next === null || curr.time < next.time) ? curr : next), null as TimelineAction | null)
+        }
+
+        return () => {
+            clearInterval(interval)
+        }
+    })
 </script>
 
 <!-- Render all items in original order to maintain z-index layering -->
 {#each currentItems as item, index}
-    {#if shouldItemBeShown(item, currentItems, showItemRef, conditionsUpdater) && (!item.clickReveal || current.outSlide?.itemClickReveal)}
+    {#if item && shouldItemBeShown(item, currentItems, showItemRef, conditionsUpdater) && (!item.clickReveal || current.outSlide?.itemClickReveal)}
         {#if persistentItemIndexes.includes(index)}
             <!-- Persistent item: unchanged content, render outside transition to avoid flicker -->
             <Textbox
@@ -302,7 +398,7 @@
                 disableListTransition={mirror}
                 chords={item.chords?.enabled}
                 animationStyle={animationData.style || {}}
-                {item}
+                item={timelineItems.get(`${current.outSlide?.id}-${current.outSlide?.layout}-${current.outSlide?.index}`)?.[index] || item}
                 transition={null}
                 {ratio}
                 {outputId}
@@ -316,6 +412,7 @@
                 slideIndex={current.outSlide?.index}
                 {styleIdOverride}
                 autoSizeKey={createAutoSizeKey(item, index)}
+                updateDynamicValues={!isClearing}
             />
         {:else}
             <!-- Transitioning item: render with animation wrapper inside {#key} -->
@@ -327,7 +424,7 @@
                             disableListTransition={mirror}
                             chords={customItem.chords?.enabled}
                             animationStyle={animationData.style || {}}
-                            item={customItem}
+                            item={timelineItems.get(`${customOut?.id}-${customOut?.layout}-${customOut?.index}`)?.[index] || customItem}
                             {transition}
                             {ratio}
                             {outputId}
@@ -341,6 +438,7 @@
                             slideIndex={customOut?.index}
                             {styleIdOverride}
                             autoSizeKey={createAutoSizeKey(item, index)}
+                            updateDynamicValues={!isClearing}
                         />
                     </SlideItemTransition>
                 {/if}
@@ -352,7 +450,7 @@
 {#if precomputeTargets.length}
     <div class="autosize-precompute" aria-hidden="true">
         {#each precomputeTargets as target (target.key)}
-            <Textbox item={target.item} {ratio} {outputId} outputStyle={currentStyle} {mirror} {preview} {styleIdOverride} ref={{ type: "show", showId: outSlide?.id, slideId: currentSlide?.id, id: currentSlide?.id || "", layoutId: outSlide?.layout }} autoSizeKey={target.key} on:autosizeReady={handlePrecomputeReady} />
+            <Textbox item={target.item} {ratio} {outputId} outputStyle={currentStyle} {mirror} {preview} {styleIdOverride} ref={{ type: "show", showId: outSlide?.id, slideId: currentSlide?.id, id: currentSlide?.id || "", layoutId: outSlide?.layout }} autoSizeKey={target.key} on:autosizeReady={handlePrecomputeReady} updateDynamicValues={!isClearing} />
         {/each}
     </div>
 {/if}

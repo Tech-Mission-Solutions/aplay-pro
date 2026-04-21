@@ -6,7 +6,7 @@ import type { DropData, Selected, Variable } from "../../../types/Main"
 import { clearAudio } from "../../audio/audioFading"
 import { AudioPlayer } from "../../audio/audioPlayer"
 import { AudioPlaylist } from "../../audio/audioPlaylist"
-import { activeDrawerTab, activeEdit, activePage, activeProject, activeShow, activeTimers, audioPlaylists, draw, drawSettings, drawTool, folders, groupNumbers, groups, media, openScripture, outLocked, outputs, overlays, playingAudio, playingMetronome, projects, refreshEditSlide, selected, showsCache, sortedShowsList, special, styles, timers, variables, volume } from "../../stores"
+import { activeDrawerTab, activeEdit, activePage, activeProject, activeShow, activeTimers, audioPlaylists, draw, drawSettings, drawTool, folders, groupNumbers, groups, media, openScripture, outLocked, outputs, overlays, pdfImports, playingAudio, playingMetronome, projects, refreshEditSlide, selected, shows, showsCache, sortedShowsList, special, styles, timers, variables, volume } from "../../stores"
 import { newToast } from "../../utils/common"
 import { send } from "../../utils/request"
 import { getDynamicValue } from "../edit/scripts/itemHelpers"
@@ -15,14 +15,14 @@ import { ondrop } from "../helpers/drop"
 import { dropActions } from "../helpers/dropActions"
 import { history } from "../helpers/history"
 import { setDrawerTabData } from "../helpers/historyHelpers"
-import { getExtension, getFileName, getMediaStyle, getMediaType, removeExtension } from "../helpers/media"
-import { getAllActiveOutputs, getAllEnabledOutputs, getCurrentStyle, getFirstActiveOutput, isOutCleared, setOutput } from "../helpers/output"
+import { getExtension, getFileName, getMediaLayerType, getMediaStyle, getMediaType, removeExtension } from "../helpers/media"
+import { getActiveOutputs, getAllActiveOutputs, getAllEnabledOutputs, getCurrentStyle, getFirstActiveOutput, isOutCleared, setOutput } from "../helpers/output"
 import { setRandomValue } from "../helpers/randomValue"
 import { loadShows, setShow } from "../helpers/setShow"
 import { getLabelId, getLayoutRef } from "../helpers/show"
-import { playNextGroup, updateOut } from "../helpers/showActions"
+import { playNextGroup, selectProjectShow, updateOut } from "../helpers/showActions"
 import { _show } from "../helpers/shows"
-import { clearBackground } from "../output/clear"
+import { clearBackground, clearSlide } from "../output/clear"
 import { getPlainEditorText } from "../show/getTextEditor"
 import { getSlideGroups } from "../show/tools/groups"
 import type { API_add_to_project, API_create_project, API_draw_zoom, API_edit_timer, API_group, API_id_index, API_id_value, API_layout, API_media, API_output_lock, API_rearrange, API_scripture, API_seek, API_slide_index, API_toggle_specific, API_variable } from "./api"
@@ -96,6 +96,81 @@ export function selectProjectByName(name: string) {
     if (!projectId) return
 
     activeProject.set(projectId)
+}
+
+export async function startProjectItemByName(name: string) {
+    const activeProjectItems = get(projects)[get(activeProject) || ""]?.shows || []
+    if (!activeProjectItems.length) return
+
+    name = name.toLowerCase().trim()
+
+    const checkName = (item: any) => {
+        let itemName = item.name
+        if (!itemName && (item.type || "show") === "show") itemName = get(shows)[item.id]?.name
+        if (!itemName) return false
+        return itemName.toLowerCase().trim() === name
+    }
+
+    // check for any match after the active first
+    const activeIndex = get(activeShow)?.index ?? -1
+    let match = activeProjectItems.findIndex((item, i) => i > activeIndex && checkName(item))
+    if (match === -1) match = activeProjectItems.findIndex((item) => checkName(item))
+
+    // get next available after the section
+    while (match !== -1 && activeProjectItems[match]?.type === "section") match++
+
+    const item = activeProjectItems[match]
+    if (!item) return
+
+    // load any shows
+    if ((item.type || "show") === "show") await loadShows([item.id])
+
+    // open
+    selectProjectShow(match)
+
+    // play
+    let outputId: string = getActiveOutputs(get(outputs), false, true, true)[0]
+    let currentOutput = get(outputs)[outputId] || {}
+
+    // WIP duplicate of ShowButton.svelte doubleClick() & missing other types
+    if ((item.type || "show") === "show" && get(showsCache)[item.id]?.settings && get(showsCache)[item.id].layouts[get(showsCache)[item.id].settings.activeLayout]?.slides?.length) {
+        let layoutRef = getLayoutRef()
+        let firstEnabledIndex = layoutRef.findIndex((a) => !a.data.disabled)
+        updateOut("active", firstEnabledIndex, layoutRef)
+
+        let slide = currentOutput.out?.slide || null
+        if (slide?.id === item.id && slide?.index === firstEnabledIndex && slide?.layout === get(showsCache)[item.id].settings.activeLayout) return
+
+        setOutput("slide", { id: item.id, layout: get(showsCache)[item.id].settings.activeLayout, index: firstEnabledIndex })
+    } else if (item.type === "image" || item.type === "video") {
+        let outputStyle = get(styles)[currentOutput.style || ""]
+        const mediaData = get(media)[item.id] || {}
+        const mediaStyle = getMediaStyle(mediaData, outputStyle)
+
+        const videoType = getMediaLayerType(item.id, mediaStyle)
+        const shouldLoop = videoType === "background" ? item.loop || true : false
+        const shouldBeMuted = videoType === "background" ? item.muted || true : false
+
+        let out = { path: item.id, muted: shouldBeMuted, loop: shouldLoop, startAt: 0, type: item.type, ...mediaStyle }
+
+        // clear slide
+        if (videoType === "foreground" || (videoType !== "background" && (item.type === "image" || !shouldLoop))) clearSlide()
+
+        setOutput("background", out)
+    } else if (item.type === "pdf") {
+        // get PDF data
+        GlobalWorkerOptions.workerSrc = "./assets/pdf.worker.min.mjs"
+        const loadingTask = getDocument(item.id)
+        const pdfDoc = await loadingTask.promise
+        const pages = pdfDoc.numPages
+        loadingTask.destroy()
+
+        let name = item.name || removeExtension(getFileName(item.id))
+        setOutput("slide", { type: "pdf", id: item.id, page: 0, pages, name })
+        clearBackground()
+    } else if (item.type === "audio") AudioPlayer.start(item.id, { name: item.name || "" })
+    else if (item.type === "overlay") setOutput("overlays", item.id, false, "", true)
+    else if (item.type === "player") setOutput("background", { id: item.id, type: "player" })
 }
 
 export async function selectSlideByIndex(data: API_slide_index) {
@@ -814,31 +889,67 @@ function levenshteinDistance(a, b) {
 
 export async function getPDFThumbnails({ path }: API_media) {
     if (!path) return []
+    const name =
+        path
+            .split(/[/\\]/)
+            .pop()
+            ?.replace(/\.pdf$/i, "") || "PDF"
+    const renderPhasePercent = 80
+    const totalPercent = 100
 
     GlobalWorkerOptions.workerSrc = "./assets/pdf.worker.min.mjs"
     const loadingTask = getDocument(path)
     const pdfDoc = await loadingTask.promise
     const pageCount = pdfDoc.numPages
 
+    pdfImports.update((imports) => {
+        const updated = new Map(imports)
+        updated.set(path, { name, progress: 0, total: totalPercent, status: "importing" })
+        return updated
+    })
+
     const canvas = document.createElement("canvas")
     const context = canvas.getContext("2d")
     if (!context) return []
 
     const pages: string[] = []
-    for (let i = 0; i < pageCount; i++) {
-        const page = await pdfDoc.getPage(i + 1)
-        const viewport = page.getViewport({ scale: 1.5 })
+    try {
+        for (let i = 0; i < pageCount; i++) {
+            const page = await pdfDoc.getPage(i + 1)
+            const viewport = page.getViewport({ scale: 1.5 })
 
-        canvas.height = viewport.height
-        canvas.width = viewport.width
+            canvas.height = viewport.height
+            canvas.width = viewport.width
 
-        await page.render({ canvas, canvasContext: context, viewport }).promise
-        const base64 = canvas.toDataURL("image/jpeg")
-        pages.push(base64)
+            await page.render({ canvas, canvasContext: context, viewport }).promise
+            const base64 = canvas.toDataURL("image/jpeg")
+            pages.push(base64)
+
+            const renderProgress = Math.round(((i + 1) / Math.max(1, pageCount)) * renderPhasePercent)
+            pdfImports.update((imports) => {
+                const updated = new Map(imports)
+                updated.set(path, { name, progress: renderProgress, total: totalPercent, status: "importing" })
+                return updated
+            })
+        }
+
+        return { path, pages }
+    } catch (error: any) {
+        pdfImports.update((imports) => {
+            const updated = new Map(imports)
+            updated.set(path, {
+                name,
+                progress: Math.round((pages.length / Math.max(1, pageCount)) * renderPhasePercent),
+                total: totalPercent,
+                status: "error",
+                message: `PDF processing failed: ${error?.message || "Unknown error"}`
+            })
+            return updated
+        })
+        throw error
+    } finally {
+        loadingTask.destroy()
     }
-
-    loadingTask.destroy()
-    return { path, pages }
 }
 
 // DRAW

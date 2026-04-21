@@ -20,6 +20,7 @@
     export let item: Item | null
     export let index: number
     export let ratio: number
+    export let hideMovebox = false
 
     const actions = [
         { id: "transition", label: "popup.transition", icon: "transition" },
@@ -88,7 +89,7 @@
             slideItems = slide[$activeEdit.id!]?.items
         }
 
-        if (!slideItems) return
+        if (!slideItems?.[index]) return
 
         let actions = clone(slideItems[index].actions)
         delete actions[action]
@@ -122,7 +123,9 @@
 </script>
 
 <!-- all icons are square, so only corner resizers need to be active -->
-<Movebox {ratio} itemStyle={item?.style} active={$activeEdit.items.includes(index)} onlyCorners={item?.type === "icon"} />
+{#if !hideMovebox}
+    <Movebox {ratio} itemStyle={item?.style} active={$activeEdit.items.includes(index)} onlyCorners={item?.type === "icon"} />
+{/if}
 
 <div class="actions">
     <!-- localization -->
@@ -215,7 +218,7 @@
     {/each}
 
     <!-- gradient -->
-    {#if item?.lines?.find((a) => a.text?.find((a) => a.style?.includes("-gradient")))}
+    {#if Array.isArray(item?.lines) && item.lines.find((a) => Array.isArray(a.text) && a.text.find((a) => a.style?.includes("-gradient")))}
         <div data-title={translateText("popup.color_gradient")} class="actionButton" style="zoom: {1 / ratio};left: 0;inset-inline-end: unset;">
             <span style="padding: 5px;z-index: 3;font-size: 0;">
                 <Icon id="color" white />

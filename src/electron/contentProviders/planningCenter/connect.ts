@@ -37,7 +37,6 @@ export const DEFAULT_PCO_DATA: PCOAuthData = {
     scope: "services"
 }
 
-const app = express()
 const PCO_PORT = 5501
 const clientId = getKey("pco_id")
 const HTML_success = `
@@ -69,17 +68,18 @@ function pcoAuthenticate(scope: PCOScopes): Promise<PCOAuthData> {
     const codeVerifier = generateCodeVerifier()
     const codeChallenge = generateCodeChallenge(codeVerifier)
 
-    const server = app.listen(PCO_PORT, () => {
-        console.info(`Listening for Planning Center OAuth response at port ${PCO_PORT}`)
-    })
-
-    server.once("error", (err: Error) => {
-        if ((err as any).code === "EADDRINUSE") server.close()
-    })
-
+    const app = express()
     app.use(express.json())
 
     return new Promise((resolve) => {
+        const server = app.listen(PCO_PORT, () => {
+            console.info(`Listening for Planning Center OAuth response at port ${PCO_PORT}`)
+        })
+
+        server.once("error", (err: Error) => {
+            if ((err as any).code === "EADDRINUSE") server.close()
+        })
+
         app.get(path, (req, res) => {
             const code = req.query.code?.toString() || ""
             console.info(`OAuth code received: ${code}`)
@@ -214,6 +214,6 @@ export async function pcoStartupLoad(scope: PCOScopes = "services") {
     await pcoLoadServices()
 }
 
-function connectionInitialized(isFirstConnection: boolean = false): void {
+function connectionInitialized(isFirstConnection = false): void {
     sendToMain(ToMain.PROVIDER_CONNECT, { providerId: "planningcenter", success: true, isFirstConnection })
 }

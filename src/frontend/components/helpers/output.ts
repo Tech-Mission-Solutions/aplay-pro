@@ -189,6 +189,7 @@ export function startFolderTimer(folderPath: string, file: { type: string; path:
 
 // WIP smarter logging (based on time or based on percentage played)
 let justLogged = ""
+const MAX_USAGE_LOG_ENTRIES = 1500
 function appendShowUsage(showId: string) {
     if (!get(special).logSongUsage) return
 
@@ -212,6 +213,10 @@ function appendShowUsage(showId: string) {
             time: Date.now(),
             metadata
         })
+
+        if (a.all.length > MAX_USAGE_LOG_ENTRIES) {
+            a.all = a.all.slice(-MAX_USAGE_LOG_ENTRIES)
+        }
 
         return a
     })
@@ -614,6 +619,7 @@ export function percentageStylePos(style: string, resolution: Resolution) {
     const width = DEFAULT_BOUNDS.width
     const height = DEFAULT_BOUNDS.width / aspectRatio
 
+    style += ";"
     if (stylesData.left) style += "left: " + width * (Number(stylesData.left) / 100) + "px;"
     if (stylesData.top) style += "top: " + height * (Number(stylesData.top) / 100) + "px;"
     if (stylesData.width) style += "width: " + width * (Number(stylesData.width) / 100) + "px;"
@@ -817,6 +823,114 @@ export function getCurrentMediaTransition() {
 
 // TEMPLATE
 
+type TextFormatSets = {
+    colors: Set<string>
+    bold: Set<boolean>
+    italic: Set<boolean>
+    underline: Set<boolean>
+    lineThrough: Set<boolean>
+}
+
+function isTextBold(fontWeight = "") {
+    const lowerWeight = fontWeight.toLowerCase()
+    if (lowerWeight === "bold") return true
+
+    const numericWeight = Number(lowerWeight)
+    return !isNaN(numericWeight) && numericWeight >= 600
+}
+
+function hasTextDecoration(textDecoration = "", value = "") {
+    return textDecoration
+        .split(" ")
+        .map((a) => a.trim().toLowerCase())
+        .includes(value)
+}
+
+function mergeTextDecoration(templateTextStyle = "", originalTextStyle = "", preserveUnderline = false, preserveLineThrough = false) {
+    const templateStyles = getStyles(templateTextStyle)
+    const originalStyles = getStyles(originalTextStyle)
+
+    const toDecorationSet = (value = "") =>
+        new Set(
+            value
+                .split(" ")
+                .map((a) => a.trim().toLowerCase())
+                .filter(Boolean)
+        )
+
+    const templateDecorations = toDecorationSet(templateStyles["text-decoration"])
+    const originalDecorations = toDecorationSet(originalStyles["text-decoration"])
+
+    ;(
+        [
+            [preserveUnderline, "underline"],
+            [preserveLineThrough, "line-through"]
+        ] as const
+    ).forEach(([preserve, decoration]) => {
+        if (!preserve) return
+        if (originalDecorations.has(decoration)) templateDecorations.add(decoration)
+        else templateDecorations.delete(decoration)
+    })
+
+    if (!templateDecorations.size) return "none"
+
+    return Array.from(templateDecorations).join(" ")
+}
+
+function applyMixedTextFormatting(style: string, textStyle: string | undefined, templateStyle: string | undefined, textFormatSets: TextFormatSets, templateClicked: boolean) {
+    if (templateClicked) return style
+
+    const textStyles = getStyles(textStyle)
+
+    // add original text color, if template is not clicked & slide text has multiple colors
+    // - use template color if item text has just one color
+    if (textFormatSets.colors.size > 1) {
+        const textColor = textStyles.color || "#FFFFFF"
+        style += `color: ${textColor};`
+    }
+
+    if (textFormatSets.bold.size > 1) {
+        const isBold = isTextBold(textStyles["font-weight"] || "")
+        style += `font-weight: ${isBold ? textStyles["font-weight"] || "bold" : "normal"};`
+    }
+
+    if (textFormatSets.italic.size > 1) {
+        const isItalic = (textStyles["font-style"] || "").toLowerCase() === "italic"
+        style += `font-style: ${isItalic ? "italic" : "normal"};`
+    }
+
+    if (textFormatSets.underline.size > 1 || textFormatSets.lineThrough.size > 1) {
+        const textDecoration = mergeTextDecoration(templateStyle || "", textStyle || "", textFormatSets.underline.size > 1, textFormatSets.lineThrough.size > 1)
+        style += `text-decoration: ${textDecoration};`
+    }
+
+    return style
+}
+
+function getTextFormatSets(item: Item): TextFormatSets {
+    return (
+        item.lines?.reduce(
+            (acc, line) => {
+                line.text
+                    ?.filter((a) => !a.customType)
+                    .forEach((text) => {
+                        const styleData = getStyles(text.style)
+                        const textDecoration = styleData["text-decoration"] || ""
+
+                        acc.colors.add(styleData.color || "#FFFFFF")
+                        acc.bold.add(isTextBold(styleData["font-weight"] || ""))
+                        acc.italic.add((styleData["font-style"] || "").toLowerCase() === "italic")
+                        acc.underline.add(hasTextDecoration(textDecoration, "underline"))
+                        acc.lineThrough.add(hasTextDecoration(textDecoration, "line-through"))
+                    })
+
+                return acc
+            },
+            { colors: new Set<string>(), bold: new Set<boolean>(), italic: new Set<boolean>(), underline: new Set<boolean>(), lineThrough: new Set<boolean>() }
+        ) || { colors: new Set<string>(), bold: new Set<boolean>(), italic: new Set<boolean>(), underline: new Set<boolean>(), lineThrough: new Set<boolean>() }
+    )
+}
+
 export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], addOverflowTemplateItems = false, resetAutoSize = true, templateClicked = false, mode: string = "", customDynamicValues: { [key: string]: string | [string, string][] } = {}) {
     slideItems = clone(slideItems || []).filter(Boolean)
     if (!templateItems.length) return slideItems
@@ -889,7 +1003,9 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
 
         // Apply textFit if template defines it
         if (templateItem.textFit) item.textFit = templateItem.textFit
+        else if (!templateItem.auto) delete item.textFit
         if (templateItem.list) item.list = templateItem.list
+        else delete item.list
 
         // use original line reveal if style template does not have the value set
         const hasLineReveal = item.lineReveal
@@ -908,14 +1024,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
 
         if (type !== "text") return finish()
 
-        const allTextColors = [
-            ...new Set(
-                item.lines
-                    ?.map((line) => line.text?.filter((a) => !a.customType).map((text) => getStyles(text.style).color || "#FFFFFF"))
-                    .flat()
-                    .filter(Boolean)
-            )
-        ] as string[]
+        const textFormatSets = getTextFormatSets(item)
 
         const hasDynamicValue = templateItem?.lines?.some((line) => line?.text?.some((text) => text.value?.includes("{")))
 
@@ -924,21 +1033,15 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
             if (!templateLine) return
 
             // remove empty text parts (if not completely empty)
-            if (templateLine.text.some((a) => a?.value?.trim().length)) templateLine.text = templateLine.text.filter((a) => a?.value?.trim().length)
+            if (templateLine.text?.some((a) => a?.value?.trim().length)) templateLine.text = templateLine.text.filter((a) => a?.value?.trim().length)
 
-            line.align = templateLine?.align || ""
+            line.align = templateLine.align || ""
             line.text?.forEach((text, k) => {
-                const templateText = templateLine?.text?.[k] || templateLine?.text?.[0]
+                const templateText = templateLine.text?.[k] || templateLine.text?.[0]
 
                 if (!text.customType?.includes("disableTemplate") && !/\{scripture(?:\d+)?_number\}/.test(templateText?.value || "")) {
                     let style = templateText?.style || ""
-
-                    // add original text color, if template is not clicked & slide text has multiple colors
-                    // - use template color if item text has just one color
-                    if (!templateClicked && allTextColors.length > 1) {
-                        const textColor = getStyles(text.style).color || "#FFFFFF"
-                        style += `color: ${textColor};`
-                    }
+                    style = applyMixedTextFormatting(style, text.style, templateText?.style, textFormatSets, templateClicked)
 
                     text.style = style
                 }
@@ -1375,7 +1478,7 @@ export function getOutputLines(outSlide: OutSlide, styleLines = 0) {
             .get()[0] || null
     const maxLines = showSlide ? getItemWithMostLines(showSlide) : 0
 
-    const clickRevealItems = (showSlide?.items || []).filter((a) => a.clickReveal)
+    const clickRevealItems = (showSlide?.items || []).filter((a) => a?.clickReveal)
     const clickRevealed = clickRevealItems.length ? !!outSlide.itemClickReveal : true
 
     if (!maxLines) return { start: null, end: null, clickRevealed } // , index: 0, max: 0
@@ -1453,18 +1556,18 @@ export interface OutputMetadata {
 const defaultMetadataItemStyle = "top: 910px;left: 30px;width: 1860px;height: 150px;"
 const defaultMetadataTextStyle = "font-size: 30px;color: rgb(255 255 255 / 0.8);text-shadow: 2px 2px 4px rgb(0 0 0 / 80%);"
 export function getMetadata(show: Show | undefined, currentStyle: Styles, outSlide: OutSlide | null, _updater = get(templates)) {
-    if (!show || !outSlide) return []
+    if (!show || !outSlide) return null
 
     const showCategory = get(categories)[show.category || ""] || {}
     const metadataValues = currentStyle.metadata || showCategory.metadata || {}
     const display = metadataValues.display || "never"
-    if (typeof display !== "string" || display === "never") return []
+    if (typeof display !== "string" || display === "never") return null
 
     const ref = clone(_show(outSlide.id).layouts([outSlide.layout]).ref()[0] || [])
     const firstActiveSlideIndex = ref.findIndex((a) => !a.data.disabled)
     const lastActiveSlideIndex = ref.length - 1 - [...ref].reverse().findIndex((a) => !a.data.disabled)
     const displayMetadata = display === "always" || (display.includes("first") && outSlide?.index === firstActiveSlideIndex) || (display.includes("last") && outSlide?.index === lastActiveSlideIndex)
-    if (!displayMetadata) return []
+    if (!displayMetadata) return null
 
     // template
     let templateId: string = metadataValues.template || "metadata"
