@@ -36,7 +36,7 @@
         "libraries": "Thư viện đã sử dụng",
         "thanks": "Cảm ơn tới",
         "new_update": "Đã có bản cập nhật mới",
-        "download": "Khởi động lại ứng dụng để cập nhật, hoặc truy cập freeshow.app để tải xuống thủ công",
+        "download": "Khởi động lại ứng dụng để cập nhật, hoặc truy cập APlay Pro.app để tải xuống thủ công",
         "changes": "Có gì mới"
     },
     "tooltip": {
@@ -360,7 +360,7 @@
         "manage_icons": "Quản lý biểu tượng",
         "manage_colors": "Quản lý màu sắc",
         "choose_camera": "Chọn camera",
-        "initialize": "Chào mừng đến với FreeShow",
+        "initialize": "Chào mừng đến với APlay Pro",
         "unsaved": "Bạn có chắc chắn muốn thoát?",
         "cancel": "Hủy",
         "continue": "Tiếp tục",

@@ -20,7 +20,7 @@
     let currentItems: Item[] = []
     let show = false
 
-    $: if (overlay?.items !== undefined) updateItems()
+    $: if (overlay?.items !== undefined && JSON.stringify(overlay.items) !== JSON.stringify(currentItems)) updateItems()
 
     // WIP similar to SlideContent.svelte
     let timeout: NodeJS.Timeout | null = null
@@ -50,7 +50,7 @@
     {#each currentItems as item}
         {#if show && shouldItemBeShown(item, currentItems, showItemRef, conditionsUpdater)}
             <SlideItemTransition {transitionEnabled} globalTransition={transition} {item} let:customItem>
-                <Textbox item={customItem} ref={{ type: "overlay", id }} {mirror} {preview} {outputId} />
+                <Textbox item={customItem} ref={{ type: "overlay", id }} {mirror} {preview} {outputId} updateDynamicValues={!isClearing} />
             </SlideItemTransition>
         {/if}
     {/each}

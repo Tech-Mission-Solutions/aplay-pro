@@ -58,7 +58,7 @@
         "libraries": "使用的函式庫",
         "thanks": "感謝",
         "new_update": "有可用的更新",
-        "download": "重啟應用程式以更新，或前往 freeshow.app 手動下載",
+        "download": "重啟應用程式以更新，或前往 APlay Pro.app 手動下載",
         "changes": "更新日誌"
     },
     "tooltip": {
@@ -508,7 +508,7 @@
         "effect_items": "特效項目",
         "timeline": "時間軸",
         "timecode": "時間碼",
-        "initialize": "歡迎使用 FreeShow",
+        "initialize": "歡迎使用 APlay Pro",
         "unsaved": "您確定要結束嗎？",
         "cancel": "取消",
         "continue": "繼續",

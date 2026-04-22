@@ -10,7 +10,7 @@ import type { BibleContent } from "../../../../types/Scripture"
 import type { Item, Show } from "../../../../types/Show"
 import { ShowObj } from "../../../classes/Show"
 import { createCategory } from "../../../converters/importHelpers"
-import { requestMain } from "../../../IPC/main"
+import { requestMain, sendMain } from "../../../IPC/main"
 import { splitTextContentInHalf } from "../../../show/slides"
 import { activeProject, activeScripture, drawerTabsData, media, notFound, outLocked, overlays, scriptureHistory, scriptures, scripturesCache, scriptureSettings, styles, templates } from "../../../stores"
 import { trackScriptureUsage } from "../../../utils/analytics"
@@ -64,7 +64,12 @@ export async function loadJsonBible(id: string) {
     // load custom book names for local bibles (as many xml names are missing or in English)
     localBible.books = localBible.books.map((a) => ({ ...a, name: (a as any).customName || a.name }))
 
-    return await JsonBible(localBible)
+    try {
+        return await JsonBible(localBible)
+    } catch (err) {
+        console.error("Error loading local Bible:", err)
+        return null
+    }
 }
 
 async function getLocalBible(id: string) {
@@ -717,6 +722,8 @@ export async function getScriptureSlidesNew(data: any, onlyOne = false, disableR
                 const chapterVerses = sortScriptureSelection(bible.activeVerses[chapterIndex] || [])
 
                 chapterVerses.forEach((v) => {
+                    if (typeof v !== "number" && typeof v !== "string") return
+
                     let text = versesText[v] || ""
                     let number = ""
                     // Include chapter number in verseId when multiple chapters are selected
@@ -750,7 +757,7 @@ export async function getScriptureSlidesNew(data: any, onlyOne = false, disableR
             const verses = buildFullReferenceRange(bible.chapters, bible.activeVerses)
             const justVerses = verses.split(divider)[1] || ""
             if (j === 0) {
-                const mergedBooks = removeDuplicates(biblesContent.map((a) => a.book)).join(" / ")
+                const mergedBooks = removeDuplicates(biblesContent.map((a) => a?.book).filter(Boolean)).join(" / ")
                 const mergedReference = `${mergedBooks} ${verses}`.trim()
 
                 slideDynamicValues[i].scripture_reference = format(mergedReference)
@@ -782,8 +789,8 @@ export async function getScriptureSlidesNew(data: any, onlyOne = false, disableR
     // remove text in () on scripture names
     const bibleVersions = biblesContent.map((a) => (a?.version || "").replace(/\([^)]*\)/g, "").trim())
     const mergedNames = bibleVersions.join(" + ")
-    const mergedBooks = removeDuplicates(biblesContent.map((a) => a.book)).join(" / ")
-    const mergedBooksAbbr = removeDuplicates(biblesContent.map((a) => a.bookAbbr)).join(" / ")
+    const mergedBooks = removeDuplicates(biblesContent.map((a) => a?.book).filter(Boolean)).join(" / ")
+    const mergedBooksAbbr = removeDuplicates(biblesContent.map((a) => a?.bookAbbr).filter(Boolean)).join(" / ")
 
     const attributions: string[] = []
 
@@ -827,13 +834,22 @@ export async function getScriptureSlidesNew(data: any, onlyOne = false, disableR
         slidesString = slidesString.replaceAll(`{meta_${key.toLowerCase()}}`, globalCustomDynamicValues[`meta_${key.toLowerCase()}`])
     }
 
-    const newSlides: Item[][] = JSON.parse(slidesString)
+    let newSlides: Item[][]
+    try {
+        newSlides = JSON.parse(slidesString)
+    } catch {
+        return { slides: [], groupNames: [], attributions: [], slideDynamicValues: [] }
+    }
 
     scriptureVerseContent.forEach((slideContent, contentIndex) => {
         slideContent.forEach((bibleVerses, bibleIndex) => {
             const itemKey = `{key_${contentIndex}_${bibleIndex}}`
 
             slideDynamicValues[contentIndex] = { ...globalCustomDynamicValues, ...(slideDynamicValues[contentIndex] || {}) }
+            // {scripture_reference_last} should only show on the last slide
+            if (contentIndex < scriptureVerseContent.length - 1) {
+                slideDynamicValues[contentIndex].scripture_reference_last = ""
+            }
             const valueName = slideDynamicValues[contentIndex]?.[itemKey] as string
             if (valueName) {
                 delete slideDynamicValues[contentIndex][itemKey]
@@ -1163,7 +1179,7 @@ export function getScriptureSlides({ biblesContent, selectedChapters, selectedVe
         // remove text in () on scripture names
         const bibleVersions = biblesContent.map((a) => (a?.version || "").replace(/\([^)]*\)/g, "").trim())
         const versions = combineWithText ? bibleVersions[itemIndex] : bibleVersions.join(" + ")
-        const books = combineWithText ? biblesContent[itemIndex]?.book : removeDuplicates(biblesContent.map((a) => a.book)).join(" / ")
+        const books = combineWithText ? biblesContent[itemIndex]?.book : removeDuplicates(biblesContent.map((a) => a?.book).filter(Boolean)).join(" / ")
 
         // custom value (API)
         if (biblesContent.find((a) => a?.attributionRequired)) {
@@ -1714,7 +1730,10 @@ export async function getScriptureShow(biblesContent: BibleContent[] | null) {
     show.layouts = { [layoutID]: { name: biblesContent[0].version || "", notes: "", slides: layouts } }
     show.media = media
 
-    const versions = biblesContent.map((a) => a.version).join(" + ")
+    const versions = biblesContent
+        .map((a) => a?.version)
+        .filter(Boolean)
+        .join(" + ")
     show.reference = {
         type: "scripture",
         data: {
@@ -1767,7 +1786,7 @@ export function getReferenceText(biblesContent: BibleContent[]) {
     // const referenceTextItem = items.find((a) => a.lines?.find((a) => a.text?.find((a) => a.value.includes(":") && a.value.length < 25)))
     // if (referenceTextItem) return referenceTextItem.lines?.[0]?.text?.[0]?.value
 
-    const books = removeDuplicates(biblesContent.map((a) => a.book)).join(" / ")
+    const books = removeDuplicates(biblesContent.map((a) => a?.book).filter(Boolean)).join(" / ")
     // reflect all selected chapters when labeling slides/previews
     const range = buildFullReferenceRange(biblesContent[0].chapters, biblesContent[0].activeVerses)
     const reference = `${books} ${range || biblesContent[0].chapters[0]}`.trim()
@@ -1959,4 +1978,33 @@ export function scriptureRangeSelect(e: any, currentlySelected: (number | string
     }
 
     return currentlySelected
+}
+
+export async function openActiveInRouteBible() {
+    const biblesContent = await getActiveScripturesContent()
+    if (!biblesContent?.length) return
+
+    const routeBibleReference = biblesContent?.length ? getReferenceText(biblesContent) : ""
+    const routeBibleURL = buildRouteBibleUrl(routeBibleReference)
+    if (!routeBibleURL) return
+
+    sendMain(Main.URL, routeBibleURL)
+}
+
+// buildRouteBibleUrl("John 3:16") = "https://route.bible/?q=John+3%3A16&utm_source=freeshow&utm_medium=link"
+function buildRouteBibleUrl(referenceLabel: string, translation = "") {
+    if (typeof referenceLabel !== "string") return ""
+    referenceLabel = referenceLabel.trim()
+    if (!referenceLabel) return ""
+
+    const url = new URL("https://route.bible/")
+    url.searchParams.set("q", referenceLabel)
+    url.searchParams.set("utm_source", "freeshow")
+    url.searchParams.set("utm_medium", "link")
+
+    if (translation.trim()) {
+        url.searchParams.set("v", translation.trim())
+    }
+
+    return url.toString()
 }

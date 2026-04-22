@@ -156,7 +156,7 @@
                             {@const isArchivedShown = !project.archived || visibleArchives.includes(project.parent)}
                             {@const isEmpty = project.type === "folder" && foldersWithoutContent.includes(project.id)}
                             {@const isReadOnly = readOnly || project.readOnly}
-                            {@const noEditing = !!($activeProfile && project.parent === "/")}
+                            {@const noEditing = !!($activeProfile && project.parent === "/" && project.name)}
                             {@const projectsCount = project.parent === "/" ? tree.reduce((value, a) => (a.type !== "folder" ? value + 1 : value), 0) : 0}
 
                             <div class="projectItem" class:indented={project.parent !== "/"} style="margin-inline-start: {8 * (project.index || 0)}px;background-color: rgb(255 255 255 / {0.01 * (project.index || 0)});">

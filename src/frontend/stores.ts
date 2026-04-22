@@ -77,6 +77,7 @@ export const scriptureMode: Writable<"grid" | "list"> = writable("list")
 export const providerConnections: Writable<{ [key in ContentProviderId]?: boolean }> = writable({})
 export const metronomeTimer: Writable<{ beat: number; timeToNext: number }> = writable({ beat: 0, timeToNext: 0 })
 export const mediaDownloads: Writable<Map<string, { progress: number; total: number; status: string }>> = writable(new Map())
+export const pdfImports: Writable<Map<string, { name: string; progress: number; total: number; status: "importing" | "complete" | "error"; message?: string }>> = writable(new Map())
 export const showChangeProfileMenu: Writable<boolean> = writable(false)
 export const cloudUsers: Writable<{ displayName: string; color: string; lastUpdate?: number; activePage?: string; activeShow?: ShowRef }[]> = writable([])
 export const isTimelinePlaying: Writable<boolean> = writable(false)
@@ -90,6 +91,7 @@ export const templateApplied: Writable<boolean> = writable(false)
 // TAGS
 export const activeTagFilter: Writable<string[]> = writable([])
 export const activeMediaTagFilter: Writable<string[]> = writable([])
+export const activePlayerTagFilter: Writable<string[]> = writable([])
 export const activeActionTagFilter: Writable<string[]> = writable([])
 export const activeVariableTagFilter: Writable<string[]> = writable([])
 
@@ -136,6 +138,7 @@ export const colorbars: Writable<{ [key: string]: string }> = writable({})
 export const livePrepare: Writable<{ [key: string]: boolean }> = writable({})
 export const overlayTimers: Writable<{ [key: string]: { outputId: string; overlayId: string; timer: NodeJS.Timeout } }> = writable({})
 export const slideVideoData: Writable<{ [key: string]: { [key: string]: { currentTime: number; duration: number; isPaused: boolean; loop?: boolean } } }> = writable({})
+export const slideTimelineSpeedMultiplier: Writable<number> = writable(1)
 
 // EXPORT
 export const exportOptions: Writable<any> = writable({ pdf: { rows: 5, columns: 2, slide: true, text: true } })
@@ -263,6 +266,7 @@ export const playerVideos: Writable<Categories> = writable({}) // {default}
 // TEMPLATES
 export const templateCategories: Writable<Categories> = writable({}) // {default}
 export const templates: Writable<Templates> = writable({}) // {default}
+export const globalRegexes: Writable<{ [key: string]: { label: string; value: string } }> = writable({}) // {}
 
 // CALENDAR
 export const events: Writable<{ [key: string]: Event }> = writable({}) // {}
@@ -298,6 +302,7 @@ export const drawer: Writable<{ height: number; stored: null | number; autoclose
 // TAGS
 export const globalTags: Writable<{ [key: string]: Tag }> = writable({}) // {}
 export const mediaTags: Writable<{ [key: string]: Tag }> = writable({}) // {}
+export const playerTags: Writable<{ [key: string]: Tag }> = writable({}) // {}
 export const actionTags: Writable<{ [key: string]: Tag }> = writable({}) // {}
 export const variableTags: Writable<{ [key: string]: Tag }> = writable({}) // {}
 
@@ -452,6 +457,7 @@ export const $ = {
     styles,
     customMetadata,
     customMessageCredits,
+    slideTimelineSpeedMultiplier,
     outLocked,
     ports,
     maxConnections,

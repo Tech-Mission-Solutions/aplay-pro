@@ -28,6 +28,8 @@ export function checkName(name = "", showId = "") {
 }
 
 export function formatToFileName(name = "") {
+    if (typeof name !== "string") return ""
+
     name = name.replaceAll(":", ",")
     // remove illegal file name characters
     name = name.trim().replace(/[/\\?%*:|│"<>╠┤╡╝╖┐¬]/g, "")
@@ -51,6 +53,8 @@ export function getLabelId(label: string, replaceNumbers = true) {
 
     if (!get(groupNumbers)) replaceNumbers = false
     if (replaceNumbers) label = label.replace(/[0-9]/g, "")
+
+    if (label.endsWith("_")) label = label.slice(0, -1)
 
     return label
     // .replace(/[0-9-]/g, "")

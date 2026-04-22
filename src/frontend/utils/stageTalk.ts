@@ -101,6 +101,14 @@ export const receiveSTAGE = {
         window.api.send(STAGE, { id: connectionId, channel: "VARIABLES", data: get(variables) })
         send(STAGE, ["DATA"], { timeFormat: get(timeFormat) })
 
+        // send media items
+        Object.values(layout.items).forEach(async (item) => {
+            if (item.type === "media" && item.src) {
+                const data = await getBase64Path(item.src)
+                send(STAGE, ["MEDIA"], { path: item.src, value: data })
+            }
+        })
+
         return layout
     },
 
@@ -130,11 +138,17 @@ export const receiveSTAGE = {
         if (!stageLayout) return
 
         const outputId = stageLayout.settings.output || getFirstOutput()?.id
-        const outSlideId = get(outputs)[outputId]?.out?.slide?.id
+        const outSlideId = get(outputs)[outputId]?.out?.slide?.id || ""
+        const show = get(showsCache)[outSlideId]
+        if (!show) return
 
-        if (!outSlideId) return
+        // send media items
+        Object.values(show.media || {}).forEach(async (media) => {
+            const data = await getBase64Path(media.path || "")
+            send(STAGE, ["MEDIA"], { path: media.path, value: data })
+        })
 
-        return { id: outSlideId, show: get(showsCache)[outSlideId] }
+        return { id: outSlideId, show }
     },
 
     REQUEST_PROGRESS: (data: any) => {

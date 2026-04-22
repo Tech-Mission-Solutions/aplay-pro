@@ -24,7 +24,7 @@ import { activeDrawerTab, activeEdit, activeFocus, activePage, activePopup, acti
 import { audioExtensions, imageExtensions, videoExtensions } from "../values/extensions"
 import { drawerTabs } from "../values/tabs"
 import { activeShow } from "./../stores"
-import { hideDisplay, isOutputWindow, togglePanels } from "./common"
+import { hideDisplay, isOutputWindow, togglePanels, triggerFunction } from "./common"
 import { send } from "./request"
 import { save } from "./save"
 import { runActionId } from "../components/actions/actions"
@@ -49,7 +49,6 @@ const ctrlKeys = {
     t: () => togglePanels(),
     y: () => redo(),
     z: () => undo(),
-    Z: () => redo(),
     "?": () => activePopup.set("shortcuts")
 }
 
@@ -70,7 +69,8 @@ const shiftCtrlKeys = {
     },
     f: () => menuClick("focus_mode"),
     n: () => activePopup.set("show"),
-    v: () => changeSlidesView()
+    v: () => changeSlidesView(),
+    z: () => redo()
 }
 
 const altKeys = {
@@ -155,6 +155,15 @@ export function keydown(e: KeyboardEvent) {
     // clicking e.g. "Show" tab button will focus that making number tab change not work
     if (document.activeElement?.nodeName === "BUTTON") (document.activeElement as any).blur()
 
+    const isEditingText = () => {
+        const activeElem = document.activeElement as HTMLElement | null
+        if (activeElem?.closest(".editItem") || activeElem?.classList?.contains("edit")) return true
+
+        const selection = window.getSelection()
+        const anchorElem = (selection?.anchorNode as Element)?.nodeType === Node.ELEMENT_NODE ? (selection?.anchorNode as Element) : selection?.anchorNode?.parentElement
+        return !!anchorElem?.closest(".edit")
+    }
+
     if (e.ctrlKey || e.metaKey) {
         const drawerMenus = Object.keys(drawerTabs) as DrawerTabIds[]
         if (document.activeElement === document.body && Object.keys(drawerMenus).includes((Number(e.key) - 1).toString())) {
@@ -169,6 +178,9 @@ export function keydown(e: KeyboardEvent) {
         // Handle shift+Z for redo
         if (key === "z" && e.shiftKey) key = "Z"
 
+        // Let text formatting shortcuts be handled by edit tools when a text box is active.
+        if (["b", "i", "u"].includes(key.toLowerCase()) && isEditingText()) return
+
         // use default input shortcuts on supported devices
         const exeption = ["e", "i", "n", "o", "s", "a", "z", "Z", "y"]
         const macShortcutDebug = false
@@ -176,13 +188,15 @@ export function keydown(e: KeyboardEvent) {
             return
         }
 
-        if (e.shiftKey && shiftCtrlKeys[key.toLowerCase()]) {
+        key = key.toLowerCase()
+
+        if (e.shiftKey && shiftCtrlKeys[key]) {
             e.preventDefault()
-            shiftCtrlKeys[key.toLowerCase()](e)
+            shiftCtrlKeys[key](e)
             return
         }
 
-        const preventDefaults = ["z", "Z", "y"]
+        const preventDefaults = ["z", "y"]
         if (ctrlKeys[key]) {
             ctrlKeys[key](e)
             if (preventDefaults.includes(key) || macShortcutDebug) {
@@ -382,7 +396,7 @@ export const previewShortcuts = {
         }
 
         // space bar should toggle timeline for show when active
-        if (get(special).timelineActive || get(special).projectTimelineActive) return
+        if (isTimelineActive()) return
 
         const outputId = getFirstActiveOutput()?.id || ""
         const currentOutput = outputId ? get(outputs)[outputId] || null : null
@@ -397,6 +411,11 @@ export const previewShortcuts = {
         }
     },
     Home: (e: KeyboardEvent) => {
+        if (isTimelineActive()) {
+            triggerFunction("reset_timeline_view")
+            return
+        }
+
         const currentShow = get(focusMode) ? get(activeFocus) : get(activeShow)
         if (!get(showsCache)[currentShow?.id || ""]) return
         if (presentationControllersKeysDisabled()) return
@@ -412,6 +431,12 @@ export const previewShortcuts = {
         e.preventDefault()
         nextSlideIndividual(e, false, true)
     }
+}
+
+function isTimelineActive() {
+    if (get(activePage) === "show") return get(special).timelineActive || get(special).projectTimelineActive
+    if (get(activePage) === "edit") return get(special).slideTimelineActive
+    return false
 }
 
 export function presentationControllersKeysDisabled() {

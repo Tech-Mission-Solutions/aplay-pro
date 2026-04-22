@@ -28,8 +28,6 @@
         getCodecInfo()
     }
 
-    $: console.log(mediaData)
-
     let codecInfo: { codecs?: string[]; mimeType?: string; mimeCodec?: string } = {}
     async function getCodecInfo() {
         if (!videoExtensions.includes(getExtension($activeShow?.id || ""))) return

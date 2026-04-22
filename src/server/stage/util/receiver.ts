@@ -58,6 +58,7 @@ export const receiver = {
     },
     OUT_SLIDE_CACHE: (data: any) => outputSlideCache.set(data),
     BACKGROUND: (data: any) => _set("background", data),
+    MEDIA: (data: any) => _update("media", data.path, data.value),
 
     SHOW_DATA: (data: { id: string; show: Show }) => {
         if (!data.id || !data.show) return

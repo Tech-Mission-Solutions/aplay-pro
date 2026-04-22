@@ -5,6 +5,7 @@ export const actionData = {
     next_project_item: { name: "actions.next_project_item", icon: "project", incompatible: ["previous_project_item", "index_select_project_item"] },
     previous_project_item: { name: "actions.previous_project_item", icon: "project", incompatible: ["next_project_item", "index_select_project_item"] },
     index_select_project_item: { name: "actions.index_select_project_item", icon: "project", input: "index", incompatible: ["next_project_item", "previous_project_item"] },
+    name_start_project_item: { name: "actions.name_start_project_item", icon: "project", input: "strval" },
     mark_active_as_played: { name: "actions.mark_played", icon: "check", input: "toggle" },
 
     // SHOWS
@@ -12,6 +13,7 @@ export const actionData = {
     start_show: { slideId: "startShow", common: true, name: "preview._start", icon: "showIcon", input: "start_show" }, // any play actions are incompatible with clear actions...
     set_template: { name: "actions.set_template_active", icon: "templates", input: "id" },
     set_next_slide_timer: { name: "preview.nextTimer", icon: "timer", input: "numval" },
+    change_slide_timeline_speed: { name: "actions.change_slide_timeline_speed", icon: "timeline", input: "percentage" },
     transpose_show_up: { name: "edit.transpose_up", icon: "up" },
     transpose_show_down: { name: "edit.transpose_down", icon: "down" },
 
@@ -46,8 +48,8 @@ export const actionData = {
 
     // OUTPUT
     lock_output: { SECTION: "guide_title.output", canAddMultiple: true, name: "actions.toggle_output_lock", icon: "locked", input: "output_lock" },
-    toggle_output_windows: { name: "actions.toggle_output_windows", icon: "outputs", incompatible: ["toggle_output"] },
-    toggle_output: { canAddMultiple: true, name: "actions.toggle_output_window", icon: "outputs", input: "id", incompatible: ["toggle_output_windows"] },
+    toggle_output_windows: { name: "actions.toggle_output_windows", icon: "outputs", input: "toggle", incompatible: ["toggle_output"] },
+    toggle_output: { canAddMultiple: true, name: "actions.toggle_output_window", icon: "outputs", input: "toggle_output", incompatible: ["toggle_output_windows"] },
     // id_select_output_style: { name: "actions.id_select_output_style", icon: "styles", input: "id" },
     change_output_style: { slideId: "outputStyle", common: true, canAddMultiple: true, name: "actions.change_output_style", icon: "styles", input: "change_output_style" },
     change_transition: { name: "actions.change_transition", icon: "transition", input: "transition" },

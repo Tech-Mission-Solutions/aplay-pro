@@ -71,13 +71,13 @@ export function convertText({ name = "", origin = "", category = null, text, noF
             }
 
             const meta = line.split("=")
-            const metaKey = meta[0].toLowerCase().replaceAll(" ", "")
+            const metaKey = meta[0].toLowerCase().replaceAll(" ", "").trim()
             if (metaKey === "notes") {
                 plainNotes = meta[1]
                 return
             }
 
-            const metadataKey = Object.keys(metadataKeys).find((key) => key.toLowerCase().replaceAll(" ", "") === metaKey || translateText("meta." + key).toLowerCase() === metaKey)
+            const metadataKey = Object.keys(metadataKeys).find((key) => key.toLowerCase().replaceAll(" ", "").trim() === metaKey || translateText("meta." + key).toLowerCase() === metaKey)
             if (!metadataKey) {
                 // create slide with unknown metadata
                 // newLines.push(line)
@@ -213,10 +213,6 @@ function preprocessLines(lines: string[]): string[] {
         if (isSectionHeader) {
             output.push(currentLine)
             i++
-            // Skip any empty lines after the section header
-            while (i < lines.length && lines[i].trim() === "") {
-                i++
-            }
             continue
         }
 
@@ -305,12 +301,24 @@ function createSlides(labeled: { type: string; text: string }[], noFormatting) {
     // add children
     Object.entries(addedChildren).forEach(([parentId, children]) => {
         if (!slides[parentId]) return
-        slides[parentId].children = [...(slides[parentId].children || []), ...(children || [])]
+        slides[parentId].children = [...(slides[parentId]?.children || []), ...(children || [])]
     })
 
     return removeSlideDuplicates(slides, layouts)
 
     function convertLabeledSlides(a: { type: string; text: string }): void {
+        const trimmed = a.text.trim().toLowerCase()
+        const bracketHeader = `[${a.type.toLowerCase()}]`
+        const colonHeader = `${a.type.toLowerCase()}:`
+        if (trimmed === bracketHeader || trimmed === colonHeader) {
+            const id = uid()
+            const slide: Slide = { group: a.type, color: null, settings: {}, notes: "", items: [] }
+            slides[id] = slide
+            layouts.push({ id })
+            activeGroup = null
+            return
+        }
+
         let id = ""
         const formatText: boolean = noFormatting ? false : get(formatNewShow)
         const autoGroups: boolean = get(special).autoGroups !== false
@@ -342,7 +350,7 @@ function createSlides(labeled: { type: string; text: string }[], noFormatting) {
 
         // split slide notes from text ("---")
         const slideTextAndNotes = slideText.split("---")
-        if (!slideTextAndNotes[0]) return
+        if (!slideTextAndNotes[0]?.length) return
 
         while (new Set(slideTextAndNotes[0].split("")).size === 1 && slideTextAndNotes[0][0] === "-") slideTextAndNotes.shift()
         let allLines: string[] = [slideTextAndNotes.shift() || ""]
@@ -458,6 +466,8 @@ function removeSlideDuplicates(slides: { [key: string]: Slide }, layouts: SlideD
         if (slide.group === null) return
 
         let text = getSlideText(slide)
+        // for empty slides, include group label in deduplication key
+        if (!text.trim()) text = `EMPTY_${slide.group}`
         text += slide.children?.reduce((value, childId) => (value += getSlideText(slides[childId])), "") || ""
 
         const exists = Object.keys(slideTextCache).find((id) => slideTextCache[id] === text)
@@ -515,7 +525,7 @@ function fixText(text: string, formatText: boolean): string {
 
     // remove group from text
     if (text[0] === "[" && text.includes("]")) text = text.slice(text.indexOf("]") + 1)
-    if (text.indexOf(":") === text.split("\n")[0].length - 1) text = text.slice(text.indexOf(":") + 1)
+    if (text.indexOf(":") === text.split("\n")[0].length - 1 && (formatText || text.split("\n")[0]?.split(" ").length < 3)) text = text.slice(text.indexOf(":") + 1)
 
     if (formatText) {
         // repeat text

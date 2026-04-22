@@ -156,12 +156,14 @@
     height:50px;
     padding: 10px;
 
-    /* disabled because it's causing unexpected behaviour in Windows 11 */
-    /* -webkit-app-region: drag; */
-  }
-  .top span {
-    display: flex;
-  }
+        box-shadow: 0 0 4px rgb(0 0 0 / 0.4);
+
+        /* disabled because it's causing unexpected behaviour in Windows 11 */
+        /* -webkit-app-region: drag; */
+    }
+    .top span {
+        display: flex;
+    }
 
   .top.drag {
     -webkit-app-region: drag;

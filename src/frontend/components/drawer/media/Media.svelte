@@ -4,6 +4,7 @@
     import { Main } from "../../../../types/IPC/Main"
     import type { ClickEvent, FileFolder } from "../../../../types/Main"
     import { requestMain } from "../../../IPC/main"
+    import { addProjectItem } from "../../../converters/project"
     import { activeDrawerTab, activeEdit, activeFocus, activeMediaTagFilter, activePopup, activeShow, audioFolders, drawerTabsData, focusMode, labelsDisabled, media, mediaFolders, mediaOptions, outLocked, outputs, popupData, providerConnections, selectAllMedia, selected, sorted, special } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
@@ -23,6 +24,7 @@
     import Screens from "../live/Screens.svelte"
     import Windows from "../live/Windows.svelte"
     import PlayerVideos from "../player/PlayerVideos.svelte"
+    import CLogo from "./CLogo.svelte"
     import Canva from "./Canva.svelte"
     import ContentLibraryBrowser from "./ContentLibraryBrowser.svelte"
     import Folder from "./Folder.svelte"
@@ -367,10 +369,12 @@
     function keydown(e: KeyboardEvent) {
         if (e.key === "Enter" && searchValue.length > 1 && e.target?.closest(".search")) {
             if (fileCount) {
-                let file = mediaFilesOnly[0]
+                // let file = mediaFilesOnly[0] // not updating
+                let file = searchedFiles.filter((a) => !a.isFolder)[0]
 
-                if ($focusMode) activeFocus.set({ id: file.path, type: getMediaType(getExtension(file.name)) })
-                else activeShow.set({ id: file.path, name: file.name, type: getMediaType(getExtension(file.name)) })
+                // add to project
+                const data = { id: file.path, name: file.name, type: getMediaType(getExtension(file.name)) }
+                addProjectItem(data)
 
                 activeFile = searchedFiles.findIndex((a) => a.path === file.path)
                 if (activeFile < 0) activeFile = null
@@ -437,7 +441,7 @@
 
     function handleDisconnect() {
         requestMain(Main.PROVIDER_DISCONNECT, { providerId: "canva" }, (result) => {
-            if (result.success) {
+            if (result?.success) {
                 providerConnections.update((c) => {
                     c.canva = false
                     return c
@@ -468,11 +472,10 @@
             <Icon size={1.1} id="ndi" white />
             <p>NDI</p>
         </MaterialButton>
-        <!-- BLACKMAGIC CURRENTLY NOT WORKING -->
-        <!-- <MaterialButton style="flex: 1;" isActive={screenTab === "blackmagic"} on:click={() => setSubSubTab("blackmagic")}>
+        <MaterialButton style="flex: 1;" isActive={screenTab === "blackmagic"} on:click={() => setSubSubTab("blackmagic")}>
             <Icon size={1.2} id="blackmagic" white />
             <p>Blackmagic</p>
-        </MaterialButton> -->
+        </MaterialButton>
     </div>
 {:else if active === "online"}
     <div class="tabs">
@@ -493,15 +496,14 @@
             <Icon style={onlineTab === "unsplash" ? "fill: #bbbbbb" : ""} size={1.2} id="unsplash" white />
             <p>Unsplash</p>
         </MaterialButton>
-        <!-- hidden until approved! -->
-        <!-- <MaterialButton style="flex: 1;" isActive={onlineTab === "canva"} on:click={() => setSubSubTab("canva")}>
+        <MaterialButton style="flex: 1;" isActive={onlineTab === "canva"} on:click={() => setSubSubTab("canva")}>
             {#if onlineTab === "canva"}
                 <CLogo />
             {:else}
                 <Icon size={1.2} id="canva" white />
             {/if}
             <p>Canva</p>
-        </MaterialButton> -->
+        </MaterialButton>
     </div>
 {/if}
 
@@ -512,7 +514,7 @@
         {#if isProviderSection && activeProviderId}
             <ContentLibraryBrowser providerId={activeProviderId} columns={$mediaOptions.columns} {searchValue} />
         {:else if active === "online" && (onlineTab === "youtube" || onlineTab === "vimeo")}
-            <div class="gridgap">
+            <div class="gridgap context #player">
                 <PlayerVideos active={onlineTab} {searchValue} />
             </div>
         {:else if active === "online" && onlineTab === "canva"}
@@ -604,10 +606,10 @@
                 {#if !$labelsDisabled}<T id="settings.add" />{/if}
             </MaterialButton>
         </FloatingInputs>
-    {:else}
-        <FloatingInputs arrow={onlineTab === "canva" && $providerConnections.canva}>
+    {:else if onlineTab !== "canva" || $providerConnections.canva}
+        <FloatingInputs arrow={onlineTab === "canva"}>
             <svelte:fragment slot="menu">
-                {#if onlineTab === "canva" && $providerConnections.canva}
+                {#if onlineTab === "canva"}
                     <MaterialButton title="settings.disconnect_from" replace={["Canva"]} on:click={handleDisconnect} icon="logout">
                         <T id="settings.disconnect_from" replace={["Canva"]} />
                     </MaterialButton>

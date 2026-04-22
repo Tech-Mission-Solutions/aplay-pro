@@ -4,7 +4,7 @@
     import { uid } from "uid"
     import type { TimelineAction } from "../../../types/Show"
     import { createWaveform } from "../../audio/audioWaveform"
-    import { activePopup, activeShow, activeTriggerFunction, resized, selected, showsCache, special, timecode, timeline as timelineStore } from "../../stores"
+    import { activeEdit, activePopup, activeShow, activeTriggerFunction, dictionary, resized, selected, showsCache, special, timecode, timeline as timelineStore } from "../../stores"
     import { DEFAULT_WIDTH } from "../../utils/common"
     import { translateText } from "../../utils/language"
     import { actionData } from "../actions/actionData"
@@ -13,6 +13,7 @@
     import FloatingInputs from "../input/FloatingInputs.svelte"
     import MaterialButton from "../inputs/MaterialButton.svelte"
     import { ShowTimeline } from "./ShowTimeline"
+    import TimelineEasing from "./TimelineEasing.svelte"
     import { formatTime, getActionsAtPosition, getProjectShowDurations, getTickInterval, getTimelineSections, parseTime, TIMELINE_SECTION_GAP, TIMELINE_SECTION_HEIGHT, TIMELINE_SECTION_TOP, timelineSections, timelineZoom } from "./timeline"
     import { TimelineActions, type TimelineType } from "./TimelineActions"
     import { getActiveTimelinePlayback, TimelinePlayback } from "./TimelinePlayback"
@@ -25,34 +26,63 @@
     const sections = clone(timelineSections[type] || {})
     let tabIds = Object.keys(sections)
 
-    const maxTrackIndex = tabIds.length
-    $: totalTrackHeight = TIMELINE_SECTION_TOP + maxTrackIndex * (TIMELINE_SECTION_HEIGHT + TIMELINE_SECTION_GAP) - TIMELINE_SECTION_GAP + TIMELINE_SECTION_TOP
+    // smaller height (that broke right click select)
+    const SECTION_GAP = TIMELINE_SECTION_GAP // type === "slide" ? 5 : TIMELINE_SECTION_GAP
+    const SECTION_HEIGHT = TIMELINE_SECTION_HEIGHT // type === "slide" ? 42 : TIMELINE_SECTION_HEIGHT
+
+    let maxTrackIndex = tabIds.length
+    $: totalTrackHeight = TIMELINE_SECTION_TOP + maxTrackIndex * (SECTION_HEIGHT + SECTION_GAP) - SECTION_GAP + TIMELINE_SECTION_TOP
 
     function getTrackData(index: number, _updater: any) {
         return sections[tabIds[index]] || { name: "Unknown", icon: "unknown" }
     }
     function getActionTrack(action: TimelineAction): number {
+        if (type === "slide") return groupedActions.findIndex((group) => group[0].data?.type === action.data?.type && group[0].data?.key === action.data?.key)
         return tabIds.indexOf(action.type)
     }
     function getActionBaseY(action: TimelineAction): number {
-        return TIMELINE_SECTION_TOP + getActionTrack(action) * (TIMELINE_SECTION_HEIGHT + TIMELINE_SECTION_GAP)
+        return TIMELINE_SECTION_TOP + getActionTrack(action) * (SECTION_HEIGHT + SECTION_GAP)
     }
 
     // TIMELINE
 
     let actions: TimelineAction[] = []
+    let groupedActions: TimelineAction[][] = []
     let isDestroyed = false
 
     const player = new TimelinePlayback(type)
 
-    const timeline = new TimelineActions(type, async (a) => {
+    let shouldLoop: boolean = false
+    const timeline = new TimelineActions(type, async (a, data) => {
         await tick()
 
         if (isDestroyed) return
 
+        shouldLoop = data?.shouldLoop || false
+        player.setLoopState(shouldLoop)
+
         actions = a
         player.setActions(a)
         tabIds = getTimelineSections(sections, a)
+
+        // group based on type
+        if (type !== "slide") return
+
+        const newGroups = new Map<string, TimelineAction[]>()
+        a.forEach((action) => {
+            const groupKey = `${action.data?.type}_${action.data?.key}`
+            if (!newGroups.has(groupKey)) newGroups.set(groupKey, [])
+            newGroups.get(groupKey)?.push(action)
+        })
+
+        groupedActions = Array.from(newGroups.values())
+        // sort by action type (item/text)
+        groupedActions = groupedActions.sort((a, b) => {
+            const aType = a[0].data?.type || ""
+            const bType = b[0].data?.type || ""
+            return aType.localeCompare(bType)
+        })
+        maxTrackIndex = groupedActions.length
     })
     timeline.onUpdate(() => {
         currentTime = 0
@@ -133,8 +163,10 @@
     $: visibleTicksEndIndex = Math.min(totalTickCount, Math.ceil((scrollLeft + containerWidth) / (tickInterval * zoomLevel)))
     $: visibleTickCount = Math.max(0, visibleTicksEndIndex - visibleTicksStartIndex + 1)
 
+    $: if ($activeTriggerFunction === "reset_timeline_view") resetView()
     async function resetView() {
         zoomLevel = 10
+        tickInterval = getTickInterval(zoomLevel) // this should have auto updated but it doesn't sometimes
         autoFollow = true
         await tick()
         centerPlayhead()
@@ -199,6 +231,7 @@
 
     function startContentInteraction(e: MouseEvent) {
         if (e.button !== 0) return
+        if (e.target?.closest(".easing")) return
 
         // remove any selection
         selected.set({ id: null, data: [] })
@@ -232,6 +265,8 @@
     function selectAll() {
         const allActionIds = actions.map((a) => a.id)
         selectedActionIds = allActionIds
+
+        selectOnlyActiveActions()
     }
 
     function updateSelection(e: MouseEvent) {
@@ -259,7 +294,7 @@
 
         selectionRect = { x: visualX, y: visualY, w: visualW, h: visualH }
 
-        const newSelectedIds = getActionsAtPosition(e, trackWrapper, actions, tabIds, zoomLevel, selectionRect, projectShowDurations)
+        const newSelectedIds = getActionsAtPosition(e, trackWrapper, actions, type === "slide" ? groupedActions : tabIds, zoomLevel, selectionRect, projectShowDurations)
 
         if (selectionStartIds.length > 0) {
             const combined = new Set([...selectionStartIds, ...newSelectedIds])
@@ -267,6 +302,23 @@
         } else {
             selectedActionIds = newSelectedIds
         }
+
+        selectOnlyActiveActions()
+    }
+
+    function selectOnlyActiveActions() {
+        selectedActionIds = selectedActionIds.filter((id) => {
+            const action = actions.find((a) => a.id === id)
+            if (!action) return false
+
+            if (type === "slide" && action.type === "style") {
+                // only select "active" actions
+                const itemIndexes = action.data?.indexes ?? [0]
+                return itemIndexes.some((index) => selectedItemIndexes.includes(index))
+            }
+
+            return true
+        })
     }
 
     function endSelection() {
@@ -292,7 +344,7 @@
 
         const snappedTime = isClosed ? Math.round(seekTime / 10) * 10 : Math.round(seekTime / snapInterval) * snapInterval
         const time = Math.max(0, Math.min(snappedTime, timelineDuration))
-        player.setTime(time)
+        player.setTime(time, true)
     }
 
     function checkAutoScroll() {
@@ -380,7 +432,7 @@
     function startActionDrag(e: MouseEvent, id: string) {
         // select on right-click
         if (e.button === 2) {
-            const clickedActions = getActionsAtPosition(e, trackWrapper, actions, tabIds, zoomLevel, null, projectShowDurations)
+            const clickedActions = getActionsAtPosition(e, trackWrapper, actions, type === "slide" ? groupedActions : tabIds, zoomLevel, null, projectShowDurations)
             // skip if selection includes any clicked action
             if (clickedActions.some((a) => selectedActionIds.includes(a))) return
             // select all right clicked actions
@@ -594,13 +646,16 @@
                 time,
                 type: sequence.type,
                 data: sequence.data,
-                name: sequence.name
+                name: sequence.name,
+                color: sequence.color
             })
 
             // start if changed when paused
             if (!isPlaying) player.play()
         })
     }
+
+    $: if ($activeTriggerFunction === "timeline_update") timeline.refreshActions()
 
     // Waveform
     function useWaveform(node: HTMLElement, path: string) {
@@ -636,6 +691,10 @@
     $: slideActions = actionsByTime.filter((a) => a.type === "slide")
     $: firstSlideAction = slideActions[0]
     $: lastSlideAction = slideActions[slideActions.length - 1]
+
+    $: selectedItemIndexes = type === "slide" ? ($activeEdit?.items?.length ? $activeEdit?.items : [0]) : []
+
+    let easingActive: number | null = null
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -698,7 +757,7 @@
                 </div>
             </div>
 
-            <MaterialButton style="min-width: 40px;padding: 10px;" title="main.open" on:click={() => resized.update((a) => ({ ...a, [(type === "project" ? "project_" : "") + "timeline"]: DEFAULT_WIDTH }))}>
+            <MaterialButton style="min-width: 40px;padding: 10px;" title="main.open" on:click={() => resized.update((a) => ({ ...a, [(type === "project" ? "project_" : type === "slide" ? "slide_" : "") + "timeline"]: DEFAULT_WIDTH }))}>
                 <Icon id="up" white />
             </MaterialButton>
         </div>
@@ -743,13 +802,27 @@
             <!-- Track Headers (Sticky Left) -->
             <div class="headers-container" bind:this={headersContainer} style="width: {usedHeaderWidth}px; min-width: {usedHeaderWidth}px;">
                 <div class="track-headers" style="height: {totalTrackHeight}px;">
-                    {#each Array(maxTrackIndex) as _, i}
-                        {@const track = getTrackData(i, actions)}
-                        <div class="track-header" style="top: {TIMELINE_SECTION_TOP + i * (TIMELINE_SECTION_HEIGHT + TIMELINE_SECTION_GAP)}px;width: 100%;{track.hasData ? '' : 'opacity: 0.3;'}">
-                            <Icon id={track.icon} white />
-                            <span class="track-name">{translateText(track.name)}</span>
-                        </div>
-                    {/each}
+                    {#if type === "slide"}
+                        {#each groupedActions as actions, i}
+                            <div class="track-header" style="top: {TIMELINE_SECTION_TOP + i * (SECTION_HEIGHT + SECTION_GAP)}px;height: {SECTION_HEIGHT}px;width: 100%;">
+                                <Icon id={actions[0]?.data?.type === "text" ? "text" : "item"} white />
+                                <span class="track-name">{translateText(actions[0]?.name)}</span>
+
+                                <!-- easing -->
+                                <MaterialButton title="timeline.toggle_curve_editor" style="padding: 8px;margin-left: 30px;position: absolute;right: 5px;background-color: var(--primary-darker);" isActive={easingActive === i} on:click={() => (easingActive = easingActive === null || easingActive !== i ? i : null)}>
+                                    <Icon id="easing" white />
+                                </MaterialButton>
+                            </div>
+                        {/each}
+                    {:else}
+                        {#each Array(maxTrackIndex) as _, i}
+                            {@const track = getTrackData(i, actions)}
+                            <div class="track-header" style="top: {TIMELINE_SECTION_TOP + i * (SECTION_HEIGHT + SECTION_GAP)}px;height: {SECTION_HEIGHT}px;width: 100%;{track.hasData ? '' : 'opacity: 0.3;'}">
+                                <Icon id={track.icon} white />
+                                <span class="track-name">{translateText(track.name)}</span>
+                            </div>
+                        {/each}
+                    {/if}
                 </div>
             </div>
 
@@ -783,7 +856,7 @@
                         {@const baseY = getActionBaseY(action)}
 
                         {#if duration}
-                            <div class="action-clip context #timeline_node" class:selected={selectedActionIds.includes(action.id)} style="left: {(action.time / 1000) * zoomLevel}px; width: {duration * zoomLevel}px; top: {baseY}px;height: {TIMELINE_SECTION_HEIGHT + 4}px;" data-title="{formatTime(action.time, type, $timelineStore)}-{formatTime(duration * 1000, type, $timelineStore)}: {action.name}" on:mousedown|stopPropagation={(e) => startActionDrag(e, action.id)}>
+                            <div class="action-clip context #timeline_node" class:selected={selectedActionIds.includes(action.id)} style="left: {(action.time / 1000) * zoomLevel}px; width: {duration * zoomLevel}px; top: {baseY}px;height: {SECTION_HEIGHT + 4}px;" data-title="{formatTime(action.time, type, $timelineStore)}-{formatTime(duration * 1000, type, $timelineStore)}: {action.name}" on:mousedown|stopPropagation={(e) => startActionDrag(e, action.id)}>
                                 <div class="action-clip-content">
                                     {#if action.type === "audio"}
                                         <div class="waveform-container" use:useWaveform={action.data.path || ""}></div>
@@ -792,7 +865,14 @@
                                 </div>
                             </div>
                         {:else}
-                            <div class="action-marker {action.type} context #timeline_node" class:selected={selectedActionIds.includes(action.id)} style="left: {(action.time / 1000) * zoomLevel}px; top: {baseY + 10}px;" data-title="{formatTime(action.time, type, $timelineStore)}: {action.name}" on:mousedown|stopPropagation={(e) => startActionDrag(e, action.id)}>
+                            <div
+                                class="action-marker {action.type} context #timeline_node"
+                                class:selected={selectedActionIds.includes(action.id)}
+                                class:faded={type === "slide" && action.type === "style" && !(action.data?.indexes ?? [0])?.some((a) => selectedItemIndexes.includes(a))}
+                                style="left: {(action.time / 1000) * zoomLevel}px; top: {baseY + 10}px;"
+                                data-title="{formatTime(action.time, type, $timelineStore)}: {action.name}"
+                                on:mousedown|stopPropagation={(e) => startActionDrag(e, action.id)}
+                            >
                                 <div class="action-head">
                                     {#if action.type === "action"}
                                         <Icon id={action.data.triggers?.length === 1 ? actionData[action.data.triggers[0]]?.icon : "actions"} size={0.9} white />
@@ -800,10 +880,23 @@
                                         {action.data.index + 1}
                                     {/if}
                                 </div>
-                                <div class="action-label">{translateText(action.name)}</div>
+                                <div class="action-label" style="{action.color ? `border-bottom: 1px solid ${action.color};` : ''}{type === 'slide' ? 'font-size: 0.7em;' : ''}">
+                                    {#if action.type === "style"}
+                                        {#if typeof action.data.value === "number"}
+                                            {parseFloat(action.data.value.toFixed(1))}
+                                        {:else}
+                                            {action.data.value}
+                                        {/if}
+                                    {:else}
+                                        {translateText(action.name)}
+                                    {/if}
+                                </div>
                             </div>
                         {/if}
                     {/each}
+
+                    <!-- Easing -->
+                    <TimelineEasing {groupedActions} {actions} {selectedActionIds} {selectedItemIndexes} activeGroupIndex={easingActive} {zoomLevel} sectionHeight={SECTION_HEIGHT} sectionGap={SECTION_GAP} sectionTop={TIMELINE_SECTION_TOP} onActionDrag={startActionDrag} {timeline} on:clearSelection={() => (selectedActionIds = [])} />
 
                     <!-- Selection Box -->
                     {#if selectionRect}
@@ -818,31 +911,41 @@
             </div>
         </div>
 
-        <FloatingInputs side="left" style="margin-bottom: 8px;margin-left: 120px;">
-            {#if disablePlayback}
-                <MaterialButton style="min-width: 40px;padding: 10px;" title={isPlaying ? "media.stop" : "media.play"} on:click={() => (isPlaying ? player.pause() : player.play())}>
-                    <Icon id={isPlaying ? "stop" : "microphone"} white={!isPlaying} />
-                </MaterialButton>
-            {:else}
-                <MaterialButton title={isPlaying ? "media.pause" : "media.play"} on:click={() => (isPlaying ? player.pause() : player.play())}>
-                    <Icon size={1.3} id={isPlaying ? "pause" : "play"} white={!isPlaying} />
-                </MaterialButton>
+        {#if easingActive === null || type !== "slide"}
+            <FloatingInputs side="left" style="margin-bottom: 8px;margin-left: 120px;">
+                {#if disablePlayback}
+                    <MaterialButton style="min-width: 40px;padding: 10px;" title={isPlaying ? "media.stop" : "media.play"} on:click={() => (isPlaying ? player.pause() : player.play())}>
+                        <Icon id={isPlaying ? "stop" : "microphone"} white={!isPlaying} />
+                    </MaterialButton>
+                {:else}
+                    <MaterialButton title={isPlaying ? "media.pause" : "media.play"} on:click={() => (isPlaying ? player.pause() : player.play())}>
+                        <Icon size={1.3} id={isPlaying ? "pause" : "play"} white={!isPlaying} />
+                    </MaterialButton>
 
-                <MaterialButton disabled={currentTime === 0} title="media.stop" on:click={() => player.stop()}>
-                    <Icon size={1.3} id="stop" white={!isPlaying} />
-                </MaterialButton>
-            {/if}
+                    <MaterialButton disabled={currentTime === 0} title="media.stop" on:click={() => player.stop()}>
+                        <Icon size={1.3} id="stop" white={!isPlaying} />
+                    </MaterialButton>
+                {/if}
 
-            {#if type === "show"}
-                <MaterialButton disabled={isPlaying && !isRecording} title="actions.{isRecording ? 'stop_recording' : 'start_recording'}" on:click={toggleRecording} red={isRecording}>
-                    <Icon size={1.3} id="record" white />
-                </MaterialButton>
-            {/if}
+                {#if type === "show"}
+                    <div class="divider"></div>
 
-            <div class="divider" />
+                    <MaterialButton disabled={isPlaying && !isRecording} title="actions.{isRecording ? 'stop_recording' : 'start_recording'}" on:click={toggleRecording} red={isRecording}>
+                        <Icon size={1.3} id="record" white />
+                    </MaterialButton>
+                {:else if type === "slide"}
+                    <div class="divider"></div>
 
-            <MaterialButton icon="focus" title="actions.resetZoom" on:click={resetView} />
-        </FloatingInputs>
+                    <MaterialButton title={translateText("media._loop" + (shouldLoop ? ": settings.enabled" : ""), $dictionary) || "Loop"} on:click={() => (shouldLoop = timeline.toggleLoop())} active={shouldLoop}>
+                        <Icon size={1.1} id="loop" white={!shouldLoop} />
+                    </MaterialButton>
+                {/if}
+
+                <!-- <div class="divider" />
+
+            <MaterialButton icon="focus" title="actions.resetZoom" on:click={resetView} /> -->
+            </FloatingInputs>
+        {/if}
 
         {#if type === "project"}
             <FloatingInputs style="margin-bottom: 8px;">
@@ -1046,8 +1149,13 @@
         pointer-events: none;
     }
 
-    .action-marker > * {
+    .action-marker:not(.faded) > * {
         pointer-events: auto;
+    }
+
+    .action-marker.faded {
+        pointer-events: none;
+        opacity: 0.5;
     }
 
     .action-head {
@@ -1068,6 +1176,24 @@
     }
     .action-marker.slide .action-head {
         border-radius: 4px;
+    }
+    .action-marker.style .action-head {
+        border-radius: 2px;
+        transform: rotate(45deg);
+        width: 12px;
+        height: 12px;
+        font-size: 0.5em;
+    }
+
+    .slide-action-bar {
+        position: absolute;
+        transform: translateY(15px);
+        height: 8px;
+        width: 100%;
+
+        border-radius: 4px;
+        background-color: var(--secondary);
+        opacity: 0.3;
     }
 
     .slide-action-bar {

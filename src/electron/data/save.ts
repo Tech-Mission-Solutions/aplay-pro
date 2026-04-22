@@ -6,7 +6,7 @@ import type { SaveData } from "../../types/Save"
 import { currentlyDeletedShows } from "../cloud/drive"
 import { startBackup } from "../data/backup"
 import { defaultSettings, defaultSyncedSettings } from "../data/defaults"
-import { _store, safeStoreSet } from "../data/store"
+import { _store, getStore, safeStoreSet } from "../data/store"
 import { sendMain, sendToMain } from "../IPC/main"
 import { deleteFile, doesPathExist, getDataFolderPath, parseShow, readFile, writeFile } from "../utils/files"
 import { checkIfMatching, clone, wait } from "../utils/helpers"
@@ -16,6 +16,15 @@ let isSaving = false
 export async function save(data: SaveData) {
     if (isSaving) return
     isSaving = true
+
+    // auto backup right after startup does not need to write again
+    const isAutoBackupOnly = !!data.customTriggers?.backup && !!data.customTriggers?.isAutoBackup && !data.customTriggers?.autosave && !data.closeWhenFinished
+    if (isAutoBackupOnly) {
+        startBackup({ customTriggers: data.customTriggers })
+        sendToMain(ToMain.SAVE2, { closeWhenFinished: false, customTriggers: data.customTriggers })
+        isSaving = false
+        return
+    }
 
     const reset = !!data.customTriggers?.reset
     if (reset) {
@@ -30,7 +39,9 @@ export async function save(data: SaveData) {
     async function storeData([key, store]: [keyof typeof _store, any]) {
         const newData = (data as any)[key]
         if (!newData || !isValidJSON(newData)) return
-        if (checkIfMatching(store.store, newData)) return
+
+        const currentData = getStore(key as keyof typeof _store)
+        if (checkIfMatching(currentData, newData)) return
 
         await safeStoreSet(store, newData, key)
 

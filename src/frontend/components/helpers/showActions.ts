@@ -109,7 +109,7 @@ export function swichProjectItem(pos: number, id: string) {
 export function getItemWithMostLines(slide: Slide | { items: Item[] }) {
     let amount = 0
     slide.items?.forEach((item) => {
-        const lines: number = item?.lines?.filter((line) => line.text?.filter((text) => text.value.length)?.length)?.length || 0
+        const lines: number = item?.lines?.filter((line) => line.text?.filter((text) => text.value !== undefined)?.length)?.length || 0
         if (lines > amount) amount = lines
     })
     return amount
@@ -231,7 +231,7 @@ export function nextSlide(e: any, start = false, end = false, loop = false, bypa
     if (isLastSlide && !hasLinesEnded) isLastSlide = false
 
     // item/click reveal
-    const clickRevealItems = (showSlide?.items || []).filter((a) => a.clickReveal)
+    const clickRevealItems = (showSlide?.items || []).filter((a) => a?.clickReveal)
     const itemsRevealed = clickRevealItems.length ? !!slide?.itemClickReveal : true
     if (isLastSlide && !itemsRevealed) isLastSlide = false
 
@@ -257,8 +257,23 @@ export function nextSlide(e: any, start = false, end = false, loop = false, bypa
     if (currentShow && (start || !slide || e?.ctrlKey || (isLastSlide && (currentShow.id !== slide?.id || currentLayoutId !== slide.layout)))) {
         if ((currentShow?.type === "section" || !get(showsCache)[currentShow.id] || !getLayoutRef(currentShow.id).length) && advanceThroughProject) return goToNextProjectItem()
 
-        const id = loop ? slide?.id : currentShow.id
+        let id = loop ? slide?.id : currentShow.id
         if (!id) return
+
+        const projectItems = get(projects)[get(activeProject) || ""]?.shows || []
+        let currentLayoutId = (get(focusMode) ? projectItems[currentShow?.index ?? -1]?.layout : null) || _show(id).get("settings.activeLayout")
+
+        // when pressing arrow right on the last slide in focus mode we should always continue from the outputted show (if any) and not the selected show
+        if (get(focusMode) && !start && !loop && currentOutput.out?.slide?.id && slide?.id !== currentShow.id && (slide?.type || "show") === "show") {
+            // get next show after current one
+            const currentId = currentOutput.out.slide.id
+            const projectIndex = projectItems.findIndex((a) => a.id === currentId && (a.type || "show") === "show")
+            const nextProjectShowIndex = projectIndex > -1 ? projectItems.findIndex((a, i) => i > projectIndex && (a.type || "show") === "show") : -1
+            if (nextProjectShowIndex > -1) {
+                id = projectItems[nextProjectShowIndex].id || id
+                currentLayoutId = projectItems[nextProjectShowIndex]?.layout || _show(id).get("settings.activeLayout")
+            }
+        }
 
         // layout = GetLayout()
         layout = getLayoutRef(id)
@@ -271,7 +286,6 @@ export function nextSlide(e: any, start = false, end = false, loop = false, bypa
         checkActionTrigger(data, index)
         // allow custom actions to trigger first
         setTimeout(() => {
-            const currentLayoutId = (get(focusMode) ? get(projects)[get(activeProject) || ""]?.shows?.[currentShow?.index ?? -1]?.layout : null) || _show(id).get("settings.activeLayout")
             setOutput("slide", { id, layout: currentLayoutId, index }, false, customOutputId)
             updateOut(id, index!, layout, !e?.altKey, customOutputId)
         })
@@ -407,7 +421,7 @@ export function goToNextProjectItem(key = "") {
 
             // mark as played
             projects.update((a) => {
-                if (!a[get(activeProject)!]?.shows?.[index - 1]) return a
+                if (typeof a[get(activeProject)!]?.shows?.[index - 1] !== "object") return a
                 a[get(activeProject)!].shows[index - 1].played = true
                 return a
             })
@@ -545,7 +559,7 @@ export function previousSlide(e: any, customOutputId?: string) {
             .get()[0] || null
 
     // item/click reveal
-    const clickRevealItems = (currentShowSlide?.items || []).filter((a) => a.clickReveal)
+    const clickRevealItems = (currentShowSlide?.items || []).filter((a) => a?.clickReveal)
     const itemsRevealed = !!slide?.itemClickReveal
     const clickRevealEnded = !clickRevealItems.length || !itemsRevealed
     if (isFirstSlide && !clickRevealEnded) isLastSlide = false
@@ -570,6 +584,8 @@ export function previousSlide(e: any, customOutputId?: string) {
         layout = _show("active").layouts([currentLayoutId]).ref()[0] || []
         activeLayout = currentLayoutId
         index = (layout.length || 0) - 1
+
+        // WIP when pressing arrow left on the first slide in focus mode we should always continue from the outputted show (if any) and not the selected show ?
     }
 
     let line: number = linesIndex || 0
@@ -847,8 +863,12 @@ export function updateOut(showId: string, index: number, layout: LayoutRef[], ex
             setTimeout(() => {
                 data.audio?.forEach((audio: string) => {
                     const a = clone(_show(showId).get("media")?.[audio] || {})
+                    if (!a) return
 
-                    if (a) AudioPlayer.start(a.path, { name: a.name }, { pauseIfPlaying: false })
+                    // don't start from 0 again if already playing
+                    if (AudioPlayer.getPlaying(a.path)) return
+
+                    AudioPlayer.start(a.path, { name: a.name }, { pauseIfPlaying: false })
                 })
             }, 200)
         }
@@ -1334,7 +1354,7 @@ const replaceTokens = (str: string, id: string, inputs: string[] = []) => {
     })
 }
 
-export function replaceDynamicValues(text: string, { showId, layoutId, slideIndex, type, id, mode }: any, _updater = 0) {
+export function replaceDynamicValues(text: string, { showId, layoutId, slideIndex, type, id, mode }: any, _updater = 0, popup = false) {
     const isOutputWin = isOutputWindow()
 
     if (type === "stage") {
@@ -1351,7 +1371,7 @@ export function replaceDynamicValues(text: string, { showId, layoutId, slideInde
 
     // remove unused scripture dynamic values ({scripture_X} / {scriptureNUM_X})
     const regex = /\{scripture(?:\d+)?_[^}]+\}/g
-    if (regex.test(text)) text = text.replace(regex, "")
+    if (regex.test(text) && !popup) text = text.replace(regex, "")
 
     const customIds = ["slide_text_current", "active_layers", "active_styles", "output_windows_active", "log_song_usage"]
     ;[...getDynamicIds(false, mode), ...customIds].forEach((dynamicId) => {
@@ -1554,7 +1574,7 @@ const dynamicValues = {
 
     // show
     show_name: ({ show }) => show?.name || "",
-    show_name_next: ({ projectRef }) => get(shows)[get(projects)[projectRef.id]?.shows?.[projectRef.index + 1]?.id]?.name || "",
+    show_name_next: ({ projectRef }) => get(shows)[get(projects)[projectRef.id]?.shows?.find((a, i) => a.type !== "section" && i > projectRef.index)?.id ?? -1]?.name || "",
 
     layout_slides: ({ ref }) => ref.length,
     layout_notes: ({ layout }) => layout.notes || "",
@@ -1629,11 +1649,11 @@ const scriptureDynamicValues = {
     scripture_text: () => "In the beginning...",
     scripture_book: () => "Genesis",
     scripture_book_abbr: () => "Gen",
-    scripture_verses: () => "1",
     scripture_chapter: () => "1",
-    scripture_reference: () => "Genesis 1:1", // current slide only
-    scripture_reference_full: () => "Genesis 1:1-3", // across all slides
-    scripture_reference_last: () => "", // full reference, only on last slide
+    scripture_verses: () => "1-3",
+    scripture_reference: () => "Genesis 1:1-3", // current slide only
+    scripture_reference_full: () => "Genesis 1:1-10", // across all slides
+    scripture_reference_last: () => "Last slide only", // full reference, only on last slide
     scripture_name: () => "King James Version", // version
     // scripture_name_abbr: () => "KJV",
     // chapter_verses, book_chapters

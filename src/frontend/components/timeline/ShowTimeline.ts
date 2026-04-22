@@ -7,7 +7,7 @@ import { updateOut } from "../helpers/showActions"
 import { _show } from "../helpers/shows"
 import { clone } from "../helpers/array"
 
-type TimelineActionPass = { type: string; name: string; data: any }
+type TimelineActionPass = { type: string; name: string; color?: string; data: any }
 
 export class ShowTimeline {
     private static recordingActive: boolean = false
@@ -96,8 +96,9 @@ export class ShowTimeline {
             previousRef = newRef
 
             const groupSlideId = layoutRef[outSlide.index]?.parent?.id || layoutSlide?.id
-            const slideGroup = get(showsCache)[ShowTimeline.showRef?.id || ""]?.slides?.[groupSlideId]?.group || ""
-            if (callback) callback({ type: "slide", name: slideGroup, data: slideRef })
+            const slide = get(showsCache)[ShowTimeline.showRef?.id || ""]?.slides?.[groupSlideId]
+            const slideGroup = slide?.group || ""
+            if (callback) callback({ type: "slide", name: slideGroup, color: slide?.color || undefined, data: slideRef })
         })
 
         timelineRecordingAction.set({ id: "" })

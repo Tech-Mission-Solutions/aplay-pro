@@ -2,7 +2,8 @@ import axios from "axios"
 import fs from "fs"
 import { join } from "path"
 import { ToMain } from "../../types/IPC/ToMain"
-import { ChurchAppsProvider, ContentProviderRegistry } from "../contentProviders"
+import type { ChurchAppsProvider } from "../contentProviders"
+import { ContentProviderRegistry } from "../contentProviders"
 import { sendToMain } from "../IPC/main"
 import { httpsRequest } from "../utils/requests"
 import { getContentProviderAccess } from "../data/contentProviders"
@@ -13,6 +14,7 @@ const SCOPE = "plans"
 const ZIP_TYPE = "application/zip"
 
 class ChurchAppsSyncManager {
+    private static offlineAlerted = false;
     provider: ChurchAppsProvider
 
     constructor(provider: ChurchAppsProvider) {
@@ -53,7 +55,7 @@ class ChurchAppsSyncManager {
     }
 
     // Simple HTTP GET to content S3 web server.  No auth needed.
-    private async getHeaders(churchId: string, teamId: string, fileName: string = "current.zip"): Promise<any> {
+    private async getHeaders(churchId: string, teamId: string, fileName = "current.zip"): Promise<any> {
         const path = `/${churchId}/files/group/${teamId}/${fileName}`
         console.log("Checking data...")
 
@@ -74,7 +76,7 @@ class ChurchAppsSyncManager {
     }
 
     // Fetch from S3 content server. No auth needed.
-    async getData(churchId: string, teamId: string, outputFolderPath: string, fileName: string = "current.zip"): Promise<string | null> {
+    async getData(churchId: string, teamId: string, outputFolderPath: string, fileName = "current.zip"): Promise<string | null> {
         const randomNumber = Math.floor(Math.random() * 1000000)
         const path = `/${churchId}/files/group/${teamId}/${fileName}?cacheBuster=${randomNumber}`
         console.log("Downloading data...")
@@ -87,6 +89,12 @@ class ChurchAppsSyncManager {
                     // likely not existing yet
                     if (err.statusCode === 404 || err.statusCode === 403) return resolve(null)
 
+                    // likely offline
+                    if (err.code === "ENOTFOUND") {
+                        ChurchAppsSyncManager.isOffline()
+                        return resolve(null);
+                    }
+
                     console.error("Failed to fetch content:", err)
                     if (fileName !== "current.zip") return resolve(null)
 
@@ -94,6 +102,8 @@ class ChurchAppsSyncManager {
                     return resolve(null)
                 }
 
+                // Reset offline alert state if successful
+                ChurchAppsSyncManager.offlineAlerted = false;
                 return resolve(filePath || null)
             }
         })
@@ -101,7 +111,7 @@ class ChurchAppsSyncManager {
 
     async getWriteToken(teamId: string, fileName: string): Promise<any> {
         const path = `/content/files/postUrl`
-        let params: { [key: string]: string } = { fileName, contentType: "group", contentId: teamId }
+        const params: { [key: string]: string } = { fileName, contentType: "group", contentId: teamId }
 
         const token = await this.provider.getToken(SCOPE)
         const headers = token ? { Authorization: `Bearer ${token}` } : {}
@@ -112,18 +122,32 @@ class ChurchAppsSyncManager {
                     console.error("Failed to get token:", err)
                     if (fileName !== "current.zip") return resolve(null)
 
+                    // likely offline
+                    if (err.code === "ENOTFOUND") {
+                        ChurchAppsSyncManager.isOffline()
+                        return resolve(null);
+                    }
+
                     if (err.statusCode === 401) sendToMain(ToMain.ALERT, "Could not upload data. Make sure you are member of a team, then log out and back in.")
                     else sendToMain(ToMain.ALERT, "Failed to upload data: " + err.message)
 
                     return resolve(null)
                 }
 
+                // Reset offline alert state if successful
+                ChurchAppsSyncManager.offlineAlerted = false;
                 return resolve(data)
             })
         })
     }
 
-    async uploadData(teamId: string, filePath: string, fileName: string = "current.zip"): Promise<boolean> {
+    private static isOffline(){
+        if (ChurchAppsSyncManager.offlineAlerted) return
+        ChurchAppsSyncManager.offlineAlerted = true;
+        sendToMain(ToMain.ALERT, "Offline: Data will not be synced to the cloud.");
+    }
+
+    async uploadData(teamId: string, filePath: string, fileName = "current.zip"): Promise<boolean> {
         const presigned = await this.getWriteToken(teamId, fileName)
         if (!presigned?.url) return false
 

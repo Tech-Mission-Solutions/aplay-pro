@@ -205,7 +205,7 @@
             await socketDisconnect()
             requestMain(Main.PROVIDER_DISCONNECT, { providerId }, (a) => {
                 disconnecting = false
-                if (!a.success) return
+                if (!a?.success) return
                 providerConnections.update((c) => {
                     c[providerId] = false
                     return c
@@ -293,7 +293,7 @@
     <InputRow arrow={$cloudSyncData.enabled}>
         <InputRow style="flex: 1;">
             {#key resetValue}
-                <MaterialToggleSwitch label="Enable sync" data={$cloudSyncData?.team?.name} checked={$cloudSyncData.enabled} style="flex: 1;" on:change={(e) => toggleSync(e.detail)} />
+                <MaterialToggleSwitch label="cloud.enable_sync" data={$cloudSyncData?.team?.name} checked={$cloudSyncData.enabled} style="flex: 1;" on:change={(e) => toggleSync(e.detail)} />
             {/key}
 
             {#if $cloudSyncData.enabled && ($cloudSyncData.team?.count || 0) > 1}

@@ -80,6 +80,8 @@ function combine(item: Item): Item {
 
 // add new style to string and remove old
 export function addStyleString(oldStyle: string, style: any[]): string {
+    if (typeof oldStyle !== "string") return ""
+
     let array: string[] = oldStyle.split(";")
     // remove last if empty
     if (!array[array.length - 1].length) array.pop()
@@ -171,7 +173,7 @@ export function getItemStyleAtPos(lines: Line[], pos: null | { start: number; en
     let style: string = ""
     ;(pos || lines).forEach((_a: any, i: number) => {
         let currentPos: number = 0
-        lines[i]?.text.some((text: any): any => {
+        lines[i]?.text?.some((text: any): any => {
             const value = text.value || ""
 
             // if (pos) console.log(currentPos, pos[i].end, currentPos <= pos[i].end, currentPos + value.length >= pos[i].end)
@@ -185,7 +187,7 @@ export function getItemStyleAtPos(lines: Line[], pos: null | { start: number; en
     })
 
     // filter out empty lines
-    lines = lines.filter((a) => a.text.length)
+    lines = lines.filter((a) => a?.text?.length)
 
     if (!style.length && lines.length) style = lines[lines.length - 1].text[lines[lines.length - 1].text.length - 1]?.style || ""
 
@@ -267,7 +269,7 @@ export function setCaret(element: any, { line = 0, pos = 0 }) {
     let childElem = -1
     let currentTextLength = 0
     lineElem.childNodes.forEach((elem: any, i: number) => {
-        if (!elem) return
+        if (!elem?.innerText) return
 
         currentTextLength += elem.innerText.length
         if (pos <= currentTextLength && childElem < 0) childElem = i
@@ -329,7 +331,7 @@ export function createRange2(node: any, selection: { start: number; end: number 
             let pos: null | number = 0
             if (br.childNodes.length) {
                 new Array(...br.childNodes).forEach((text: any) => {
-                    if (!text) return
+                    if (!text?.innerText) return
 
                     pos += text.innerText.length
                     if (!started && pos !== null && pos >= a.start) {

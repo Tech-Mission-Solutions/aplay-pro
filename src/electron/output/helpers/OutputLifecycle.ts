@@ -9,8 +9,20 @@ import { wait } from "../../utils/helpers"
 import { outputOptions } from "../../utils/windowOptions"
 import { OutputHelper } from "../OutputHelper"
 import { OutputVisibility } from "./OutputVisibility"
+import { initializeSender } from "../../blackmagic/bmdTalk"
+import { BlackmagicSender } from "../../blackmagic/BlackmagicSender"
 
 export class OutputLifecycle {
+    private static pendingCaptureStart: { [id: string]: NodeJS.Timeout } = {}
+
+    private static clearPendingCaptureStart(id: string) {
+        const pending = this.pendingCaptureStart[id]
+        if (!pending) return
+
+        clearTimeout(pending)
+        delete this.pendingCaptureStart[id]
+    }
+
     static async createOutput(output: Output) {
         const id: string = output.id || ""
 
@@ -19,6 +31,8 @@ export class OutputLifecycle {
             this.removeOutput(id, output)
             return
         }
+
+        this.clearPendingCaptureStart(id)
 
         const outputWindow = this.createOutputWindow({ ...output.bounds, alwaysOnTop: output.alwaysOnTop !== false, kiosk: output.kioskMode === true, backgroundColor: output.transparent ? "#00000000" : "#000000" }, id, output.name, output)
         // const previewWindow = this.createPreviewWindow({ ...output.bounds, backgroundColor: "#000000" })
@@ -31,9 +45,11 @@ export class OutputLifecycle {
 
         if (output.stageOutput && !CaptureHelper.Transmitter.stageWindows.includes(id)) CaptureHelper.Transmitter.stageWindows.push(id)
 
-        setTimeout(() => {
-            if (!CaptureHelper.Lifecycle) return // window closed before timeout finished
-            CaptureHelper.Lifecycle.startCapture(id, { ndi: output.ndi || false })
+        this.pendingCaptureStart[id] = setTimeout(() => {
+            delete this.pendingCaptureStart[id]
+
+            if (!CaptureHelper.Lifecycle || !OutputHelper.getOutput(id)) return // window closed before timeout finished
+            CaptureHelper.Lifecycle.startCapture(id, { ndi: output.ndi || false, blackmagic: !!output.blackmagic })
         }, 1200)
 
         // NDI
@@ -41,6 +57,9 @@ export class OutputLifecycle {
             await NdiSender.createSenderNDI(id, NdiSender.initNameNDI(output.ndiData?.name, output.name), output.ndiData?.groups)
             if (output.ndiData) setDataNDI({ id, ...output.ndiData })
         }
+
+        // Blackmagic
+        if (output.blackmagic) initializeSender(output, outputWindow, id)
     }
 
     /*
@@ -100,8 +119,11 @@ export class OutputLifecycle {
     }
 
     static async removeOutput(id: string, reopen: Output | null = null) {
+        this.clearPendingCaptureStart(id)
+
         CaptureHelper.Lifecycle.stopCapture(id)
         NdiSender.stopSenderNDI(id)
+        BlackmagicSender.stop(id)
 
         const output = OutputHelper.getOutput(id)
         if (!output) return

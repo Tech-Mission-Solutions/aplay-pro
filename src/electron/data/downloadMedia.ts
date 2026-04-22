@@ -232,9 +232,21 @@ export function downloadMedia({ url, contentFile }: { url: string; contentFile?:
 
     const outputPath = getMediaThumbnailPath(url, contentFile)
 
+    // not working at the moment:
+    // if (url.includes("canva.com")) {
+    //     const canvaDownloadUrl = await CanvaContentLibrary.exportDesignAsPng(url, 1)
+    //     if (!canvaDownloadUrl) {
+    //         console.error("Failed to get Canva download URL from source:", url)
+    //         removeFromDownloading()
+    //         return
+    //     }
+
+    //     url = canvaDownloadUrl
+    // }
+
     // Check if provider-based encryption is needed
     if (contentFile?.providerId) {
-        const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
+        const provider = ContentProviderFactory.getProvider(contentFile.providerId)
         if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
             const encryptionKey = provider.getEncryptionKey?.()
             if (!encryptionKey) {
@@ -318,7 +330,7 @@ export async function checkIfMediaDownloaded({ url, contentFile }: { url: string
 
     // Check if provider-based encryption is needed
     if (contentFile?.providerId) {
-        const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
+        const provider = ContentProviderFactory.getProvider(contentFile.providerId)
         if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
             try {
                 const protectedUrl = registerProtectedMediaFile({
@@ -344,7 +356,7 @@ export async function checkIfMediaDownloaded({ url, contentFile }: { url: string
 function getMediaThumbnailPath(url: string, contentFile?: any) {
     // Check if provider-based encryption is needed
     if (contentFile?.providerId) {
-        const provider = ContentProviderFactory.getProvider(contentFile.providerId as any)
+        const provider = ContentProviderFactory.getProvider(contentFile.providerId)
         if (provider?.shouldEncrypt?.(url, contentFile.pingbackUrl)) {
             return getProtectedPath(url)
         }

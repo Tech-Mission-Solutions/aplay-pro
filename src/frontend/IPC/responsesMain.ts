@@ -1,4 +1,5 @@
 import { get } from "svelte/store"
+import type { ContentProviderId } from "../../electron/contentProviders/base/types"
 import type { ToMainSendPayloads } from "../../types/IPC/ToMain"
 import { ToMain } from "../../types/IPC/ToMain"
 import type { Project } from "../../types/Projects"
@@ -59,6 +60,7 @@ import {
     mediaDownloads,
     outputs,
     overlays,
+    pdfImports,
     popupData,
     presentationData,
     projects,
@@ -84,10 +86,10 @@ import { setupCloudSync } from "../utils/cloudSync"
 import { newToast } from "../utils/common"
 import { confirmCustom } from "../utils/popup"
 import { initializeClosing, saveComplete } from "../utils/save"
+import { invalidateSearchIndex } from "../utils/searchFast"
 import { updateSettings, updateSyncedSettings, updateThemeValues } from "../utils/updateSettings"
 import type { MainReturnPayloads } from "./../../types/IPC/Main"
 import { Main } from "./../../types/IPC/Main"
-import { invalidateSearchIndex } from "../utils/searchFast"
 import { sendMain } from "./main"
 
 type MainHandler<ID extends Main | ToMain> = (data: ID extends keyof ToMainSendPayloads ? ToMainSendPayloads[ID] : ID extends keyof MainReturnPayloads ? Awaited<MainReturnPayloads[ID]> : undefined) => void
@@ -221,6 +223,8 @@ export const mainResponses: MainResponses = {
     [ToMain.MEDIA_DOWNLOAD_PROGRESS]: (data) => {
         mediaDownloads.update((downloads) => {
             const newDownloads = new Map(downloads)
+            const total = Math.max(1, data.total || 0)
+            const progress = data.status === "complete" ? total : Math.min(data.progress || 0, total)
             if (data.status === "complete" || data.status === "error") {
                 // Remove completed/errored downloads after a short delay
                 setTimeout(() => {
@@ -231,8 +235,35 @@ export const mainResponses: MainResponses = {
                     })
                 }, 2000)
             }
-            newDownloads.set(data.url, { progress: data.progress, total: data.total, status: data.status })
+            newDownloads.set(data.url, { progress, total, status: data.status })
             return newDownloads
+        })
+    },
+    [ToMain.PDF_IMPORT_PROGRESS]: (data) => {
+        pdfImports.update((imports) => {
+            const updated = new Map(imports)
+            updated.set(data.filePath, {
+                name: data.name,
+                progress: data.progress,
+                total: data.total,
+                status: data.status,
+                message: data.message
+            })
+
+            if (data.status === "complete" || data.status === "error") {
+                setTimeout(
+                    () => {
+                        pdfImports.update((current) => {
+                            const cleaned = new Map(current)
+                            cleaned.delete(data.filePath)
+                            return cleaned
+                        })
+                    },
+                    data.status === "error" ? 7000 : 3000
+                )
+            }
+
+            return updated
         })
     },
     [ToMain.AUDIO_METADATA]: (data) => {
@@ -284,7 +315,7 @@ export const mainResponses: MainResponses = {
     // CONNECTION
     // UNIFIED PROVIDER CALLBACKS
     [ToMain.PROVIDER_CONNECT]: (data) => {
-        if (!data.success) return
+        if (!data?.success) return
 
         providerConnections.update((c) => {
             c[data.providerId] = true
@@ -293,6 +324,7 @@ export const mainResponses: MainResponses = {
 
         if (data.isFirstConnection) newToast("main.finished")
 
+        if (data.providerId !== "churchApps") return
         setTimeout(() => {
             setupCloudSync(!data.isFirstConnection)
         }, 1000)
@@ -305,7 +337,30 @@ export const mainResponses: MainResponses = {
 
         const replaceIds: { [key: string]: string } = {}
         const allShows = keysToID(get(shows))
-        const providerLocalAlways = get(contentProviderData)[data.providerId]?.localAlways ?? false
+        const songOrigin = get(contentProviderData)[data.providerId]?.songOrigin
+        const linkKey = data.providerId === "planningcenter" ? "pcoLink" : data.providerId === "churchApps" ? "chumsLink" : data.providerId === "amazinglife" ? "alLink" : ""
+        const origin = data.providerId === "planningcenter" ? "pco" : data.providerId
+
+        function updateExistingShow(showId: string) {
+            shows.update((a) => {
+                if (!a[showId]) return a // should always exist
+
+                a[showId].origin = origin
+                return a
+            })
+
+            // update showsCache directly in case it's not yet saved to a local file
+            showsCache.update((a) => {
+                if (!a[showId]) return a
+
+                // we should not set link when requesting to use local show, that way it will ask next time as well
+                // if (!a[showId].quickAccess) a[showId].quickAccess = {}
+                // if (linkKey) a[showId].quickAccess[linkKey] = originId
+
+                a[showId].origin = origin
+                return a
+            })
+        }
 
         // CREATE SHOWS
         const tempShows: { id: string; show: Show }[] = []
@@ -315,11 +370,12 @@ export const mainResponses: MainResponses = {
             // TODO: check if name contains scripture reference (and is empty), and load from active scripture
 
             // first find any shows linked to the id
-            const linkKey = data.providerId === "planningcenter" ? "pcoLink" : data.providerId === "churchApps" ? "chumsLink" : data.providerId === "amazinglife" ? "alLink" : ""
             const linkedShow = linkKey && allShows.find(({ quickAccess }) => quickAccess?.[linkKey] === id)
             if (linkedShow) {
                 replaceIds[id] = linkedShow.id
-                if (providerLocalAlways) continue
+                if (songOrigin === "local") continue
+
+                // replace local show with provider song
                 Object.values<Slide>(show.slides).forEach((slide) => {
                     if (slide.globalGroup || !slide.group) return
 
@@ -327,8 +383,7 @@ export const mainResponses: MainResponses = {
                     if (globalGroup) slide.globalGroup = globalGroup
                 })
 
-                const origin = data.providerId === "planningcenter" ? "pco" : data.providerId
-                tempShows.push({ id: linkedShow.id, show: { ...show, origin, name: checkName(show.name, linkedShow.id), quickAccess: { ...(linkedShow.quickAccess || {}), [linkKey]: id } } })
+                tempShows.push({ id, show: { ...show, origin, name: checkName(show.name, id) } })
                 continue
             }
 
@@ -336,23 +391,20 @@ export const mainResponses: MainResponses = {
             const providerName = data.providerId === "planningcenter" ? "Planning Center" : data.providerId === "churchApps" ? "ChurchApps" : "the cloud"
             const existingShow = allShows.find(({ id: existingId, name }) => existingId !== id && name.toLowerCase() === show.name.toLowerCase())
             // const existingShowHasContent = existingShow && (await loadShows([existingShow.id])) && getSlidesText(get(showsCache)[existingShow.id].slides)
-            if (existingShow) {
-                const useLocal = providerLocalAlways || (await confirmCustom(`There is an existing show with the same name: ${existingShow.name}.<br><br>Would you like to use the local version instead of the one from ${providerName}?`))
+            if (existingShow && songOrigin !== "cloud") {
+                const useLocal = songOrigin === "local" || (await confirmCustom(`There is an existing show with the same name: ${existingShow.name}.<br><br>Would you like to use the local version instead of the one from ${providerName}?`))
                 if (useLocal) {
                     replaceIds[id] = existingShow.id
-
-                    await loadShows([existingShow.id])
-                    showsCache.update((a) => {
-                        if (!a[existingShow.id].quickAccess) a[existingShow.id].quickAccess = {}
-                        if (linkKey) a[existingShow.id].quickAccess[linkKey] = id
-                        return a
-                    })
-
+                    updateExistingShow(existingShow.id)
                     continue
                 }
+
+                // set link so we will automatically update from the provider in the future
+                if (!show.quickAccess) show.quickAccess = {}
+                show.quickAccess[linkKey] = id
             }
 
-            if (providerLocalAlways && get(shows)[id]) continue
+            // download:
 
             // replace group names with existing global groups
             Object.values<Slide>(show.slides).forEach((slide) => {
@@ -363,10 +415,21 @@ export const mainResponses: MainResponses = {
             })
 
             delete show.id
-            const origin = data.providerId === "planningcenter" ? "pco" : data.providerId
-            tempShows.push({ id, show: { ...show, origin, name: checkName(show.name, id), quickAccess: { [linkKey]: id } } })
+            tempShows.push({ id, show: { ...show, origin, name: checkName(show.name, id) } })
         }
         setTempShows(tempShows)
+
+        function createProviderProject(providerId: ContentProviderId, projectBase: Project) {
+            const templateId = get(contentProviderData)[providerId]?.projectTemplate || ""
+            if (!templateId) return projectBase
+
+            const templateItems = get(projectTemplates)[templateId]?.shows || []
+
+            // project template first, then append the synced items
+            projectBase.shows = clone([...templateItems, ...(projectBase.shows || [])])
+
+            return projectBase
+        }
 
         data.projects.forEach((currentProject) => {
             // CREATE PROJECT FOLDER
@@ -376,13 +439,14 @@ export const mainResponses: MainResponses = {
             }
 
             // CREATE PROJECT
-            const project: Project = {
+            const projectBase: Project = {
                 name: currentProject.name,
                 created: currentProject.created,
                 used: Date.now(), // show on top in last used list
                 parent: folderId || "/",
                 shows: currentProject.items || []
             }
+            const project = createProviderProject(data.providerId, projectBase)
 
             // REPLACE IDS
             project.shows = project.shows.map((a) => ({ ...a, id: replaceIds[a.id] || a.id }))

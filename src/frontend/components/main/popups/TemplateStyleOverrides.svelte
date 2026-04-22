@@ -1,9 +1,9 @@
 <script lang="ts">
-    import { get } from "svelte/store"
     import { uid } from "uid"
     import type { Template, TemplateStyleOverride } from "../../../../types/Show"
-    import { activeEdit, activePage, activePopup, popupData, templates } from "../../../stores"
+    import { activeEdit, activePage, activePopup, globalRegexes, popupData, templates } from "../../../stores"
     import { translateText } from "../../../utils/language"
+    import { TemplateHelper } from "../../../utils/templates"
     import { DEFAULT_ITEM_STYLE } from "../../edit/scripts/itemHelpers"
     import { clone, keysToID, sortByName } from "../../helpers/array"
     import { history } from "../../helpers/history"
@@ -12,10 +12,9 @@
     import MaterialButton from "../../inputs/MaterialButton.svelte"
     import MaterialDropdown from "../../inputs/MaterialDropdown.svelte"
     import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
-    import { TemplateHelper } from "../../../utils/templates"
     import Center from "../../system/Center.svelte"
 
-    const initialData = get(popupData)
+    const initialData = $popupData
     let templateId: string = initialData.templateId || ""
 
     $: template = $templates[templateId] || {}
@@ -48,10 +47,12 @@
         commit(next)
     }
 
+    const preStyle = "paint-order: stroke fill;"
+    const resetStyle = ";font-size: unset;"
     $: templatesList = sortByName(
         keysToID($templates)
             .filter((a) => a.settings?.mode === "text")
-            .map((a) => ({ value: a.id, label: a.name, style: new TemplateHelper(a.id).getTextStyle() + ";font-size: unset;" })),
+            .map((a) => ({ value: a.id, label: a.name, style: preStyle + new TemplateHelper(a.id).getTextStyle() + resetStyle })),
         "value"
     )
 
@@ -85,6 +86,35 @@
     function deleteTemplate(templateId: string) {
         history({ id: "UPDATE", newData: { id: templateId }, location: { page: "edit", id: "template" } })
     }
+
+    $: regexes = Object.entries($globalRegexes).map(([id, regex]) => ({ value: id, label: regex.label }))
+    function setRegex(id: string, regexId: string) {
+        updateOverride(id, "globalRegex", regexId)
+    }
+
+    function editRegexes(id: string, regexId: string | undefined, name?: string) {
+        if (!regexId) {
+            regexId = uid()
+            updateOverride(id, "globalRegex", regexId)
+        }
+
+        if (name) {
+            globalRegexes.update((a) => {
+                a[regexId!] = { label: name, value: "" }
+                return a
+            })
+        }
+
+        popupData.set({ id: regexId, previousData: clone($popupData), previousPopup: "template_style_overrides" })
+        activePopup.set("regex_manager")
+    }
+
+    function deleteRegex(id: string) {
+        globalRegexes.update((a) => {
+            delete a[id]
+            return a
+        })
+    }
 </script>
 
 <section style="width: clamp(500px, 75vw, 900px);">
@@ -92,8 +122,14 @@
 
     {#if overrides.length}
         {#each overrides as override (override.id)}
+            {@const pattern = override.globalRegex ? `${$globalRegexes[override.globalRegex]?.label || ""}: ${$globalRegexes[override.globalRegex]?.value || ""}` : override.pattern}
+
             <InputRow>
-                <MaterialTextInput label="edit.style_override_pattern" style="flex: 4;" value={override.pattern} on:change={(e) => updateOverride(override.id, "pattern", e.detail)} autofocus={!override.pattern} />
+                <MaterialTextInput label="edit.style_override_pattern" style="flex: 4;" disabled={!!override.globalRegex} value={pattern} on:change={(e) => updateOverride(override.id, "pattern", e.detail)} autofocus={!pattern} />
+                {#if override.globalRegex}
+                    <MaterialButton title="titlebar.edit" icon="edit" on:click={() => editRegexes(override.id, override.globalRegex)} />
+                {/if}
+                <MaterialDropdown label="/regex/" options={regexes} value={override.globalRegex || ""} on:change={(e) => setRegex(override.id, e.detail)} on:new={(e) => editRegexes(override.id, "", e.detail)} addNew="Create Regex" on:delete={(e) => deleteRegex(e.detail)} allowDeleting onlyArrow />
 
                 <MaterialDropdown label="formats.template" style="flex: 2;border-left: 3px solid var(--primary-lighter) !important;" options={templatesList} value={override.templateId || ""} on:change={(e) => updateOverride(override.id, "templateId", e.detail)} on:new={(e) => updateOverride(override.id, "templateId", createTemplate(e))} addNew="new.template" on:delete={(e) => deleteTemplate(e.detail)} allowDeleting />
                 {#if override.templateId && $templates[override.templateId]}

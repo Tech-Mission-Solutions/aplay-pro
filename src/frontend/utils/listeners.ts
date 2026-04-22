@@ -47,6 +47,7 @@ import {
     scriptures,
     shows,
     showsCache,
+    slideTimelineSpeedMultiplier,
     special,
     stageShows,
     styles,
@@ -91,7 +92,7 @@ export function storeSubscriber() {
     })
 
     showsCache.subscribe(async (data) => {
-        if (await hasNewerUpdate("LISTENER_SHOWSCACHE")) return
+        if (await hasNewerUpdate("LISTENER_SHOWSCACHE")) return // TIMELINE style updates everytime unless set to 20ms
 
         // needs to be sent before output data
         send(OUTPUT, ["SHOWS"], data)
@@ -196,6 +197,8 @@ export function storeSubscriber() {
     outputs.subscribe(async (data) => {
         // wait in case multiple slide layers get activated right after each other - to reduce the amount of updates
         if (await hasNewerUpdate("LISTENER_OUTPUTS", 1)) return
+        // having more is probably better, but breaks some things including slide timeline updates
+        // if (await hasNewerUpdate("LISTENER_OUTPUTS", 15)) return
 
         send(OUTPUT, ["OUTPUTS"], data)
         // used for stage mirror data
@@ -329,6 +332,10 @@ export function storeSubscriber() {
 
     special.subscribe((data) => {
         send(OUTPUT, ["SPECIAL"], data)
+    })
+
+    slideTimelineSpeedMultiplier.subscribe((data) => {
+        send(OUTPUT, ["SLIDE_TIMELINE_SPEED_MULTIPLIER"], data)
     })
 
     volume.subscribe((data) => {
@@ -475,6 +482,8 @@ const initalOutputData = {
     TIME_FORMAT: "timeFormat",
 
     SPECIAL: "special",
+
+    SLIDE_TIMELINE_SPEED_MULTIPLIER: "slideTimelineSpeedMultiplier",
 
     PLAYER_VIDEOS: "playerVideos",
     STAGE: "stageShows",

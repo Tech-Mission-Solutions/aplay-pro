@@ -239,7 +239,7 @@
 
                     {#if allowOpacity}
                         <div class="opacity">
-                            <MaterialNumberInput label="edit.opacity" value={Math.round(opacity)} min={1} max={100} on:change={(e) => (opacity = Math.round(e.detail))} showSlider />
+                            <MaterialNumberInput label="edit.opacity" value={Math.round(opacity)} max={100} on:change={(e) => (opacity = Math.round(e.detail))} showSlider />
                         </div>
                     {/if}
 
@@ -293,7 +293,7 @@
 
                     {#if allowOpacity}
                         <div class="opacity">
-                            <MaterialNumberInput label="edit.opacity" value={Math.round(opacity)} min={1} max={100} on:change={(e) => (opacity = Math.round(e.detail))} showSlider />
+                            <MaterialNumberInput label="edit.opacity" value={Math.round(opacity)} max={100} on:change={(e) => (opacity = Math.round(e.detail))} showSlider />
                         </div>
                     {/if}
 

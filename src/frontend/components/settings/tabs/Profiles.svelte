@@ -1,17 +1,19 @@
 <script lang="ts">
     import type { AccessType, Profile } from "../../../../types/Main"
     import { SettingsTabs } from "../../../../types/Tabs"
-    import { actionTags, activeProfile, categories, folders, overlayCategories, profiles, selectedProfile, special, stageShows, templateCategories, variableTags } from "../../../stores"
+    import { actions, actionTags, activeProfile, categories, folders, overlayCategories, profiles, selectedProfile, special, stageShows, templateCategories, variableTags } from "../../../stores"
     import { newToast } from "../../../utils/common"
     import { translateText } from "../../../utils/language"
     import { promptCustom } from "../../../utils/popup"
     import { checkPassword, encodePassword } from "../../../utils/profile"
+    import { runActionId } from "../../actions/actions"
     import { clone, keysToID, sortByName } from "../../helpers/array"
     import { history } from "../../helpers/history"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
     import InputRow from "../../input/InputRow.svelte"
     import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import MaterialDropdown from "../../inputs/MaterialDropdown.svelte"
     import MaterialMultiButtons from "../../inputs/MaterialMultiButtons.svelte"
     import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
     import MaterialToggleSwitch from "../../inputs/MaterialToggleSwitch.svelte"
@@ -82,7 +84,7 @@
         return inputs
     }
 
-    function getSectionOptions(options: { value: string; label: string; icon?: string; disabled?: boolean }[]) {
+    function getSectionOptions(options: { value: string; label: string; icon?: string; disabled?: boolean }[], _updater: any) {
         // only admin can change access
         if (!isAdmin) return options.map((option) => ({ ...option, disabled: true }))
         return options
@@ -120,7 +122,7 @@
     $: variablesList = sortByName(keysToID($variableTags)).filter((a) => a.name)
     $: variablesAccess = currentProfile.access.variables || {}
 
-    // $: triggersAccess = currentProfile.access.triggers || {}
+    $: triggersAccess = currentProfile.access.triggers || {}
 
     $: stageList = sortByName(keysToID($stageShows)).filter((a) => a.name)
     $: stageAccess = currentProfile.access.stage || {}
@@ -144,7 +146,7 @@
         // WIP TIMERS (TAGS)
         { id: "timers", label: "tabs.timers", icon: "timer", access: timersAccess, options: accessInputsRW, list: [] },
         { id: "variables", label: "tabs.variables", icon: "variable", access: variablesAccess, options: accessInputsRW, list: variablesList },
-        // { id: "triggers", label: "tabs.triggers", icon: "trigger", access: triggersAccess, options: accessInputsRW, list: [] },
+        { id: "triggers", label: "tabs.triggers", icon: "trigger", access: triggersAccess, options: accessInputsRW, list: [] },
         { id: "stage", label: "menu.stage", icon: "stage", access: stageAccess, options: accessInputsRW, list: stageList },
         { id: "settings", label: "menu.settings", icon: "settings", access: settingsAccess, options: [], list: settingsList }
     ]
@@ -163,12 +165,21 @@
         })
     }
 
+    function updateProfile(key: string, value: any) {
+        if (!profileId) return
+        profiles.update((a) => {
+            if (!a[profileId]) a[profileId] = clone(currentProfile)
+            a[profileId][key] = value
+            return a
+        })
+    }
+
     $: profilesList = Object.keys($profiles).filter((a) => a !== "admin")
 
     async function setCurrentAsActive() {
         // require password if setting admin profile (and password exists)
         if (profileId === "" && hasAdminPass) {
-            const pwd = await promptCustom(translateText("remote.password"))
+            const pwd = await promptCustom(translateText("remote.password"), "password")
             const adminPassword = $profiles.admin?.password || ""
             if (!checkPassword(pwd, adminPassword)) {
                 newToast("remote.wrong_password")
@@ -178,12 +189,21 @@
 
         activeProfile.set(profileId)
 
+        // run action
+        const actionId = currentProfile.action
+        if (actionId) runActionId(actionId)
+
         // store last used profile
         special.update((a) => {
             a.lastUsedProfile = profileId
             return a
         })
     }
+
+    $: currentAction = currentProfile?.action || ""
+    let actionOptions = Object.entries($actions)
+        .map(([id, a]) => ({ id, name: a.name }))
+        .sort((a, b) => a.name?.localeCompare(b.name))
 </script>
 
 {#if $activeProfile !== profileId && profilesList.length}
@@ -206,7 +226,7 @@
 {:else}
     {#each ACCESS_LISTS as a}
         <InputRow arrow={!!a.list?.length}>
-            <MaterialMultiButtons label={a.label} icon={a.icon} value={a.access.global || "write"} options={getSectionOptions(a.options)} on:click={(e) => updateAccess(a.id, "global", e.detail)} />
+            <MaterialMultiButtons label={a.label} icon={a.icon} value={a.access.global || "write"} options={getSectionOptions(a.options, isAdmin)} on:click={(e) => updateAccess(a.id, "global", e.detail)} />
 
             <div slot="menu">
                 {#each a.list as item}
@@ -217,4 +237,7 @@
             </div>
         </InputRow>
     {/each}
+
+    <!-- profile action -->
+    <MaterialDropdown label="midi.start_action" options={actionOptions.map((a) => ({ label: a.name, value: a.id }))} value={currentAction} style="margin-top: 20px;" on:change={(e) => updateProfile("action", e.detail)} allowEmpty />
 {/if}

@@ -121,6 +121,7 @@
             let splitted = input.id.split(".")
             input.id = splitted[0]
             let newValue = item?.[input.id] || {}
+            if (typeof newValue === "string") return // something is wrong
             newValue[splitted[1]] = value
             value = newValue
         }
@@ -151,7 +152,10 @@
     function updateStyle(e: any) {
         let input = e.detail
 
-        if (input.key === "text-align" || input.key === "align-items") updateAlign(input)
+        if (input.key === "text-align" || input.key === "align-items") {
+            updateAlign(input)
+            return
+        }
 
         if (input.id === "nowrap") input = { ...input, id: "style", key: "white-space", value: input.value ? "nowrap" : undefined }
 

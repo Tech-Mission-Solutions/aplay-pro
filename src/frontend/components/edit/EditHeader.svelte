@@ -1,9 +1,11 @@
 <script lang="ts">
     import { fade } from "svelte/transition"
-    import { showsCache, slideNotesActive } from "../../stores"
+    import { activeEdit, activePopup, groups, showsCache, slideNotesActive, special, templates } from "../../stores"
     import Icon from "../helpers/Icon.svelte"
     import T from "../helpers/T.svelte"
     import MaterialButton from "../inputs/MaterialButton.svelte"
+    import { _show } from "../helpers/shows"
+    import { getLayoutRef } from "../helpers/show"
 
     export let showId: string
     export let hideOptions = false
@@ -16,6 +18,15 @@
 
     let showDropdown = false
     let listScrollY = 0
+
+    // TEMPLATE
+
+    $: ref = showId && currentShow ? getLayoutRef(showId) : []
+    $: Slide = $activeEdit.slide !== null && ref?.[$activeEdit.slide!] ? _show(showId).slides([ref[$activeEdit.slide!]?.id]).get()?.[0] : null
+
+    $: parentId = $activeEdit.slide !== null && ref?.[$activeEdit.slide!] ? ref[$activeEdit.slide!]?.parent?.id || ref[$activeEdit.slide!]?.id : ""
+    $: slideGroup = _show(showId).slides([parentId]).get()?.[0]?.globalGroup || ""
+    $: templateId = Slide?.settings?.template || $groups[slideGroup]?.template || currentShow?.settings?.template || ""
 </script>
 
 <svelte:window on:mousedown={mousedown} />
@@ -30,6 +41,12 @@
     </p>
 
     <div class="right">
+        {#if templateId}
+            <MaterialButton style="width: 32px;height: 100%;padding: 0.3em 0.5em;" title="formats.template: <b>{$templates[templateId]?.name || 'info.template'}</b>" on:click={() => activePopup.set("template_info")}>
+                <Icon size={0.8} id="templates" white />
+            </MaterialButton>
+        {/if}
+
         {#if !hideOptions}
             <MaterialButton style="width: 32px;height: 100%;padding: 0.3em 0.5em;border-bottom-right-radius: 10px;{showDropdown ? '' : 'opacity: 0.8;'}" title="create_show.more_options" icon="more" on:click={() => (showDropdown = !showDropdown)} white={!showDropdown}>
                 <!-- prevent force "white" -->
@@ -51,8 +68,7 @@
 
                 <div class="DIVIDER"></div>
 
-                <!-- comming soon -->
-                <!-- <MaterialButton title="timeline.toggle_timeline" on:click={() => special.update((a) => ({ ...a, slideTimelineActive: !a.slideTimelineActive }))}>
+                <MaterialButton title="timeline.toggle_timeline" on:click={() => special.update((a) => ({ ...a, slideTimelineActive: !a.slideTimelineActive }))}>
                     <Icon id="timeline" white={!$special.slideTimelineActive} />
 
                     {#if $special.slideTimelineActive}
@@ -62,7 +78,7 @@
                     <p><T id="timeline.toggle_timeline" /></p>
                 </MaterialButton>
 
-                <div class="DIVIDER"></div> -->
+                <!-- <div class="DIVIDER"></div> -->
 
                 <!-- lock slide group from here? -->
                 <!-- <MaterialButton title="context.lockForChanges" on:click={toggleSlideGroupLock}>

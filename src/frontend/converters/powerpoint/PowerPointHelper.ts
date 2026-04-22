@@ -312,7 +312,7 @@ export class PowerPointPackage {
     getSlides() {
         const presentation = this.getPresentation()
         if (!presentation) return []
-        // console.log("Presentation:", presentation)
+        console.log("Presentation:", presentation)
 
         const slides: ReturnType<typeof this.getSlide>[] = []
 
@@ -342,7 +342,7 @@ export class PowerPointPackage {
     private getColorScheme(theme: ThemePart | null, master: SlideMasterPart | null, layout: SlideLayoutPart | null, slide: SlidePart | null): { [key: string]: any }[] {
         if (!theme) return []
 
-        const colors = clone(theme.colorScheme)
+        const colors = clone(theme.colorScheme || [])
 
         const masterColorMap = getAttributes(getValue(master?.json, "p:sldMaster"), "p:clrMap")
         const layoutColorMap = getAttributes(getValue(layout?.json, "p:sldLayout"), "p:clrMap")
@@ -450,7 +450,8 @@ export class PowerPointPackage {
                     left: toFract(r),
                     top: toFract(b),
                     right: toFract(l),
-                    bottom: toFract(t)
+                    bottom: toFract(t),
+                    type: "ppt"
                 }
                 if (imageItem.cropping.left + imageItem.cropping.right + imageItem.cropping.top + imageItem.cropping.bottom === 0) delete imageItem.cropping
             }
@@ -631,17 +632,18 @@ export class PowerPointPackage {
 
             const effects = getValue(rPr, "a:effectLst")
             const glow = getValue(effects, "a:glow")
-            // const outerShadow = getValue(effects, "a:outerShdw")
-            // if (outerShadow.length) {
-            //     const shadowColor = resolveColor(outerShadow, ctx.colors) || "rgb(0 0 0)"
-            //     const blur = ptsToPx(getAttribute(outerShadow, "blurRad")) || 0
-            //     const dist = ptsToPx(getAttribute(outerShadow, "dist")) || 0
-            //     const dir = Number(getAttribute(outerShadow, "dir") || "0")
-            //     const angle = ((90 - dir) * Math.PI) / 180
-            //     const x = round(Math.cos(angle) * dist)
-            //     const y = round(Math.sin(angle) * dist)
-            //     shadowVal = `text-shadow: ${x}px ${y}px ${blur}px ${shadowColor};`
-            if (glow.length) {
+            const outerShadow = getValue(effects, "a:outerShdw")
+            if (outerShadow.length) {
+                const shadowColor = resolveColor(outerShadow, ctx.colors) || "rgb(0 0 0)"
+                const blur = emuToPixels(getAttribute(effects, "blurRad", "a:outerShdw")) || 0
+                const dist = emuToPixels(getAttribute(effects, "dist", "a:outerShdw")) || 0
+                const dirRaw = Number(getAttribute(effects, "dir", "a:outerShdw") || "0")
+                const dir = dirRaw / 60000 // convert from 60000ths of a degree to degrees
+                const angle = ((90 - dir) * Math.PI) / 180
+                const x = round(Math.cos(angle) * dist)
+                const y = round(Math.sin(angle) * dist)
+                shadowVal = `text-shadow: ${x}px ${y}px ${blur}px ${shadowColor};`
+            } else if (glow.length) {
                 const glowColor = resolveColor(glow, ctx.colors) || "rgb(255 255 255)"
                 const glowSize = ptsToPx(getAttribute(effects, "rad", "a:glow")) / 100
                 shadowVal = `text-shadow: 0 0 ${glowSize}px ${glowColor};`
@@ -1227,12 +1229,13 @@ export class PowerPointPackage {
             const b = getAttribute(blipFill, "b", "a:srcRect")
 
             // should be mainly for media item
-            if (l != null || t != null || r != null || b != null) {
+            if (l !== "" || t !== "" || r !== "" || b !== "") {
                 item.cropping = {
                     left: toFract(l), // , emuToPixels(pos.width || 0)),
                     top: toFract(t), // , emuToPixels(pos.height || 0)),
                     right: toFract(r), // , emuToPixels(pos.width || 0)),
-                    bottom: toFract(b) // , emuToPixels(pos.height || 0))
+                    bottom: toFract(b), // , emuToPixels(pos.height || 0))
+                    type: "ppt"
                 }
                 if (item.cropping.left + item.cropping.right + item.cropping.top + item.cropping.bottom === 0) delete item.cropping
             }

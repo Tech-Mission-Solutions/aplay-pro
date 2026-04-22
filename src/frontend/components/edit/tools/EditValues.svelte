@@ -1,6 +1,6 @@
 <script lang="ts">
-    import { createEventDispatcher } from "svelte"
-    import { actions, activeEdit, activeStage, outputs, timers } from "../../../stores"
+    import { createEventDispatcher, onDestroy } from "svelte"
+    import { actions, activeEdit, activePage, activeStage, outputs, special, timers } from "../../../stores"
     import { throttle } from "../../../utils/common"
     import { translateText } from "../../../utils/language"
     import { mediaExtensions } from "../../../values/extensions"
@@ -15,6 +15,7 @@
     import MaterialFontDropdown from "../../inputs/MaterialFontDropdown.svelte"
     import MaterialPopupButton from "../../inputs/MaterialPopupButton.svelte"
     import MaterialTextarea from "../../inputs/MaterialTextarea.svelte"
+    import { SlideTimeline } from "../../timeline/SlideTimeline"
     import { parseShadowValue } from "../scripts/edit"
     import { filterItemStyle, mergeWithStyle } from "../scripts/itemClipboard"
     import type { EditBoxSection, EditInput2 } from "../values/boxes"
@@ -25,6 +26,7 @@
     export let customValues: { [key: string]: string } = {}
     export let item: any = {}
     export let isStage = false
+    export let type: string = ""
 
     function getValue(input: EditInput2, _updater: any = null) {
         if (!item) return ""
@@ -108,10 +110,27 @@
     }
 
     const dispatch = createEventDispatcher()
-    function changed(e: any, input: any, sectionId = "") {
+    let lastChanged = { value: "", key: "" }
+    function changed(e: any, input: any, sectionId = "", onlyTimeline = false) {
         let value = e.detail
 
         if (input.multiplier) value = value / input.multiplier
+
+        // update on change (if another keyframe of same key exists)
+        if ($special.slideTimelineActive && $activePage === "edit" && ($activeEdit.type || "show") === "show" && (onlyTimeline || SlideTimeline.hasActionWithKey(input.key || "", type))) {
+            let timelineValue = value
+
+            if (!onlyTimeline && lastChanged.key === input.key && lastChanged.value === value) return
+            lastChanged = { key: input.key, value }
+
+            if (input.key === "width" || input.key === "left") timelineValue = 1920 * (timelineValue / 100)
+            if (input.key === "height" || input.key === "top") timelineValue = 1080 * (timelineValue / 100)
+
+            const indexes = $activeEdit?.items?.length ? $activeEdit.items : [0]
+            SlideTimeline.addKeyframe({ name: input.values?.label, key: input.key, value: timelineValue, type, indexes }, onlyTimeline)
+            if (onlyTimeline) return
+        }
+
         if (input.extension) value += input.extension
 
         if (input.valueIndex !== undefined) {
@@ -262,6 +281,11 @@
         }
         return values
     }
+
+    // TIMELINE Updater
+    let timelineUpdater = 0
+    const updaterInterval = setInterval(() => timelineUpdater++, 100)
+    onDestroy(() => clearInterval(updaterInterval))
 </script>
 
 <div class="tools">
@@ -302,6 +326,7 @@
                             {#if !input.hidden}
                                 {@const value = getValue(input, { styles, item })}
                                 {@const values = getValues(input)}
+                                {@const hasTimelineAction = $special.slideTimelineActive && $activePage === "edit" && ($activeEdit.type || "show") === "show" && SlideTimeline.hasActionAtTime(input.key || "", type, $activeEdit?.items?.length ? $activeEdit.items : [0], timelineUpdater)}
 
                                 {#if input.type === "fontDropdown"}
                                     <MaterialFontDropdown label={values.label} {value} style={values.style} fontStyleValue={input.styleValue} on:change={(e) => changed(e, input)} on:fontStyle={(e) => changed(e, { ...input, key: "font" })} enableFontStyles />
@@ -328,7 +353,7 @@
                                         {#if input.values?.subtext.includes("<a href=")}<Icon id="launch" white />{/if}
                                     </p>
                                 {:else}
-                                    <Input input={{ type: input.type, ...values, value }} on:change={(e) => changed(e, input, id)} />
+                                    <Input input={{ type: input.type, ...values, value }} {hasTimelineAction} on:change={(e) => changed(e, input, id)} on:keyframe={(e) => changed(e, input, id, true)} />
                                 {/if}
                             {/if}
                         {/each}
