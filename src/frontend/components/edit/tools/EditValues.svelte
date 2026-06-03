@@ -15,10 +15,12 @@
     import MaterialFontDropdown from "../../inputs/MaterialFontDropdown.svelte"
     import MaterialPopupButton from "../../inputs/MaterialPopupButton.svelte"
     import MaterialTextarea from "../../inputs/MaterialTextarea.svelte"
+    import { getIsoLanguages } from "../../main/popups/localization/translation"
     import { SlideTimeline } from "../../timeline/SlideTimeline"
     import { parseShadowValue } from "../scripts/edit"
     import { filterItemStyle, mergeWithStyle } from "../scripts/itemClipboard"
     import type { EditBoxSection, EditInput2 } from "../values/boxes"
+    import { captionTranslateLanguages } from "../values/captionLanguages"
     import { sectionColors } from "../values/item"
 
     export let sections: { [key: string]: EditBoxSection } = {}
@@ -114,7 +116,10 @@
     function changed(e: any, input: any, sectionId = "", onlyTimeline = false) {
         let value = e.detail
 
-        if (input.multiplier) value = value / input.multiplier
+        if (input.multiplier) {
+            if (!value || isNaN(Number(value))) value = input.value || 0
+            value = value / input.multiplier
+        }
 
         // update on change (if another keyframe of same key exists)
         if ($special.slideTimelineActive && $activePage === "edit" && ($activeEdit.type || "show") === "show" && (onlyTimeline || SlideTimeline.hasActionWithKey(input.key || "", type))) {
@@ -263,17 +268,18 @@
 
     ///
 
-    const optionsLists = {
+    $: optionsLists = {
         timers: getSortedTimers($timers, { showHours: item?.timer?.showHours !== false, firstActive: isStage }).map((a) => ({ value: a.id, label: a.name, data: a.extraInfo })),
         actions: sortByName(keysToID($actions)).map((a) => ({ value: a.id, label: a.name || "" })),
-        outputWindows: sortByName(keysToID($outputs).filter((a) => a.stageOutput !== $activeStage.id)).map((a) => ({ value: a.id, label: a.name || "" }))
+        outputWindows: sortByName(keysToID($outputs).filter((a) => a.stageOutput !== $activeStage.id)).map((a) => ({ value: a.id, label: a.name || "" })),
+        captionTranslateLanguages: item?.captions?.googlekey ? [{ value: "", label: "—" }, ...getIsoLanguages()] : captionTranslateLanguages.map((a) => ({ value: a.id, label: a.name }))
     }
     function getOptions(options: string | any[]): any[] {
         if (typeof options === "string") return optionsLists[options] || []
         return options
     }
 
-    function getValues(input: any) {
+    function getValues(input: any, _optionsLists?: any) {
         const values = clone(input.values)
         if (input.type === "dropdown") {
             if (values.options === "timers") values.addNew = "new.timer"
@@ -325,7 +331,7 @@
                         {#each inputRow as input}
                             {#if !input.hidden}
                                 {@const value = getValue(input, { styles, item })}
-                                {@const values = getValues(input)}
+                                {@const values = getValues(input, optionsLists)}
                                 {@const hasTimelineAction = $special.slideTimelineActive && $activePage === "edit" && ($activeEdit.type || "show") === "show" && SlideTimeline.hasActionAtTime(input.key || "", type, $activeEdit?.items?.length ? $activeEdit.items : [0], timelineUpdater)}
 
                                 {#if input.type === "fontDropdown"}

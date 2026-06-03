@@ -1,4 +1,5 @@
 import { get } from "svelte/store"
+import { uid } from "uid"
 import type { Condition, ConditionValue, Item, ItemType, Slide } from "../../../../types/Show"
 import type { StageItem } from "../../../../types/Stage"
 import { activeEdit, activeShow, activeStage, activeTimers, allOutputs, outputs, outputSlideCache, overlays, refreshEditSlide, showsCache, stageShows, templates, timers, variables } from "../../../stores"
@@ -86,7 +87,7 @@ export function addItem(type: ItemType, id: string | null = null, options: any =
     else if (type === "variable") newData.variable = { id: "" }
     else if (type === "slide_tracker") newData.auto = true
     else if (type === "web") newData.web = { url: "" }
-    else if (type === "captions") newData.captions = {}
+    else if (type === "captions") newData.captions = { roomId: "freeshow" + uid(6) }
     // else if (type === "button") {
     //     // make square, colored, rounded and center
     //     let size: number = 300
@@ -298,6 +299,7 @@ export function shouldItemBeShown(item: Item, allItems: Item[] = [], { outputId,
 }
 
 // get "temp" items (scripture) if stage
+// TODO: fix "Maximum call stack size exceeded"
 function getTempItems(item: Item, allItems: Item[]) {
     const stageOutputId = getStageOutputId(get(outputs))
     const currentOutput = get(outputs)[stageOutputId] || get(allOutputs)[stageOutputId] || {}
@@ -327,7 +329,7 @@ export function isConditionMet(condition: Condition | undefined, itemsText: stri
     }
 
     // remove unused scripture dynamic values ({scripture_X} / {scriptureNUM_X})
-    const regex = /\{scripture(?:\d+)?_[^}]+\}/g
+    const regex = /\{scripture(?:\d+)?_[^}]*\}/g
     if (regex.test(itemsText)) itemsText = itemsText.replace(regex, "").trim()
 
     // outerOr

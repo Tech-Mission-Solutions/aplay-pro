@@ -39,7 +39,7 @@
             { id: "all", label: "category.all", icon: "all", count: unarchivedShows.length },
             // { id: "number", label: "meta.number", icon: "number", count: songNumberShowsLength, hidden: !songNumberShowsLength },
             // { id: "locked", label: "output.state_locked", icon: "locked", count: lockedShowsLength, hidden: !lockedShowsLength },
-            { id: "unlabeled", label: "category.unlabeled", icon: "noIcon", count: uncategorizedShowsLength, hidden: !uncategorizedShowsLength && activeSubTab !== "unlabeled" }
+            { id: "unlabeled", label: "category.unlabeled", icon: "noIcon", count: uncategorizedShowsLength, hidden: !uncategorizedShowsLength && activeSubTab !== "unlabeled" } // , boxedIcon: true
         ],
         [{ id: "TITLE", label: "guide_title.categories" }, ...convertToButton(unarchivedCategoriesList), ...(archivedCategoriesList.length ? [{ id: "SEPARATOR", label: "actions.archive_title" }, ...convertToButton(archivedCategoriesList)] : [])]
     ]
@@ -51,7 +51,7 @@
             const metadata = a.metadata?.display
             const count = allVisibleShows.reduce((count, show) => count + (show.category === a.id ? 1 : 0), 0)
             const readOnly = profile.global === "read" || profile[a.id] === "read"
-            return { id: a.id, label: a.name, icon: a.icon, action, template, metadata, count, readOnly }
+            return { id: a.id, label: a.name, icon: a.icon, action, template, metadata, count, readOnly, customIcon: true, boxedIcon: true }
         })
     }
 

@@ -1,7 +1,8 @@
 <script lang="ts">
-    import { version } from "../../../stores"
+    import { activePopup, version } from "../../../stores"
     import T from "../../helpers/T.svelte"
     import Link from "../../inputs/Link.svelte"
+    import MaterialButton from "../../inputs/MaterialButton.svelte"
 
     const assets: { [key: string]: string } = {
         "CMG Sans (Custom font)": "https://www.churchmotiongraphics.com/cmg-sans/",
@@ -27,10 +28,10 @@
     </div>
 
     <p style="font-size: 0.8em;margin-top: 2px;">
-        <span style="opacity: 0.8;">v{$version} -</span>
-        <Link url={"https://joinamazing.com/downloads?v" + $version}>
+        <span style="opacity: 0.8;">v{$version}</span>
+        <MaterialButton variant="outlined" style="margin-left: 5px;display: inline-flex;min-height: 0;padding: 0 5px;vertical-align: baseline;" on:click={() => activePopup.set("update_manager")} white>
             <T id="about.check_updates" />
-        </Link>
+        </MaterialButton>
     </p>
 
     <!-- <p>
@@ -44,15 +45,15 @@
     <div class="text">
         <div>
             • <T id="about.more" />
-            <Link url="https://churchapps.org/">ChurchApps</Link>
+            <Link url="https://joinamazing.com/">JoinAmazing</Link>
         </div>
         <div>
             • <T id="about.report" />
-            <Link url="https://github.com/ChurchApps/FreeShow/issues">GitHub Issues</Link>
+            <Link url="https://github.com/Tech-Mission-Solutions/aplay-pro">GitHub Issues</Link>
         </div>
         <div>
             • <T id="about.translate" />
-            <Link url="https://app.transifex.com/nettbiter/freeshow/">Transifex</Link>
+            <Link url="https://github.com/Tech-Mission-Solutions/aplay-pro">Transifex</Link>
         </div>
         <!-- <div>
             • <T id="about.mail" />

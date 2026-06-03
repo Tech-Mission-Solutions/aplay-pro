@@ -88,6 +88,12 @@
         history({ id: "UPDATE", newData: { key: "shows", index }, oldData: { id: projectId }, location: { page: "show", id: "section" + (isTemplate ? "_template" : "") } })
     }
 
+    function addShowPlaceholder() {
+        let activeShowIndex = $activeShow?.index !== undefined ? $activeShow?.index + 1 : null
+        let index: number = activeShowIndex ?? projectItemsList.length ?? 0
+        history({ id: "UPDATE", newData: { key: "shows", index }, oldData: { id: projectId }, location: { page: "show", id: "project_show_placeholder" } })
+    }
+
     $: activeProjectParent = $activeProject ? currentProject?.parent || "" : ""
     $: projectReadOnly = readOnly || profile[activeProjectParent] === "read" || tree.find((a) => a.id === activeProjectParent)?.readOnly
 
@@ -96,7 +102,7 @@
     $: lessVisibleSection = projectItemsList.length > 10 || projectItemsList.length < 1 || projectItemsList.some((a) => a.type === "section")
 
     let shouldPasteText = false
-    $: if (currentProject && !currentProject.shows?.length) checkClipboard()
+    $: if (currentProject && !currentProject.shows?.length && !isTemplate) checkClipboard()
     function checkClipboard() {
         shouldPasteText = false
         navigator.clipboard
@@ -121,9 +127,16 @@
 
             const previousItem = projectItemsList[index - 1]
 
+            let previousType = previousItem?.type || "show"
+            let currentType = a.type || "show"
+
+            // media as same type
+            if (previousType === "image" || previousType === "video") previousType = "image"
+            if (currentType === "image" || currentType === "video") currentType = "image"
+
             if (!splittedProjectsList.at(-1)) newSection()
-            else if (a.type === "section" && (a.color || previousItem?.type === "section")) newSection()
-            else if (previousItem?.type !== "section" && a.type !== "section" && a.type !== previousItem?.type) {
+            else if (currentType === "section" && (a.color || previousType === "section")) newSection()
+            else if (currentType !== "section" && previousType !== "section" && projectItemsList[index - 2]?.type !== "section" && currentType !== previousType) {
                 if (splittedProjectsList.at(-1)?.color === "") newSection()
                 else splittedProjectsList.at(-1)!.items.push({ type: "DIVIDER", id: "" })
             }
@@ -256,7 +269,7 @@
                             {#if show.type === "DIVIDER"}
                                 <div style="border-top: 1px solid var(--primary-lighter);margin: 5px 0;"></div>
                             {:else}
-                                <SelectElem id="show" dropAbove={isFirst} triggerOnHover data={{ ...show, name: show.name || removeExtension(getFileName(show.id)), index }} {fileOver} borders="edges" trigger="column" draggable={!isLocked} selectable={!isLocked}>
+                                <SelectElem id="show" dropAbove={isFirst} triggerOnHover data={{ ...show, name: show.name || removeExtension(getFileName(show.id)), index }} {fileOver} borders={show.type === "show_placeholder" ? "all" : "edges"} trigger="column" draggable={!isLocked} selectable={!isLocked}>
                                     {#if show.type === "section"}
                                         <MaterialButton
                                             {isActive}
@@ -403,6 +416,14 @@
                     <Icon id="search" size={0.7} white />
                 </div>
             </MaterialButton>
+
+            {#if isTemplate}
+                <MaterialButton variant="outlined" icon="slide" title="new.placeholder" on:click={addShowPlaceholder} white>
+                    <div class="label">
+                        <p><T id="new.placeholder" /></p>
+                    </div>
+                </MaterialButton>
+            {/if}
 
             {#if $drawerTabsData.scripture?.enabled !== false}
                 <MaterialButton variant="outlined" icon="scripture" title="new.scripture" on:click={() => openSearch("scripture")} white>

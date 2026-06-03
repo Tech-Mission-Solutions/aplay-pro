@@ -2,12 +2,13 @@
     import { getDocument, GlobalWorkerOptions } from "pdfjs-dist"
     import type { ClickEvent } from "../../../types/Main"
     import { AudioPlayer } from "../../audio/audioPlayer"
-    import { activeEdit, activeFocus, activePage, activeProject, activeShow, categories, focusMode, globalTags, media, notFound, outLocked, outputs, overlays, playerVideos, playingAudio, projects, refreshEditSlide, shows, showsCache, special, styles } from "../../stores"
+    import { activeEdit, activeFocus, activePage, activeProject, activeShow, categories, focusMode, globalTags, media, notFound, outLocked, outputs, overlayCategories, overlays, playerVideos, playingAudio, projects, refreshEditSlide, shows, showsCache, special, styles } from "../../stores"
     import { getAccess } from "../../utils/profile"
+    import { customIconsColors } from "../../values/customIcons"
     import { historyAwait } from "../helpers/history"
     import Icon from "../helpers/Icon.svelte"
-    import { encodeFilePath, getExtension, getFileName, getMedia, getMediaLayerType, getMediaStyle, getMediaType, mediaSize, removeExtension } from "../helpers/media"
-    import { findMatchingOut, getActiveOutputs, setOutput } from "../helpers/output"
+    import { encodeFilePath, getExtension, getFileName, getMedia, getMediaLayerType, getMediaStyle, getMediaType, getVideoDuration, mediaSize, removeExtension } from "../helpers/media"
+    import { findMatchingOut, getActiveOutputs, setOutput, startFolderTimer } from "../helpers/output"
     import { loadShows } from "../helpers/setShow"
     import { checkName, getLayoutRef } from "../helpers/show"
     import { swichProjectItem, updateOut } from "../helpers/showActions"
@@ -16,6 +17,7 @@
     import { clearBackground, clearSlide } from "../output/clear"
     import HiddenInput from "./HiddenInput.svelte"
     import MaterialButton from "./MaterialButton.svelte"
+    import { translateText } from "../../utils/language"
 
     export let id: string
     export let show: any // ShowList | ShowRef
@@ -49,10 +51,12 @@
     export let icon = false
     let iconID: null | string = null
     let custom = false
+    let subicon = ""
     $: {
         // WIP similar to focus.ts
         if (icon) {
             custom = false
+            subicon = ""
             if (type === "show") {
                 if ($shows[show.id]?.private) iconID = "private"
                 else if ($showsCache[show.id]?.reference?.type === "scripture") {
@@ -65,8 +69,19 @@
                     custom = true
                     iconID = $categories[$shows[show.id].category || ""].icon || null
                 } else iconID = "noIcon"
-            } else if (type === "audio") iconID = "music"
-            else if (type === "overlay") iconID = "overlays"
+            } else if (type === "audio") {
+                iconID = "music"
+            } else if (type === "overlay") {
+                if ($overlays[show.id]?.category && $overlayCategories[$overlays[show.id].category || ""]) {
+                    custom = true
+                    iconID = $overlayCategories[$overlays[show.id].category || ""].icon || null
+                    subicon = "overlays"
+                } else {
+                    iconID = "overlays"
+                }
+                // } else if (type === "image" || type === "video") {
+                //     subicon = type
+            }
             // else if (type === "player") iconID = "live"
             else iconID = type
         }
@@ -93,7 +108,7 @@
         if ($focusMode) {
             let inProject = $projects[$activeProject || ""]?.shows?.find((p) => p.id === id)
             if (inProject) {
-                activeFocus.set({ id, index: pos ?? undefined })
+                activeFocus.set({ id, index: pos ?? undefined, type })
                 return
             } else {
                 focusMode.set(false)
@@ -122,6 +137,7 @@
     }
 
     async function doubleClick(e: ClickEvent) {
+        if (type === "show_placeholder") return
         if (editActive || $outLocked || e.detail.target.closest("input")) return
 
         let outputId: string = getActiveOutputs($outputs, false, true, true)[0]
@@ -153,8 +169,9 @@
             setOutput("background", out)
         } else if (type === "pdf") {
             // get PDF data
+            // WIP duplicate of playPdf in showActions.ts
             GlobalWorkerOptions.workerSrc = "./assets/pdf.worker.min.mjs"
-            const loadingTask = getDocument(id)
+            const loadingTask = getDocument(encodeFilePath(id))
             const pdfDoc = await loadingTask.promise
             const pages = pdfDoc.numPages
             loadingTask.destroy()
@@ -162,6 +179,8 @@
             let name = show.name || removeExtension(getFileName(id))
             setOutput("slide", { type: "pdf", id, page: 0, pages, name })
             clearBackground()
+
+            if (show.data?.timer) startFolderTimer(id, { type: "pdf", path: "" })
         } else if (type === "audio") AudioPlayer.start(id, { name: show.name })
         else if (type === "overlay") setOutput("overlays", show.id, false, "", true)
         else if (type === "player") setOutput("background", { id, type: "player" })
@@ -190,13 +209,18 @@
     $: outline = activeOutput !== null || !!$playingAudio[id]
 
     let thumbnailPath: string | null = null
+    let duration = 0
     $: isMedia = type === "image" || type === "video" || type === "player"
     $: mediaStyle = isMedia ? getMediaStyle($media[id], undefined) : {} // , $styles[getFirstActiveOutput($outputs)?.style || ""]
     $: mediaStyleString = `pointer-events: none;filter: ${mediaStyle.filter || ""};transform: scale(${mediaStyle.flipped ? "-1" : "1"}, ${mediaStyle.flippedY ? "-1" : "1"});`
     $: if (id && isMedia) getThumbnail()
-    else thumbnailPath = ""
+    else {
+        thumbnailPath = ""
+        duration = 0
+    }
     async function getThumbnail() {
         thumbnailPath = ""
+        duration = 0
 
         if (type === "player") {
             const player = $playerVideos[id] || show.data
@@ -213,24 +237,42 @@
 
         const media = await getMedia(id, mediaSize.small)
         if (media) thumbnailPath = media.thumbnail || media.altPath || media.path
+
         // online videos (Pixabay) might not have a thumbnail ready
         if (getMediaType(getExtension(thumbnailPath)) === "video") thumbnailPath = ""
+
+        if (type === "video") {
+            duration = await getVideoDuration(id)
+        }
     }
+
+    // placeholder title with index
+    // $: showTemplateName = type === "show_placeholder" ? `${translateText("new.placeholder: formats.show")} ${index !== null ? ($editingProjectTemplate ? $projectTemplates[$editingProjectTemplate] : $projects[$activeProject || ""])?.shows?.reduce((c, show, i) => (show.type === "show_placeholder" && i < index ? c + 1 : c), 1) : ""}` : ""
+    $: showTemplateName = type === "show_placeholder" ? translateText("new.placeholder") : ""
 </script>
 
 <div id="show_{id}" class="main" class:played={show.played}>
     <MaterialButton on:click={click} on:dblclick={doubleClick} {isActive} showOutline={outline} class="context {$$props.class}{readOnly ? '_readonly' : ''}" style="font-weight: normal;--outline-color: {activeOutput || 'var(--secondary)'};{$notFound.show?.includes(id) ? 'background-color: rgb(255 0 0 / 0.2);' : ''}{style}{$$props.style || ''}" tab>
-        <div class="row">
+        <div class="row" style={type === "show_placeholder" ? "font-style: italic;" : ""}>
             <span class="cell" style={isProject ? `width: 100%;max-width: ${show.layoutInfo?.name || show.scheduleLength ? 92 : 100}%;` : `width: 75%;min-width: 120px;max-width: calc(100% ${showNumber ? "- var(--number-width)" : ""} - var(--modified-width, 0px));`}>
-                <div class="icon" class:isMedia>
-                    {#if thumbnailPath}
+                <div class="icon" class:isMedia style="position: relative;">
+                    {#if type === "show_placeholder"}
+                        <Icon id="swap" white right />
+                    {:else if thumbnailPath}
                         <img class="thumbnail" src={encodeFilePath(thumbnailPath)} alt="thumbnail" style={mediaStyleString} />
                     {:else if icon || show.locked}
-                        <Icon id={show.played ? "check" : iconID ? iconID : show.locked ? "locked" : "noIcon"} custom={!show.played && custom} box={iconID === "ppt" ? 50 : 24} white={show.played} right={!isMedia} />
+                        <Icon id={show.played ? "check" : iconID ? iconID : show.locked ? "locked" : "noIcon"} custom={!show.played && custom} box={iconID === "ppt" ? 50 : 24} color={show.played ? "#97ff95" : customIconsColors[iconID || ""] || ""} white right={!isMedia} boxed={!show.locked} />
+                    {/if}
+
+                    {#if duration}
+                        <span class="duration">{joinTime(secondsToTime(duration))}</span>
+                    {/if}
+                    {#if subicon}
+                        <Icon id={subicon} size={0.7} white style="position: absolute;bottom: -3px;right: 1px;opacity: 0.8;" />
                     {/if}
                 </div>
 
-                <HiddenInput value={newName} id={index !== null ? "show_" + id + "#" + index : "show_drawer_" + id} on:edit={rename} bind:edit={editActive} allowEmpty={false} allowEdit={(!show.type || show.type === "show") && !readOnly} />
+                <HiddenInput value={type === "show_placeholder" ? showTemplateName : newName} id={index !== null ? "show_" + id + "#" + index : "show_drawer_" + id} on:edit={rename} bind:edit={editActive} allowEmpty={false} allowEdit={(!show.type || show.type === "show") && !readOnly && type !== "show_placeholder"} />
 
                 {#if isProject}
                     {#if show.layoutInfo?.name}
@@ -370,6 +412,21 @@
         text-indent: 100%;
         white-space: nowrap;
         overflow: hidden;
+    }
+    .duration {
+        position: absolute;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+
+        font-family: monospace;
+        font-size: 0.85em;
+
+        padding: 0px 5px;
+        border-radius: 2px;
+
+        background-color: rgb(0 0 0 / 0.5);
+        color: white;
     }
 
     .arrow {

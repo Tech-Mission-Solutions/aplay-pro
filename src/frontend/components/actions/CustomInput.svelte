@@ -3,8 +3,9 @@
     import { Main } from "../../../types/IPC/Main"
     import { requestMain } from "../../IPC/main"
     import { cameraManager } from "../../media/cameraManager"
-    import { actions, activePopup, audioPlaylists, audioStreams, effects, effectsLibrary, groups, outputs, overlays, popupData, projects, shows, stageShows, styles, templates, timers, triggers, variables } from "../../stores"
+    import { actions, activePopup, audioPlaylists, audioStreams, effects, effectsLibrary, groups, outputs, overlays, popupData, projects, shows, stageShows, styles, templates, timers, variables } from "../../stores"
     import { translateText } from "../../utils/language"
+    import { obsGetScenes } from "../../utils/obsTalk"
     import MetronomeInputs from "../drawer/audio/MetronomeInputs.svelte"
     import T from "../helpers/T.svelte"
     import { keysToID, sortByName } from "../helpers/array"
@@ -73,11 +74,14 @@
     let screens: { name: string; id: string }[] = []
     if (inputId === "screen") getScreens()
     async function getScreens() {
-        let screenList = await requestMain(Main.GET_SCREENS)
-        let windowList = await requestMain(Main.GET_WINDOWS)
+        let screenList = (await requestMain(Main.GET_SCREENS)) || []
+        let windowList = (await requestMain(Main.GET_WINDOWS)) || []
         // screens = sortByName(screensList)
         screens = [...screenList, ...windowList]
     }
+
+    let obsScenes: string[] = []
+    if (inputId === "obs_scene") obsGetScenes().then((s) => (obsScenes = s))
 
     function convertToOptions(a) {
         const options = Object.keys(a).map((id) => ({ value: id, label: a[id].name }))
@@ -105,13 +109,14 @@
         change_output_style: () => convertToOptions($styles),
         id_start_timer: () => convertToOptions($timers),
         variable: () => convertToOptions($variables), // .map((a) => ({...a, type: $variables[a.id]?.type}))
-        start_trigger: () => convertToOptions($triggers),
         // WIP remove all actions that reference this action and so on - to prevent infinite loop
         run_action: () => convertToOptions($actions).filter((a) => a.label && a.value !== mainId),
         set_template: () => convertToOptions($templates),
         toggle_output: () => convertToOptions($outputs),
         mute_output: () => sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label"),
-        unmute_output: () => sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label")
+        unmute_output: () => sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label"),
+        start_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")],
+        stop_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")]
     }
 
     $: options = getOptions[actionId]?.() || []
@@ -186,6 +191,8 @@
 {:else if inputId === "index"}
     <!-- run by index -->
     <MaterialNumberInput label="variables.value" value={value?.index || 0} on:change={(e) => updateValue("index", e)} />
+{:else if inputId === "obs_scene"}
+    <MaterialDropdown label="Scene" options={obsScenes.map((s) => ({ value: s, label: s }))} value={value?.id} on:change={(e) => updateValue("id", e.detail)} />
 {:else if inputId === "strval"}
     <!-- run by name -->
     <MaterialTextInput label="inputs.name" value={value?.value || ""} on:change={(e) => updateValue("value", e)} />

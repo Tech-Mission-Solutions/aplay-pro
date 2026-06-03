@@ -9,7 +9,7 @@ import type { Output } from "../../types/Output"
 import type { Resolution } from "../../types/Settings"
 import { requestToMain, sendToMain } from "../IPC/main"
 import { OutputHelper } from "../output/OutputHelper"
-import { createFolder, deleteFile, doesPathExist, doesPathExistAsync, getDataFolderPath, getFileStatsAsync, makeDir } from "../utils/files"
+import { createFolder, deleteFile, doesPathExist, doesPathExistAsync, getDataFolderPath, getFileStatsAsync, makeDir, openInSystem } from "../utils/files"
 import { waitUntilValueIsDefined } from "../utils/helpers"
 import { captureOptions } from "../utils/windowOptions"
 import { imageExtensions, videoExtensions } from "./media"
@@ -47,7 +47,8 @@ function deleteThumbnails(filePath: string) {
 
 const currentlyGenerating = new Set<string>()
 export async function getThumbnail(data: { input: string; size: number }) {
-    if (!(await doesPathExistAsync(data.input))) return { ...data, output: "" }
+    const inputStats = await getFileStatsAsync(data.input)
+    if (!inputStats) return { ...data, output: "" }
 
     const mediaId = `${data.input}-${data.size}`
     if (currentlyGenerating.has(mediaId)) {
@@ -58,9 +59,15 @@ export async function getThumbnail(data: { input: string; size: number }) {
     currentlyGenerating.add(mediaId)
 
     const outputPath = getThumbnailPath(data.input, data.size || 500)
-    if (await doesPathExistAsync(outputPath)) {
-        currentlyGenerating.delete(mediaId)
-        return finish(outputPath)
+    const outputStats = await getFileStatsAsync(outputPath)
+    if (outputStats) {
+        if (inputStats.mtimeMs > outputStats.mtimeMs) {
+            // source file is newer than thumbnail, delete old thumbnail
+            deleteFile(outputPath)
+        } else {
+            currentlyGenerating.delete(mediaId)
+            return finish(outputPath)
+        }
     }
 
     createThumbnail(data.input, data.size || 500)
@@ -225,7 +232,7 @@ async function captureWithCanvas(data: { input: string; output: string; size: Re
 }
 
 const failedPaths: string[] = []
-export function saveImage(data: { id?: string; path?: string; base64?: string; buffer?: ArrayBuffer; filePath?: string[]; format?: "png" | "jpg" }) {
+export function saveImage(data: { id?: string; path?: string; base64?: string; buffer?: ArrayBuffer; filePath?: string[]; format?: "png" | "jpg"; openFolder?: boolean }) {
     const dataURL = data.base64
     const buffer = data.buffer
     let savePath = data.path || ""
@@ -241,6 +248,8 @@ export function saveImage(data: { id?: string; path?: string; base64?: string; b
         const folderPath = path.join(exportFolder, ...data.filePath)
         createFolder(folderPath)
         savePath = path.join(folderPath, fileName)
+
+        if (data.openFolder) openInSystem(folderPath, true)
     } else {
         mediaBeingCaptured = Math.max(0, mediaBeingCaptured - 1)
         if (mediaBeingCaptured === 0) currentlyGenerating.clear()
@@ -259,6 +268,8 @@ export function saveImage(data: { id?: string; path?: string; base64?: string; b
 }
 
 export async function pdfToImage({ filePath }: { filePath: string }) {
+    // normalize filePath to handle special characters robustly
+    filePath = path.normalize(filePath)
     const pdfName = path.basename(filePath, path.extname(filePath))
     const pdfImportPath = getDataFolderPath("imports", "PDF")
     const pathName = createFolder(path.join(pdfImportPath, pdfName))
@@ -292,12 +303,12 @@ export async function pdfToImage({ filePath }: { filePath: string }) {
             const image = nativeImage.createFromDataURL(base64)
             const imagePath = path.join(pathName, `${i + 1}.jpg`)
 
+            createFolder(pathName)
             saveToDisk(imagePath, image, "jpg")
             images.push(imagePath)
 
             const saveProgress = renderPhasePercent + Math.round(((i + 1) / Math.max(1, pdfImages.length)) * savePhasePercent)
             sendPdfImportProgress({ progress: saveProgress, status: "importing" })
-
         }
 
         if (images.length) {

@@ -8,10 +8,11 @@ import type { Item, Layout, LayoutRef, Media, OutSlide, Show, Slide, SlideData, 
 import { AudioAnalyser } from "../../audio/audioAnalyser"
 import { fadeinAllPlayingAudio, fadeoutAllPlayingAudio } from "../../audio/audioFading"
 import { sendMain } from "../../IPC/main"
-import { actions, activeProject, activeRename, activeTimers, allOutputs, categories, connections, currentOutputSettings, customMessageCredits, disabledServers, effects, lockedOverlays, media, outputDisplay, outputs, outputSlideCache, outputState, overlays, overlayTimers, playingVideos, projects, scriptures, scriptureSettings, serverData, showsCache, special, stageShows, styles, templates, theme, themes, transitionData, usageLog } from "../../stores"
+import { actions, activeProject, activeRename, activeShow, activeTimers, allOutputs, categories, connections, currentOutputSettings, customMessageCredits, disabledServers, effects, lockedOverlays, media, outputDisplay, outputs, outputSlideCache, outputState, overlays, overlayTimers, playingVideos, projects, scriptures, scriptureSettings, serverData, showsCache, special, stageShows, styles, templates, theme, themes, transitionData, usageLog } from "../../stores"
 import { trackScriptureUsage } from "../../utils/analytics"
 import { isMainWindow, isOutputWindow, newToast } from "../../utils/common"
 import { translateText } from "../../utils/language"
+import { confirmCustom } from "../../utils/popup"
 import { send } from "../../utils/request"
 import { sendBackgroundToStage } from "../../utils/stageTalk"
 import { TemplateHelper } from "../../utils/templates"
@@ -60,7 +61,14 @@ let resetActionTrigger = false
 export function setOutput(type: string, data: any, toggle = false, outputId = "", add = false) {
     const ref = data?.layout ? _show(data.id).layouts([data.layout]).ref()[0] || [] : []
 
+    // stop any active break slide recording when the slide changes
+    if (type === "slide") _stopBreakRecording()
+
     customActionActivation("output_changed")
+
+    const bindings = data?.bindings || (data?.layout ? ref[data.index]?.data?.bindings || [] : [])
+    const allOutputIds = bindings.length ? bindings : getActiveOutputs(get(outputs), true, false, true)
+    const outs = outputId ? [outputId] : allOutputIds
 
     // track usage (& set attributionString)
     if (type === "slide" && data?.id) {
@@ -82,18 +90,34 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
             if (translation.attributionString) data.attributionString = translation.attributionString
         }
 
-        const groupId = slide.globalGroup
-        if (groupId) customActionActivation("group_start", groupId)
+        if (data.type === "pdf") {
+            const out = get(outputs)[outs[0]]?.out?.slide
+            if (out?.type !== "pdf") customActionActivation("pdf_start")
+        } else {
+            const groupId = slide.globalGroup
+            if (groupId) customActionActivation("group_start", groupId)
+
+            // start recording time on break slides (no items, globalGroup === "break")
+            const layoutSlideIndex = ref[data.index]?.type === "parent" ? (ref[data.index]?.index ?? -1) : -1
+            if (slide.globalGroup === "break" && !slide.items?.length && layoutSlideIndex > -1) {
+                const previousDuration = _pausedBreakRecording?.slideIndex === layoutSlideIndex ? _pausedBreakRecording.accumulatedDuration : 0
+                _breakRecording = { startTime: Date.now(), showId: data.id, layoutId: data.layout, slideIndex: layoutSlideIndex, previousDuration }
+            } else if (_pausedBreakRecording && layoutSlideIndex > _pausedBreakRecording.slideIndex + 1) {
+                _pausedBreakRecording = null
+            }
+        }
+
+        // store project index so we can use it for dynamic values (in case there are multiple of the same project item)
+        const active = get(activeShow)
+        if (active?.id === data.id && active?.index !== undefined) {
+            data.projectIndex = active.index
+        }
     }
 
+    const inputData = clone(data)
+    const backgroundId = getFirstOutputIdWithAudableBackground(allOutputIds)
+
     outputs.update((a) => {
-        const bindings = data?.bindings || (data?.layout ? ref[data.index]?.data?.bindings || [] : [])
-        const allOutputIds = bindings.length ? bindings : getActiveOutputs(a, true, false, true)
-        const outs = outputId ? [outputId] : allOutputIds
-        const inputData = clone(data)
-
-        const backgroundId = getFirstOutputIdWithAudableBackground(allOutputIds)
-
         if (type === "slide" && data?.id) {
             // reset slide cache (after update)
             setTimeout(() => outputSlideCache.set({}), 50)
@@ -218,6 +242,32 @@ function appendShowUsage(showId: string) {
             a.all = a.all.slice(-MAX_USAGE_LOG_ENTRIES)
         }
 
+        return a
+    })
+}
+
+// break slide time recording
+let _breakRecording: { startTime: number; showId: string; layoutId: string; slideIndex: number; previousDuration: number } | null = null
+let _pausedBreakRecording: { slideIndex: number; accumulatedDuration: number } | null = null
+function _stopBreakRecording() {
+    if (!_breakRecording) return
+
+    const { startTime, showId, layoutId, slideIndex, previousDuration } = _breakRecording
+    _breakRecording = null
+
+    const sessionElapsed = Math.round((Date.now() - startTime) / 1000)
+    const totalElapsed = previousDuration + sessionElapsed
+
+    // store accumulated time so returning to this slide resumes from here
+    _pausedBreakRecording = { slideIndex, accumulatedDuration: totalElapsed }
+
+    if (totalElapsed <= 3) return // only save if over 3 seconds
+
+    showsCache.update((a) => {
+        const slideData = a[showId]?.layouts?.[layoutId]?.slides?.[slideIndex]
+        if (!slideData) return a
+
+        slideData.breakDuration = totalElapsed
         return a
     })
 }
@@ -526,12 +576,12 @@ export function outputSlideHasContent(output) {
 
 // this actually gets aspect ratio
 export function getResolution(initial: Resolution | undefined | null = null, _updater: any = null, _getSlideRes = false, outputId = "", styleIdOverride = ""): Resolution {
-    if (initial) return initial
+    if (initial?.width) return initial
 
     if (!outputId) outputId = getFirstActiveOutput()?.id || ""
     const currentOutput = get(outputs)[outputId]
 
-    if (currentOutput?.stageOutput) return currentOutput.bounds
+    if (currentOutput?.stageOutput) return currentOutput.bounds ?? DEFAULT_BOUNDS
 
     const style = styleIdOverride || currentOutput?.style ? get(styles)[(styleIdOverride || currentOutput?.style)!] || null : null
     const styleRatio: any = style?.aspectRatio || style?.resolution
@@ -554,7 +604,7 @@ export function getStageResolution(outputId = "", _updater = get(outputs)): Reso
 export const DEFAULT_BOUNDS = { width: 1920, height: 1080 }
 export function getOutputResolution(outputId: string, _updater = get(outputs), scaled = false, styleIdOverride = "") {
     const currentOutput = _updater[outputId]
-    const outputRes = clone(currentOutput?.bounds || DEFAULT_BOUNDS)
+    const outputRes = clone(currentOutput?.bounds?.width ? currentOutput.bounds : DEFAULT_BOUNDS)
 
     const styleRatio = getResolution(null, null, false, outputId, styleIdOverride)
     const styleAspectRatio = styleRatio.width / styleRatio.height
@@ -647,13 +697,14 @@ export function checkWindowCapture(startup = false) {
     AudioAnalyser.recorderActivate()
 }
 
-// NDI | OutputShow | Stage CurrentOutput
+// NDI | OutputShow | Stage CurrentOutput | WebRTC
 export function shouldBeCaptured(outputId: string, startup = false) {
     const output = get(outputs)[outputId]
     const captures = {
         ndi: !!output.ndi,
         server: !!(get(disabledServers).output_stream === false && (get(serverData)?.output_stream?.outputId || getFirstOutput()?.id) === outputId),
-        stage: !get(disabledServers).stage && Object.keys(get(connections).STAGE || {}).length > 0 && stageHasOutput(outputId)
+        stage: !get(disabledServers).stage && Object.keys(get(connections).STAGE || {}).length > 0 && stageHasOutput(outputId),
+        webrtc: !!output.webrtc
     }
 
     // alert user that screen recording starts
@@ -675,6 +726,48 @@ function stageHasOutput(outputId: string) {
 
         // WIP check that this stage layout is not disabled & used in a output or (web enabled (disabledServers) + has connection)!
     })
+}
+
+// Streaming
+
+export function startStreaming(outputId: string = "") {
+    const outputIds = outputId ? [outputId] : getAllActiveOutputIds()
+
+    outputIds.forEach((outputId) => updateOutputWebrtcData(outputId, "streaming", true))
+}
+
+export async function stopStreaming(outputId: string = "", confirmStop: boolean = false) {
+    if (confirmStop) {
+        const confirmed = await confirmCustom(translateText("output.confirm_stop"))
+        if (!confirmed) return
+    }
+
+    const outputIds = outputId ? [outputId] : getAllActiveOutputIds()
+
+    outputIds.forEach((outputId) => updateOutputWebrtcData(outputId, "streaming", false))
+}
+
+export function updateOutputWebrtcData(outputId: string, key: string, value: any) {
+    const output = get(outputs)[outputId]
+    if (!output) return null
+
+    const newData = { ...(output.webrtcData || {}), [key]: value }
+
+    if (key === "streaming") {
+        if (!output.webrtc || !output.webrtcData?.url) return
+
+        if (value) AudioAnalyser.recorderActivate()
+        else AudioAnalyser.recorderDeactivate()
+    }
+
+    outputs.update((a: any) => {
+        if (!a[outputId]) return a
+        a[outputId].webrtcData = newData
+        return a
+    })
+
+    send(OUTPUT, ["SET_VALUE"], { id: outputId, key: "webrtcData", value: newData })
+    return newData
 }
 
 // settings
@@ -1081,7 +1174,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         if (hasScriptureDynamicValue) {
             remainingTextTemplateItems.forEach((item) => {
                 // check if item has scripture value (and not {scripture_text})
-                const regex = /\{scripture(?:\d+)?_[^}]+\}/g
+                const regex = /\{scripture(?:\d+)?_[^}]*\}/g
                 const text = getItemText(item)
                 const isDecoration = (() => {
                     const matches = text?.match(regex)
@@ -1199,14 +1292,17 @@ function replaceScriptureValues(items: Item[], templateItems: Item[], customDyna
 
                                 const bibleIndex = parseInt(key.replace(/\D/g, "")) || 0
 
-                                value.forEach(([number, value], index) => {
+                                value.forEach(([number, verseText], index) => {
                                     if (number && number !== "0") {
                                         const size = verseNumberSize * (i === 0 ? 1.2 : 1)
                                         const numberStyle = `;${verseNumberStyles[bibleIndex] || verseNumberStyles[0] || verseNumberStyle}font-size: ${size}px;margin-right: 0.3em;`
                                         newTexts.push({ value: number, style: style + numberStyle, customType: "disableTemplate" })
                                     }
 
-                                    newTexts.push({ value, sourceDynamicKey: key + ":" + index, style: style + ";" + baseStyle })
+                                    // Add trailing space if there is a next item on the slide
+                                    const nextItem = (value as [string, string][])[index + 1]
+                                    const needsSpace = !!nextItem
+                                    newTexts.push({ value: needsSpace ? verseText + " " : verseText, sourceDynamicKey: key + ":" + index, style: style + ";" + baseStyle })
                                 })
                             }
                         })
@@ -1418,8 +1514,14 @@ export function getStyleTemplate(outSlide: OutSlide | null, currentStyle: Styles
     const translations: number = outSlide?.id === "temp" ? outSlide.translations || 1 : reference?.data?.translations || reference?.data?.version?.split("+")?.length || 1
     const translationKey = translations > 1 ? `_${translations}` : ""
 
-    const templateId = isScripture ? currentStyle[`templateScripture${translationKey}`] || currentStyle.templateScripture : currentStyle.template
-    const template = get(templates)[templateId || ""] || {}
+    let templateId = isScripture ? currentStyle[`templateScripture${translationKey}`] || currentStyle.templateScripture : currentStyle.template
+    let template = get(templates)[templateId || ""] || {}
+
+    // use custom first slide template on first slide
+    if (template?.settings?.firstSlideTemplate && outSlide?.index === 0 && outSlide?.id !== "temp") {
+        templateId = template?.settings?.firstSlideTemplate
+        if (get(templates)[templateId]) template = get(templates)[templateId]
+    }
 
     return template
 }

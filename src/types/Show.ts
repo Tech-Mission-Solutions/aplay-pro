@@ -16,7 +16,7 @@ export interface Show {
     category: null | ID
     quickAccess?: any
     reference?: {
-        type: "calendar" | "scripture" | "lessons"
+        type: "calendar" | "scripture" | "lessons" | "canva"
         data: any
     }
     settings: {
@@ -201,6 +201,8 @@ export interface Timer {
     overflowColor?: string
     overflowFlash?: boolean
 
+    tags?: string[]
+
     // format?: string
     // paused?: boolean
 }
@@ -376,6 +378,7 @@ export interface SlideData {
     }
     // actions?: {} // to begininng / index, clear (all), start timer, start audio/music ++
     bindings?: string[] // bind slide to an output
+    breakDuration?: number // seconds spent on "break" slide (used for countdown display)
 }
 
 export interface SlideAction {
@@ -431,6 +434,7 @@ export interface Media {
 
 export interface Action {
     name: string
+    customIcon?: string // file path
     triggers: string[]
     actionValues?: any
     tags?: string[]
@@ -550,6 +554,7 @@ export interface OutBackground {
     startAt?: number
     muted?: boolean
     loop?: boolean
+    softLoop?: number
     // media
     filter?: string
     flipped?: boolean
@@ -565,6 +570,7 @@ export interface OutSlide {
     id: ID
     layout?: ID
     index?: number
+    projectIndex?: number // only used to reference back to the project item index
     tempItems?: Item[]
     previousSlides?: Item[][]
     settings?: any // settings for temp (e.g. scripture background color)
@@ -612,6 +618,6 @@ export interface Tag {
 
 export type ID = string
 export type ItemType = "text" | "list" | "media" | "camera" | "timer" | "clock" | "button" | "events" | "weather" | "variable" | "web" | "mirror" | "icon" | "slide_tracker" | "visualizer" | "captions" | "metronome" | "current_output" // "shape" | "video"
-export type ShowType = "DIVIDER" | "show" | "image" | "video" | "audio" | "player" | "section" | "overlay" | "pdf" | "ppt" | "screen" | "ndi" | "camera" | "folder" // "private"
+export type ShowType = "DIVIDER" | "show" | "image" | "video" | "audio" | "player" | "section" | "overlay" | "pdf" | "ppt" | "screen" | "ndi" | "camera" | "folder" | "show_placeholder" // "private"
 export type TransitionType = "none" | "blur" | "fade" | "crossfade" | "fly" | "scale" | "slide" | "spin"
 export type MediaType = "media" | "video" | "image" | "effect" | "screen" | "ndi" | "camera" | "player" | "audio"

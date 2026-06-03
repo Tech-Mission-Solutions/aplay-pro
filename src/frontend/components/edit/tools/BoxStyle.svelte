@@ -2,12 +2,13 @@
     import { onDestroy, onMount } from "svelte"
     import type { Item, ItemType, Slide } from "../../../../types/Show"
     import { activeEdit, activePopup, activeShow, alertMessage, categories, styles as outputStyles, overlays, selected, shownTips, showsCache, special, templates, theme, themes, timers } from "../../../stores"
+    import { getNormalizedKey, isFormattingKey } from "../../../utils/shortcuts"
     import { newToast } from "../../../utils/common"
     import { clone } from "../../helpers/array"
     import { history } from "../../helpers/history"
     import { getExtension, getMediaType } from "../../helpers/media"
     import { getAllEnabledOutputs } from "../../helpers/output"
-    import { getLayoutRef } from "../../helpers/show"
+    import { getCustomMetadata, getLayoutRef, initializeMetadata } from "../../helpers/show"
     import { _show } from "../../helpers/shows"
     import { getStyles } from "../../helpers/style"
     import { MAX_FONT_SIZE } from "../scripts/autosize"
@@ -75,7 +76,7 @@
     }
 
     function keyup(e: KeyboardEvent) {
-        if (e.key.includes("Arrow") || e.key === "Home" || e.key === "End" || e.key.toUpperCase() === "A") getTextSelection(e)
+        if (e.key.includes("Arrow") || e.key === "Home" || e.key === "End" || getNormalizedKey(e).toUpperCase() === "A") getTextSelection(e)
     }
 
     const formatting = {
@@ -85,13 +86,8 @@
     }
 
     function getFormattingShortcut(e: KeyboardEvent) {
-        const byKey = formatting[(e.key || "").toLowerCase()]
-        if (byKey) return byKey
-
-        const code = e.code || ""
-        if (code.startsWith("Key")) return formatting[code.slice(3).toLowerCase()]
-
-        return null
+        if (!isFormattingKey(e)) return null
+        return formatting[getNormalizedKey(e).toLowerCase()] || null
     }
 
     function getSelectionPoint(editElem: Element, line: number, pos: number) {
@@ -151,8 +147,12 @@
         if (!startPoint || !endPoint) return false
 
         const range = document.createRange()
-        range.setStart(startPoint.node, startPoint.offset)
-        range.setEnd(endPoint.node, endPoint.offset)
+        try {
+            range.setStart(startPoint.node, startPoint.offset)
+            range.setEnd(endPoint.node, endPoint.offset)
+        } catch {
+            return false
+        }
 
         const sel = window.getSelection()
         if (!sel) return false
@@ -279,8 +279,13 @@
     $: if (id === "slide_tracker" && item) {
         setBoxInputValue(box, "default", "tracker.accent", "value", item.tracker?.accent || $themes[$theme]?.colors?.secondary || "#54EB77")
 
+        const defaultMetadataKeys = Object.keys(initializeMetadata({}))
+        const metadataOptions = [{ value: "name", label: "show.name" }, ...Object.keys(getCustomMetadata()).map((key) => ({ value: key, label: defaultMetadataKeys.includes(key) ? `meta.${key}` : key }))]
+        setBoxInputValue(box, "default", "tracker.projectMetadata", "options", metadataOptions)
+
         setBoxInputValue(box, "default", "tracker.childProgress", "hidden", item.tracker?.type !== "group")
         setBoxInputValue(box, "default", "tracker.oneLetter", "hidden", item.tracker?.type !== "group")
+        setBoxInputValue(box, "default", "tracker.projectMetadata", "hidden", item.tracker?.type !== "project")
     }
     $: if (id === "events" && item) {
         setBoxInputValue(box, "default", "events.startDaysFromToday", "disabled", !!item.events?.enableStartDate)

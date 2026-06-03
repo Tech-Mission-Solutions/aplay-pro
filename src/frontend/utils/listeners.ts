@@ -1,5 +1,6 @@
 import { get } from "svelte/store"
 import { OUTPUT, REMOTE, STAGE } from "../../types/Channels"
+import { AudioAnalyser } from "../audio/audioAnalyser"
 import { AudioPlayer } from "../audio/audioPlayer"
 import { midiInListen } from "../components/actions/midi"
 import { getAllActiveOutputIds, getAllNormalOutputs } from "../components/helpers/output"
@@ -15,6 +16,7 @@ import {
     activeTimers,
     audioChannelsData,
     audioData,
+    audioEffects,
     cachedShowsData,
     categories,
     colorbars,
@@ -25,7 +27,6 @@ import {
     drawTool,
     driveKeys,
     effects,
-    equalizerConfig,
     events,
     folders,
     gain,
@@ -55,8 +56,8 @@ import {
     templates,
     timeFormat,
     timers,
+    timerTags,
     transitionData,
-    triggers,
     variables,
     variableTags,
     volume
@@ -329,9 +330,16 @@ export function storeSubscriber() {
         // REMOTE
         send(REMOTE, ["VARIABLE_TAGS"], data)
     })
+    timerTags.subscribe((data) => {
+        // REMOTE
+        send(REMOTE, ["TIMER_TAGS"], data)
+    })
 
     special.subscribe((data) => {
         send(OUTPUT, ["SPECIAL"], data)
+
+        if (data.icecastEnabled) AudioAnalyser.recorderActivate()
+        else AudioAnalyser.recorderDeactivate()
     })
 
     slideTimelineSpeedMultiplier.subscribe((data) => {
@@ -354,10 +362,10 @@ export function storeSubscriber() {
         sendRemoteMixer()
     })
 
-    equalizerConfig.subscribe(async (data) => {
-        if (await hasNewerUpdate("EQUALIZER_CONFIG_CACHE", 50)) return
+    audioEffects.subscribe(async (data) => {
+        if (await hasNewerUpdate("AUDIO_EFFECTS_CACHE", 50)) return
 
-        send(OUTPUT, ["EQUALIZER_CONFIG"], data)
+        send(OUTPUT, ["AUDIO_EFFECTS"], data)
     })
 
     metronome.subscribe((data) => {
@@ -417,10 +425,6 @@ export function storeSubscriber() {
     actionTags.subscribe((data) => {
         // REMOTE
         send(REMOTE, ["ACTION_TAGS"], data)
-    })
-    triggers.subscribe((data) => {
-        // REMOTE
-        send(REMOTE, ["TRIGGERS"], data)
     })
     runningActions.subscribe((data) => {
         // REMOTE

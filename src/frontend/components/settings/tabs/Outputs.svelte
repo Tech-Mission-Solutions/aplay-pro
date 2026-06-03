@@ -10,7 +10,7 @@
     import { translateText } from "../../../utils/language"
     import { destroy, receive, send } from "../../../utils/request"
     import { clone, keysToID, sortByName, sortObject } from "../../helpers/array"
-    import { refreshOut, toggleOutput } from "../../helpers/output"
+    import { refreshOut, startStreaming, stopStreaming, toggleOutput, updateOutputWebrtcData } from "../../helpers/output"
     import InputRow from "../../input/InputRow.svelte"
     import Title from "../../input/Title.svelte"
     import MaterialButton from "../../inputs/MaterialButton.svelte"
@@ -51,7 +51,7 @@
             setTimeout(refreshOut)
         }
 
-        if (key === "ndi") {
+        if (key === "ndi" || key === "webrtc") {
             if (value) {
                 newToast("toast.output_capture_enabled")
 
@@ -62,7 +62,8 @@
                     updateOutput("invisible", true)
                 }
 
-                ndiMenuOpened = true
+                if (key === "ndi") ndiMenuOpened = true
+                else webrtcMenuOpened = true
             }
         } else if (key === "blackmagic") {
             if (value === true) {
@@ -120,6 +121,10 @@
                 }
             }
 
+            if (key === "webrtc") {
+                if (!value) AudioAnalyser.recorderDeactivate()
+            }
+
             if (key === "enabled") {
                 // , rate: $special.previewRate || "auto"
                 if (value) send(OUTPUT, ["CREATE"], currentOutput)
@@ -137,7 +142,7 @@
 
             if (["blackmagic"].includes(key)) {
                 send(OUTPUT, ["SET_VALUE"], { id: outputId, key, value: a[outputId] })
-            } else if (["alwaysOnTop", "kioskMode", "transparent", "invisible", "ndi"].includes(key)) {
+            } else if (["alwaysOnTop", "kioskMode", "transparent", "invisible", "ndi", "webrtc"].includes(key)) {
                 send(OUTPUT, ["SET_VALUE"], { id: outputId, key, value })
             }
 
@@ -193,6 +198,18 @@
         }
     }
 
+    // webrtc
+    function updateWebrtcData(e: any, key: string) {
+        let id = currentOutput?.id
+        if (!id) return
+
+        let value = e?.detail?.id ?? e
+        const updated = updateOutputWebrtcData(id, key, value)
+        if (!updated) return
+
+        saved.set(false)
+    }
+
     const framerates = [
         { value: "10", label: "10 fps" },
         { value: "12", label: "12 fps" },
@@ -206,6 +223,12 @@
 
     // blackmagic
     let blackmagicDevices: Option[] = []
+    function getUsedBlackmagicDeviceIds(excludeId = "") {
+        return Object.entries($outputs)
+            .filter(([id, o]: any) => id !== excludeId && o.blackmagic && o.blackmagicData?.deviceId)
+            .map(([_id, o]: any) => String(o.blackmagicData.deviceId))
+    }
+
     function updateBlackmagicData(e: any, key: string) {
         let id = currentOutput?.id
         if (!id) return
@@ -213,6 +236,15 @@
         let newData = $outputs[id]?.blackmagicData
         if (!newData) newData = {}
         let value = e?.detail?.id || e?.detail?.name || e
+
+        if (key === "deviceId") {
+            const usedIds = getUsedBlackmagicDeviceIds(id)
+            if (usedIds.includes(String(value))) {
+                newToast("Device already in use by another output.")
+                return
+            }
+        }
+
         newData[key] = value
 
         updateOutput("blackmagicData", newData)
@@ -280,7 +312,12 @@
                     supportsExternalKeying: a.supportsExternalKeying || false
                 }
             }))
-            if (blackmagicDevices.length && (!currentOutput?.blackmagicData?.deviceId || !currentOutput?.blackmagicData?.displayModes?.length)) updateBlackmagicData(blackmagicDevices[0].id, "deviceId")
+            // auto-select first available device (not in use)
+            if (blackmagicDevices.length && (!currentOutput?.blackmagicData?.deviceId || !currentOutput?.blackmagicData?.displayModes?.length)) {
+                const usedIds = getUsedBlackmagicDeviceIds(currentOutput?.id)
+                const availableDevice = blackmagicDevices.find((d) => !usedIds.includes(String(d.id || "")))
+                if (availableDevice) updateBlackmagicData({ detail: { id: availableDevice.id } }, "deviceId")
+            }
         }
     }
     receive(BLACKMAGIC, receiveBMD, listenerId)
@@ -296,6 +333,7 @@
 
     let ndiMenuOpened = false
     let bmdMenuOpened = false
+    let webrtcMenuOpened = false
 </script>
 
 {#if outputsList.filter((a) => !a.stageOutput).length > 1 || !currentOutput?.enabled || currentOutput?.stageOutput}
@@ -360,7 +398,19 @@
     <MaterialToggleSwitch label="actions.enable Blackmagic" style="width: 100%;" checked={currentOutput?.blackmagic} defaultValue={false} on:change={(e) => updateOutput("blackmagic", e.detail)} />
 
     <svelte:fragment slot="menu">
-        <MaterialDropdown label="settings.device" value={currentOutput?.blackmagicData?.deviceId} options={blackmagicDevices.map((device) => ({ label: device.name, value: device.id || "" }))} on:change={(e) => updateBlackmagicData(e.detail, "deviceId")} />
+        <MaterialDropdown
+            label="settings.device"
+            value={currentOutput?.blackmagicData?.deviceId || ""}
+            options={(() => {
+                const usedIds = getUsedBlackmagicDeviceIds(currentOutput?.id)
+                return blackmagicDevices.map((device) => ({
+                    label: usedIds.includes(String(device.id || "")) ? `${device.name} (in use)` : device.name,
+                    value: device.id ? String(device.id) : "",
+                    disabled: usedIds.includes(String(device.id))
+                }))
+            })()}
+            on:change={(e) => updateBlackmagicData(e.detail, "deviceId")}
+        />
 
         {#if currentOutput?.blackmagicData?.deviceId}
             <InputRow>
@@ -374,6 +424,28 @@
         {/if}
     </svelte:fragment>
 </InputRow>
+
+<!-- WebRTC -->
+<Title label="WebRTC Streaming" icon="record" />
+
+<InputRow arrow={currentOutput?.webrtc} bind:open={webrtcMenuOpened}>
+    <MaterialToggleSwitch label="actions.enable WebRTC" style="width: 100%;" checked={currentOutput?.webrtc} defaultValue={false} on:change={(e) => updateOutput("webrtc", e.detail)} />
+
+    <svelte:fragment slot="menu">
+        {#if currentOutput}
+            <MaterialTextInput label="WHIP Endpoint URL" value={currentOutput.webrtcData?.url || ""} placeholder="e.g. https://live.restream.io/whip/live/YOUR_KEY" on:change={(e) => updateWebrtcData(e.detail, "url")} />
+            <MaterialTextInput label="Bearer Token (Optional)" value={currentOutput.webrtcData?.token || ""} placeholder="Authorization token" on:change={(e) => updateWebrtcData(e.detail, "token")} />
+        {/if}
+    </svelte:fragment>
+</InputRow>
+
+{#if currentOutput?.webrtc && currentOutput?.webrtcData?.url}
+    <div style="padding-bottom: 10px;">
+        <MaterialButton variant="outlined" icon={currentOutput.webrtcData?.streaming ? "stop" : "record"} style="width: 100%; justify-content: center; {currentOutput.webrtcData?.streaming ? 'background: #b60707 !important;' : ''}" on:click={() => (currentOutput?.webrtcData?.streaming ? stopStreaming(currentOutput.id, true) : startStreaming(currentOutput?.id))} white>
+            {translateText(currentOutput.webrtcData?.streaming ? "output.stop_streaming" : "output.start_streaming")}
+        </MaterialButton>
+    </div>
+{/if}
 
 {#if currentOutput?.ndi || currentOutput?.blackmagic}
     <br />

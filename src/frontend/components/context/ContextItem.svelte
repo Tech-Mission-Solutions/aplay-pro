@@ -1,6 +1,6 @@
 <script lang="ts">
     import { cameraManager } from "../../media/cameraManager"
-    import { actions, activeEdit, activeProject, activeRecording, activeShow, categories, colorbars, dictionary, disabledServers, drawerTabsData, effects, effectsLibrary, events, forceClock, globalTags, livePrepare, media, mediaFolders, os, outputs, overlayCategories, overlays, projects, redoHistory, scriptures, selected, shows, showsCache, slidesOptions, special, stageShows, styles, templateCategories, timers, topContextActive, undoHistory } from "../../stores"
+    import { actions, activeEdit, activeProject, activeRecording, activeShow, categories, colorbars, dictionary, disabledServers, drawerTabsData, effects, effectsLibrary, events, forceClock, globalTags, livePrepare, media, mediaFolders, os, outputs, overlayCategories, overlays, projects, redoHistory, scriptures, selected, shows, showsCache, slidesOptions, special, spellcheck, stageShows, styles, templateCategories, timers, topContextActive, undoHistory } from "../../stores"
     import { translateText } from "../../utils/language"
     import { closeContextMenu } from "../../utils/shortcuts"
     import { keysToID } from "../helpers/array"
@@ -148,31 +148,15 @@
                 // enabled = ref[$selected.data[0]?.index]?.data?.transition || false
             }
         },
+        make_unique: () => {
+            if ($selected.id !== "slide" || !$selected.data?.length) return
+
+            hide = isNotMultiGroupSlide($selected.data, true)
+        },
         remove_group: () => {
             if ($selected.id !== "slide" || !$selected.data?.length) return
 
-            hide = $selected.data.every(({ index }) => {
-                const ref = getLayoutRef()
-                const currentSlideId = ref[index]?.parent?.id || ref[index]?.id
-                if (!currentSlideId) return true
-
-                const show = $showsCache[$activeShow?.id || ""]
-
-                // if parent slide and has children, don't hide
-                const isParent = ref[index]?.type === "parent"
-                if (isParent && (show.slides[currentSlideId]?.children || []).length) {
-                    // hide if group is set to "None"
-                    return show.slides[currentSlideId].group === "."
-                }
-
-                const currentSlideInstances = Object.values(show.layouts)
-                    .map((a) => a.slides)
-                    .flat()
-                    .filter((b) => b.id === currentSlideId)
-
-                // hide if there is just one instance of the slide group across all layouts
-                return currentSlideInstances.length < 2
-            })
+            hide = isNotMultiGroupSlide($selected.data)
         },
         remove: () => {
             if ($selected.id !== "show" || _show($selected.data[0]?.id).get("private") !== true) return
@@ -183,6 +167,24 @@
         },
         redo: () => {
             if (!$redoHistory.length) disabled = true
+        },
+        text_copy: () => {
+            // $spellcheck?.suggestions ||
+            if (!window.getSelection()?.toString()) hide = true
+        },
+        text_cut: () => {
+            // $spellcheck?.suggestions ||
+            if (!window.getSelection()?.toString()) hide = true
+        },
+        text_paste: () => {
+            setTimeout(() => {
+                if ($spellcheck?.suggestions) hide = true
+            }, 20)
+        },
+        text_select_all: () => {
+            setTimeout(() => {
+                if ($spellcheck?.suggestions) hide = true
+            }, 20)
         },
         createSlideshow: () => {
             hide = $selected.id !== "media" || $selected.data.length < 2
@@ -356,6 +358,42 @@
         }
     }
 
+    function isNotMultiGroupSlide(data: { index: number }[], unique = false) {
+        if (!Array.isArray(data)) return false
+
+        const ref = getLayoutRef()
+        const getParentId = (index: number) => ref[index]?.parent?.id || ref[index]?.id
+
+        // check that only one group is selected
+        if (unique && data.length > 1) {
+            const firstGroupId = getParentId(data[0].index)
+            if (!data.every(({ index }) => getParentId(index) === firstGroupId)) return true
+            // same group might be selected multiple places (check by index instead?)
+        }
+
+        return data.every(({ index }) => {
+            const currentSlideId = getParentId(index)
+            if (!currentSlideId) return true
+
+            const show = $showsCache[$activeShow?.id || ""]
+
+            // if parent slide and has children, don't hide
+            const isParent = ref[index]?.type === "parent"
+            if (!unique && isParent && (show.slides[currentSlideId]?.children || []).length) {
+                // hide if group is set to "None"
+                return show.slides[currentSlideId].group === "."
+            }
+
+            const currentSlideInstances = Object.values(show.layouts)
+                .map((a) => a.slides)
+                .flat()
+                .filter((b) => b.id === currentSlideId)
+
+            // hide if there is just one instance of the slide group across all layouts
+            return currentSlideInstances.length < 2
+        })
+    }
+
     if (conditions[id]) conditions[id]()
 
     function contextItemClick() {
@@ -369,7 +407,7 @@
         // don't hide context menu
         const keepOpen = ["uppercase", "lowercase", "capitalize", "trim"] // "dynamic_values" (caret position is lost)
         if (keepOpen.includes(id)) return
-        const keepOpenToggle = ["enabled_drawer_tabs", "tag_set", "tag_filter", "media_tag_set", "media_tag_filter", "player_tag_set", "player_tag_filter", "action_tag_set", "action_tag_filter", "variable_tag_set", "variable_tag_filter", "bind_slide", "bind_item"]
+        const keepOpenToggle = ["enabled_drawer_tabs", "tag_set", "tag_filter", "media_tag_set", "media_tag_filter", "player_tag_set", "player_tag_filter", "action_tag_set", "action_tag_filter", "variable_tag_set", "variable_tag_filter", "timer_tag_set", "timer_tag_filter", "bind_slide", "bind_item"]
         if (keepOpenToggle.includes(id)) {
             enabled = !enabled
             return

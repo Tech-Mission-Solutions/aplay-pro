@@ -2,6 +2,7 @@
 // This is for media/file functions
 
 import { get } from "svelte/store"
+import type { ContentProviderId } from "../../../electron/contentProviders/base/types"
 import { Main } from "../../../types/IPC/Main"
 import type { FileFolder, MediaStyle, Subtitle } from "../../../types/Main"
 import type { Cropping, Styles } from "../../../types/Settings"
@@ -74,20 +75,18 @@ export function encodeFilePath(path: string): string {
     if (typeof path !== "string") return ""
     if (!isLocalFile(path)) return path
 
-    // already encoded
-    if (path.match(/%\d+/g)) {
-        if (path.startsWith("/")) path = `file://${path}`
-        return path
-    }
+    if (path.startsWith("file://")) path = path.replace("file://", "")
+    try {
+        if (path.match(/%[0-9a-fA-F]{2}/)) path = decodeURIComponent(path)
+    } catch (e) {}
 
-    const splittedPath = splitPath(path)
-    const fileName = splittedPath.pop() || ""
-    const encodedName = encodeURIComponent(fileName)
-    let joinedPath = joinPath([...splittedPath, encodedName])
+    // encode each path segment except for drive letter (e.g. C:) to avoid issues with ":" in file names on Windows
+    const encoded = splitPath(path).map((seg, i) => (i === 0 && /^[a-zA-Z]:$/.test(seg) ? seg : encodeURIComponent(seg)))
+    let joined = joinPath(encoded)
 
     // path starting at "/" auto completes to app root, but should be file://
-    if (joinedPath.startsWith("/")) joinedPath = `file://${joinedPath}`
-    return joinedPath
+    if (joined.startsWith("/")) joined = `file://${joined}`
+    return joined
 }
 
 // decode only file name in path (not full path)
@@ -266,12 +265,15 @@ export async function doesMediaExist(path: string, noCache = false) {
 
     if (noCache) {
         const existsDataNoCache = await requestMain(Main.DOES_MEDIA_EXIST, { path, noCache })
-        if (existsDataNoCache.exists) existingMedia.push(path)
-        return existsDataNoCache.exists
+        if (!existsDataNoCache?.exists) return false
+
+        existingMedia.push(path)
+        return true
     }
 
     const creationTime = get(media)[path]?.creationTime || 0
     const existsData = await requestMain(Main.DOES_MEDIA_EXIST, { path, creationTime })
+    if (!existsData) return false
 
     // update "media"
     if (!existsData.exists || !creationTime) {
@@ -299,7 +301,7 @@ export async function getMediaInfo(path: string): Promise<{ codecs: string[]; mi
     if (cachedInfo?.codecs?.length) return cachedInfo
 
     try {
-        info = await requestMain(Main.MEDIA_CODEC, { path })
+        info = (await requestMain(Main.MEDIA_CODEC, { path })) || null
     } catch (err) {
         return info
     }
@@ -373,6 +375,7 @@ export function getMediaStyle(mediaObj: MediaStyle | undefined, currentStyle: St
         speed: "1",
         fromTime: 0,
         toTime: 0,
+        softLoop: 0,
         videoType: "",
         cropping: {}
     }
@@ -540,6 +543,37 @@ export function getVideoDuration(path: string): Promise<number> {
             console.error(new Error("Failed to load video. Check the path or file format."))
             resolve(0)
         }
+    })
+}
+
+// Custom Icons (Actions)
+
+export async function convertImagePathToIcon(path: string, size = 64): Promise<string> {
+    if (!path) return ""
+
+    return new Promise((resolve) => {
+        const img = new Image()
+        img.onload = () => {
+            const canvas = document.createElement("canvas")
+            canvas.width = size
+            canvas.height = size
+
+            const context = canvas.getContext("2d")
+            if (!context) return resolve(path)
+
+            const ratio = Math.min(size / img.width, size / img.height)
+            const drawWidth = img.width * ratio
+            const drawHeight = img.height * ratio
+            const x = (size - drawWidth) / 2
+            const y = (size - drawHeight) / 2
+
+            context.clearRect(0, 0, size, size)
+            context.drawImage(img, x, y, drawWidth, drawHeight)
+            resolve(canvas.toDataURL("image/png"))
+        }
+
+        img.onerror = () => resolve(path)
+        img.src = encodeFilePath(path)
     })
 }
 
@@ -736,35 +770,64 @@ export async function downloadOnlineMedia(url: string) {
     const downloadedPath = await requestMain(Main.MEDIA_IS_DOWNLOADED, { url, contentFile: mediaData?.contentFile })
 
     if (downloadedPath?.isDownloading) return url
-    if (downloadedPath?.protectedUrl) return downloadedPath.protectedUrl
+
+    const providerId = mediaData?.contentFile?.providerId
+    const mediaId = mediaData?.contentFile?.mediaId
+    const needsLicense = !!(providerId && mediaId)
+
+    if (downloadedPath?.protectedUrl) {
+        if (!needsLicense || isLicenseValid(mediaData)) return downloadedPath.protectedUrl
+        const refreshed = await refreshMediaLicense(url, providerId, mediaId)
+        if (refreshed) return downloadedPath.protectedUrl
+        return url
+    }
     if (downloadedPath?.path) return downloadedPath.path
 
-    // Check license before downloading (for content providers like APlay)
-    if (mediaData?.contentFile?.mediaId && mediaData?.contentFile?.providerId && !mediaData?.licenseChecked) {
-        media.update((m) => {
-            if (!m[url]) m[url] = {}
-            m[url].licenseChecked = true
-            return m
-        })
+    if (needsLicense && !isLicenseValid(mediaData)) await refreshMediaLicense(url, providerId, mediaId)
 
-        const pingbackUrl = await requestMain(Main.CHECK_MEDIA_LICENSE, {
-            providerId: mediaData.contentFile.providerId,
-            mediaId: mediaData.contentFile.mediaId
-        })
-        if (pingbackUrl) {
-            media.update((m) => {
-                if (!m[url]) m[url] = {}
-                if (!m[url].contentFile) m[url].contentFile = {}
-                m[url].contentFile.pingbackUrl = pingbackUrl
-                return m
-            })
-        }
-    }
-
-    // not downloaded yet - get updated media data in case pingbackUrl was just set
     const updatedMediaData = get(media)[url]
     sendMain(Main.MEDIA_DOWNLOAD, { url, contentFile: updatedMediaData?.contentFile })
     return url
+}
+
+function isLicenseValid(mediaData: MediaStyle | undefined): boolean {
+    const exp = mediaData?.licenseExpiresAt
+    return typeof exp === "number" && exp > Date.now()
+}
+
+// share one IPC call instead of racing.
+const licenseRefreshInFlight = new Map<string, Promise<boolean>>()
+
+function refreshMediaLicense(url: string, providerId: ContentProviderId, mediaId: string): Promise<boolean> {
+    const existing = licenseRefreshInFlight.get(url)
+    if (existing) return existing
+
+    const promise = (async () => {
+        const license = await requestMain(Main.CHECK_MEDIA_LICENSE, { providerId, mediaId })
+        if (!license) {
+            if (get(media)[url]?.licenseExpiresAt !== undefined) {
+                media.update((m) => {
+                    if (m[url]) delete m[url].licenseExpiresAt
+                    return m
+                })
+            }
+            return false
+        }
+
+        media.update((m) => {
+            if (!m[url]) m[url] = {}
+            m[url].licenseExpiresAt = license.expiresAt
+            if (!m[url].contentFile) m[url].contentFile = {}
+            m[url].contentFile.pingbackUrl = license.pingbackUrl
+            return m
+        })
+        return true
+    })().finally(() => {
+        licenseRefreshInFlight.delete(url)
+    })
+
+    licenseRefreshInFlight.set(url, promise)
+    return promise
 }
 
 export async function getMediaFileFromClipboard(e: ClipboardEvent): Promise<string | null> {

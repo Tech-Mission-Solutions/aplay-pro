@@ -28,7 +28,7 @@
     $: if (foldersList.length) getCounts()
     async function getCounts() {
         const folderPaths = foldersList.map((a) => a.path || "")
-        const data = keysToID(await requestMain(Main.READ_FOLDER, { path: folderPaths }))
+        const data = keysToID((await requestMain(Main.READ_FOLDER, { path: folderPaths })) || {})
         const newFolderLengths: { [key: string]: number } = {}
         allCount = 0
 
@@ -46,12 +46,14 @@
     $: if ($providerConnections) getProviders()
     function getProviders() {
         requestMain(Main.GET_CONTENT_PROVIDERS).then((allProviders) => {
+            if (!allProviders) return
             contentProviders = allProviders.filter((p) => p.hasContentLibrary && $providerConnections[p.providerId])
         })
     }
 
     $: if ($providerConnections) {
         requestMain(Main.GET_CONTENT_PROVIDERS).then((allProviders) => {
+            if (!allProviders) return
             contentProviders = allProviders.filter((p) => p.hasContentLibrary && $providerConnections[p.providerId])
         })
     }
@@ -65,7 +67,7 @@
             { id: "favourites", label: "category.favourites", icon: "star", count: favoritesListLength, hidden: !favoritesListLength && activeSubTab !== "favourites" }
         ],
         ...(curriculumProviders.length ? [[{ id: "TITLE", label: "Curriculum" }, ...curriculumProviders.map((a) => ({ id: a.providerId, label: a.displayName, icon: "web" }))]] : []),
-        [{ id: "online", label: "media.online", icon: "web" }, "SEPARATOR", { id: "screens", label: "live.screens", icon: "screen" }, { id: "cameras", label: "live.cameras", icon: "camera" }].filter(Boolean),
+        [{ id: "inputs", label: "emitters.inputs", icon: "input" }, "SEPARATOR", { id: "online", label: "media.online", icon: "web" }].filter(Boolean),
         [{ id: "TITLE", label: "media.folders" }, ...convertToButton(foldersList, folderLengths)]
     ]
 
@@ -73,7 +75,7 @@
         return sortObject(categories, "name").map((a) => {
             const type = a.mediaType
             const option = type ? { title: `clock.type: <b>preview.${type}</b>`, icon: `type_${type}`, style: "opacity: 0.6;" } : null
-            return { id: a.id, label: a.name, icon: a.icon || "folder", option, count: lengths[a.path] }
+            return { id: a.id, label: a.name, icon: a.icon || "folder", option, count: lengths[a.path], boxedIcon: true }
         })
     }
 

@@ -9,17 +9,20 @@ import { sendMain } from "../../IPC/main"
 import { slideTimelineSpeedMultiplier } from "../../stores"
 import { transposeText } from "../../utils/chordTranspose"
 import { triggerFunction } from "../../utils/common"
+import { obsSetScene, obsStartLivestream, obsStartRecording, obsStopLivestream, obsStopRecording } from "../../utils/obsTalk"
 import { togglePlayingMedia } from "../../utils/shortcuts"
 import { contentProviderSync } from "../../utils/startup"
 import { updateTransition } from "../../utils/transitions"
 import { startMetronome } from "../drawer/audio/metronome"
 import { pauseAllTimers } from "../drawer/timers/timers"
 import { getSlideThumbnail, getThumbnail } from "../helpers/media"
-import { changeStageOutputLayout, startCamera, startScreen, toggleOutputs } from "../helpers/output"
-import { activateTriggerSync, changeOutputStyle, nextSlideIndividual, playSlideTimers, previousSlideIndividual, randomSlide, replaceDynamicValues, selectProjectShow, sendMidi, startShowSync } from "../helpers/showActions"
+import { changeStageOutputLayout, startCamera, startScreen, startStreaming, stopStreaming, toggleOutputs } from "../helpers/output"
+import { OutputHelper } from "../helpers/OutputHelper"
+import { changeOutputStyle, playSlideTimers, randomSlide, replaceDynamicValues, selectProjectShow, sendMidi, startShowSync } from "../helpers/showActions"
 import { startTimerById, startTimerByName, stopTimers } from "../helpers/timerTick"
 import { muteOutput, unmuteOutput } from "../helpers/video"
 import { clearAll, clearBackground, clearDrawing, clearOverlay, clearOverlays, clearSlide, clearTimers, restoreOutput } from "../output/clear"
+import { fadePause, skipNext, skipPrev, spotifyPause, spotifyPlay } from "../output/preview/SpotifyManager"
 import { formatText } from "../show/formatTextEditor"
 import { getPlainEditorText } from "../show/getTextEditor"
 import { pauseTimeline, setTimelineTime, startTimeline, stopTimeline } from "../timeline/TimelinePlayback"
@@ -162,6 +165,7 @@ export type API_metronome = {
     volume?: number
     // notesPerBeat?: number
     audioOutput?: string
+    audioChannel?: string
 }
 export type API_rest_command = {
     url: string
@@ -219,8 +223,8 @@ export const API_ACTIONS = {
     transpose_show_down: (data: API_id) => formatText(transposeText(getPlainEditorText(data.id), -1), data.id),
 
     // PRESENTATION
-    next_slide: () => nextSlideIndividual({ key: "ArrowRight" }), // BC
-    previous_slide: () => previousSlideIndividual({ key: "ArrowLeft" }), // BC
+    next_slide: () => OutputHelper.advanceOutputs("next"), // BC
+    previous_slide: () => OutputHelper.advanceOutputs("previous"), // BC
     random_slide: () => randomSlide(),
     index_select_slide: (data: API_slide_index) => selectSlideByIndex(data), // BC
     name_select_slide: (data: API_strval) => selectSlideByName(data.value), // BC
@@ -260,6 +264,8 @@ export const API_ACTIONS = {
     scripture_previous: () => triggerFunction("scripture_previous"), // BC
 
     // OUTPUT
+    start_webrtc_stream: (data: API_id_optional) => startStreaming(data.id),
+    stop_webrtc_stream: (data: API_id_optional) => stopStreaming(data.id),
     lock_output: (data: API_output_lock) => toggleLock(data), // BC
     toggle_output_windows: (data: API_toggle_specific = {}) => toggleOutputs(null, { state: data.value }), // BC
     toggle_output: (data: API_toggle) => toggleOutputs([data.id], { state: data.value }),
@@ -308,7 +314,6 @@ export const API_ACTIONS = {
 
     // FUNCTIONS
     change_variable: (data: API_variable) => changeVariable(data), // BC
-    start_trigger: (data: API_id) => activateTriggerSync(data.id),
 
     // DRAW
     change_draw_zoom: (data: API_draw_zoom) => changeDrawZoom(data),
@@ -321,6 +326,20 @@ export const API_ACTIONS = {
     send_midi: (data: API_midi) => sendMidi(data), // DEPRECATED, use emit_action instead
     send_rest_command: (data: API_rest_command) => sendRestCommandSync(data), // DEPRECATED, use emit_action instead
     emit_action: (data: API_emitter) => emitData(data),
+
+    // OBS Studio
+    obs_set_scene: (data: API_id) => obsSetScene(data.id),
+    obs_start_livestream: () => obsStartLivestream(),
+    obs_stop_livestream: () => obsStopLivestream(),
+    obs_start_recording: () => obsStartRecording(),
+    obs_stop_recording: () => obsStopRecording(),
+
+    // Spotify
+    spotify_play: () => spotifyPlay(),
+    spotify_pause: () => spotifyPause(),
+    spotify_fade_out: () => fadePause(),
+    spotify_next: () => skipNext(),
+    spotify_previous: () => skipPrev(),
 
     // OTHER
     toggle_log_song_usage: (data: API_toggle_specific) => toggleLogSongUsage(data),

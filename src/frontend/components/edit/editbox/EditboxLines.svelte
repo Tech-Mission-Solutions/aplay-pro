@@ -5,6 +5,7 @@
     import { VIRTUAL_BREAK_CHAR } from "../../../show/slides"
     import { activeEdit, activeShow, activeStage, activeTriggerFunction, overlays, redoHistory, refreshListBoxes, showsCache, stageShows, templates } from "../../../stores"
     import { newToast } from "../../../utils/common"
+    import { getNormalizedKey, isFormattingKey } from "../../../utils/shortcuts"
     import T from "../../helpers/T.svelte"
     import { clone } from "../../helpers/array"
     import { history } from "../../helpers/history"
@@ -63,8 +64,9 @@
         clone(item?.lines)?.forEach((line) => {
             let align = (line.align || "").replaceAll(lineStyleBg, "").replaceAll(lineStyleRadius, "") + ";"
             s += align + lineStyleBg + lineStyleRadius // + line.chords?.map((a) => a.key)
-            console.assert(Array.isArray(line?.text), "Text is not an array!")
-            line?.text?.forEach((a) => {
+            if (!line?.text) return
+            if (!Array.isArray(line.text)) line.text = []
+            line.text.forEach((a) => {
                 s += EditboxHelper.getTextStyle(a)
             })
         })
@@ -559,7 +561,9 @@
             let currentLine = sel.findIndex((a) => a?.start !== undefined)
             let deleteKey = currentLine === lastCaretPos.line
             if (!caret && (item.lines || []).length > newLines.length) {
-                if (deleteKey) {
+                if (liveCaret) {
+                    caret = liveCaret
+                } else if (deleteKey) {
                     caret = lastCaretPos
                 } else {
                     let newLine = lastCaretPos.line > -1 ? lastCaretPos.line - 1 : newLines.length - 1
@@ -617,19 +621,20 @@
         }
 
         if (e.ctrlKey || e.metaKey) {
-            const key = (e.key || "").toLowerCase()
-            const code = (e.code || "").toLowerCase()
-            const isFormattingShortcut = key === "b" || key === "i" || key === "u" || code === "keyb" || code === "keyi" || code === "keyu"
-
             // Keep rich text changes in BoxStyle handler only.
-            if (isFormattingShortcut) e.preventDefault()
+            if (isFormattingKey(e)) e.preventDefault()
         }
 
-        if (e.key === "v" && (e.ctrlKey || e.metaKey)) {
+        if (getNormalizedKey(e).toLowerCase() === "v" && (e.ctrlKey || e.metaKey)) {
             e.preventDefault()
-            navigator.clipboard.readText().then((clipText: string) => {
-                paste(e, clipText)
-            })
+            navigator.clipboard
+                .readText()
+                .then((clipText: string) => {
+                    paste(e, clipText)
+                })
+                .catch((e) => {
+                    console.warn("Could not read clipboard:", e)
+                })
         }
 
         if (e.key === "<") {
@@ -776,7 +781,7 @@
             <div
                 bind:this={textElem}
                 on:mouseup={() => storeCurrentCaretPos()}
-                class="edit"
+                class="edit context {plain ? '#editbox_text' : '#edit_box__editbox_text'}"
                 class:hidden={chordsMode}
                 class:autoSize={item.auto && autoSize}
                 contenteditable

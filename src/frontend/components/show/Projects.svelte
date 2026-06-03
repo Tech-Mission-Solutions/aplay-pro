@@ -4,7 +4,7 @@
     import { Main } from "../../../types/IPC/Main"
     import type { Project, Tree } from "../../../types/Projects"
     import { sendMain } from "../../IPC/main"
-    import { activeProject, activeRename, drawer, editingProjectTemplate, focusMode, folders, openedFolders, projects, projectTemplates, projectView, showRecentlyUsedProjects, sorted, special } from "../../stores"
+    import { activeProject, activeRename, dictionary, drawer, editingProjectTemplate, focusMode, folders, openedFolders, projects, projectTemplates, projectView, showRecentlyUsedProjects, sorted, special } from "../../stores"
     import { translateText } from "../../utils/language"
     import { getAccess } from "../../utils/profile"
     import { exportProject } from "../export/project"
@@ -182,6 +182,13 @@
         // if (editActive) return
 
         history({ id: "UPDATE", newData: { key: "name", data: value }, oldData: { id }, location: { page: "show", id: "project_template" } })
+
+        // open template when renamed if empty
+        if (!$projectTemplates[id]?.shows?.length) {
+            activeProject.set(null)
+            editingProjectTemplate.set(id)
+            projectView.set(false)
+        }
     }
 
     // RECENTLY USED
@@ -310,7 +317,7 @@
     }
 </script>
 
-<svelte:window on:keydown={checkInput} on:mousedown={mousedown} on:dragenter={dragStart} on:dragstart={dragStart} on:dragend={dragEnd} on:drop={dragEnd} />
+<svelte:window on:keydown={checkInput} on:mousedown={mousedown} on:dragenter={dragStart} on:dragstart={dragStart} on:dragend={dragEnd} on:drop={dragEnd} on:mouseup={dragEnd} />
 
 <div class="main" class:focusMode={$focusMode}>
     <span class="tabs">
@@ -496,7 +503,7 @@
 
         {#if templates.length}
             <div class="projectTemplates">
-                <div class="title">{translateText("tabs.templates")}</div>
+                <div class="title">{translateText("tabs.templates", $dictionary)}</div>
                 <div class="scroll">
                     {#each templates as project}
                         <MaterialButton id={project.id} style="width: 100%;padding: 0.1rem 0.65rem;font-weight: normal;" on:click={(e) => createFromTemplate(e, project.id)} class="context #project_template{readOnly ? '_readonly' : ''}" isActive={$activeProject === project.id} tab>

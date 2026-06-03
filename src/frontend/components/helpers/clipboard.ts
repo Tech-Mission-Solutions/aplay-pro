@@ -52,7 +52,6 @@ import {
     templates,
     themes,
     timers,
-    triggers,
     variables,
     videoMarkers
 } from "../../stores"
@@ -287,7 +286,7 @@ const selectActions = {
         if ((get(activeEdit).type || "show") === "show") {
             const ref = getLayoutRef()
             const editSlide = ref[get(activeEdit).slide!]
-            const showItems = _show().slides([editSlide.id]).get()[0]?.items
+            const showItems = _show().slides([editSlide?.id]).get()[0]?.items
             itemCount = showItems.length
         } else if (get(activeEdit).id) {
             if (get(activeEdit).type === "overlay") {
@@ -544,6 +543,7 @@ const pasteActions = {
 
         if (get(activeEdit).id) {
             if (get(activeEdit).type === "overlay") {
+                if (!get(overlays)[get(activeEdit).id!]) return
                 const overlayItems = clone(get(overlays)[get(activeEdit).id!].items || [])
                 data.forEach((item) => {
                     overlayItems.push(clone(item))
@@ -553,6 +553,7 @@ const pasteActions = {
             }
 
             if (get(activeEdit).type === "template") {
+                if (!get(templates)[get(activeEdit).id!]) return
                 const templateItems = clone(get(templates)[get(activeEdit).id!].items || [])
                 data.forEach((item) => {
                     templateItems.push(clone(item))
@@ -894,15 +895,6 @@ const deleteActions = {
             return a
         })
     },
-    trigger: (data: any) => {
-        triggers.update((a) => {
-            data.forEach(({ id }) => {
-                delete a[id]
-            })
-
-            return a
-        })
-    },
     audio_stream: (data: any) => {
         audioStreams.update((a) => {
             data.forEach(({ id }) => {
@@ -949,7 +941,7 @@ const deleteActions = {
             return
         }
 
-        if (!(await confirmCustom(translateText("Deleting this folder will also delete all projects and folders within it.<br>popup.delete_show_confirmation?")))) return
+        if (!(await confirmCustom(translateText("actions.delete_project_folder_tip<br>popup.delete_show_confirmation?")))) return
 
         const projectIdsData = [...new Set(projectIds)].map((id) => ({ id }))
 

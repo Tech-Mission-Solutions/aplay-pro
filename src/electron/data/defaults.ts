@@ -73,7 +73,7 @@ export const defaultSettings: { [key in SaveListSettings]: any } = {
     driveData: { mainFolderId: null, disabled: false, initializeMethod: null, disableUpload: false },
     calendarAddShow: "",
     metronome: {},
-    equalizerConfig: { enabled: false, bands: [] },
+    audioEffects: {},
     eqPresets: {},
     effectsLibrary: [],
     special: {},
@@ -86,7 +86,8 @@ export const defaultSettings: { [key in SaveListSettings]: any } = {
         churchApps: {
             syncCategories: ["song"]
         }
-    }
+    },
+    obsData: {}
 }
 
 export const defaultSyncedSettings: { [key in SaveListSyncedSettings]: any } = {
@@ -113,7 +114,6 @@ export const defaultSyncedSettings: { [key in SaveListSyncedSettings]: any } = {
     variables: {
         default: { name: "Counter", type: "number" }
     },
-    triggers: {},
     audioStreams: {},
     audioPlaylists: {},
     scriptures: {
@@ -157,6 +157,7 @@ export const defaultSyncedSettings: { [key in SaveListSyncedSettings]: any } = {
     playerTags: {},
     actionTags: {},
     variableTags: {},
+    timerTags: {},
     customizedIcons: { disabled: [], svg: [] },
     companion: {},
     globalTags: {},

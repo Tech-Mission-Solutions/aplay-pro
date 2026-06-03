@@ -28,6 +28,7 @@ import {
     activeStyle,
     activeTagFilter,
     activeTimers,
+    activeTimerTagFilter,
     activeVariableTagFilter,
     audioFolders,
     categories,
@@ -75,6 +76,7 @@ import {
     templates,
     textEditActive,
     themes,
+    timers,
     toggleOutputEnabled,
     variables
 } from "../../stores"
@@ -99,7 +101,7 @@ import { history, redo, undo } from "../helpers/history"
 import { getExtension, getFileName, getMediaLayerType, getMediaStyle, getMediaType, removeExtension, splitPath } from "../helpers/media"
 import { defaultOutput, getCurrentStyle, getFirstActiveOutput, setOutput, toggleOutput, toggleOutputs } from "../helpers/output"
 import { select } from "../helpers/select"
-import { checkName, formatToFileName, getLayoutRef, openShow, removeTemplatesFromShow, updateShowsList } from "../helpers/show"
+import { bindSlidesToOutput, checkName, formatToFileName, getLayoutRef, openShow, removeTemplatesFromShow, updateShowsList } from "../helpers/show"
 import { sendMidi } from "../helpers/showActions"
 import { _show } from "../helpers/shows"
 import { getMenuTagId, openTagManager, toggleSelectionTags, toggleTagFilter } from "../helpers/tags"
@@ -172,6 +174,41 @@ const clickActions = {
     history: () => activePopup.set("history"),
     cut: () => cut(),
     copy: () => copy(),
+    text_copy: (obj: ObjData) => {
+        const editElem = obj.contextElem?.closest(".edit") as HTMLElement | null
+        if (!editElem) return
+
+        focusAndRestoreSelection(editElem)
+        document.execCommand("copy")
+    },
+    text_cut: (obj: ObjData) => {
+        const editElem = obj.contextElem?.closest(".edit") as HTMLElement | null
+        if (!editElem) return
+
+        focusAndRestoreSelection(editElem)
+        document.execCommand("cut")
+        if (editElem instanceof HTMLTextAreaElement) {
+            editElem.dispatchEvent(new Event("input", { bubbles: true }))
+            editElem.dispatchEvent(new Event("change", { bubbles: true }))
+        }
+    },
+    text_paste: (obj: ObjData) => {
+        const editElem = obj.contextElem?.closest(".edit") as HTMLElement | null
+        if (!editElem) return
+
+        navigator.clipboard
+            .readText()
+            .then((text) => {
+                if (!text) return
+                focusAndRestoreSelection(editElem)
+                document.execCommand("insertText", false, text)
+                if (editElem instanceof HTMLTextAreaElement) {
+                    editElem.dispatchEvent(new Event("input", { bubbles: true }))
+                    editElem.dispatchEvent(new Event("change", { bubbles: true }))
+                }
+            })
+            .catch(() => {})
+    },
     paste: (obj: ObjData) => paste(null, {}, obj.contextElem),
     // view
     // help
@@ -321,6 +358,54 @@ const clickActions = {
             duplicate({ id: "stage_item", data: get(activeStage) })
             return
         }
+    },
+    make_unique: (obj: ObjData) => {
+        const ref = getLayoutRef()
+        const slideIndex = obj.sel?.data?.[0]?.index ?? -1 // only one group should be selected
+        const groupId = ref[slideIndex]?.parent?.id || ref[slideIndex]?.id
+        const groupIndex = ref[slideIndex]?.parent?.index || ref[slideIndex]?.index
+
+        const showId = get(activeShow)?.id
+        if (!groupId || !showId) return
+
+        // WIP history
+        showsCache.update((a) => {
+            if (!a[showId]) return a
+
+            const newId = uid()
+            const newSlide = clone(a[showId].slides[groupId])
+            // delete newSlide.id // should not be there
+
+            // group children
+            let newChildren: string[] = []
+            let newChildIds = new Map()
+            const children = newSlide.children || []
+            children.forEach((childId) => {
+                const newChildId = uid()
+                a[showId].slides[newChildId] = clone(a[showId].slides[childId])
+                newChildren.push(newChildId)
+                newChildIds.set(childId, newChildId)
+            })
+
+            if (newChildren.length) newSlide.children = newChildren
+            a[showId].slides[newId] = newSlide
+
+            // layout
+            const activeLayout = a[showId].settings?.activeLayout
+            a[showId].layouts[activeLayout].slides[groupIndex].id = newId
+            // children data
+            if (a[showId].layouts[activeLayout].slides[groupIndex].children) {
+                Object.keys(a[showId].layouts[activeLayout].slides[groupIndex].children).forEach((childId) => {
+                    const newChildId = newChildIds.get(childId)
+                    if (newChildId) {
+                        a[showId].layouts[activeLayout].slides[groupIndex].children![newChildId] = clone(a[showId].layouts[activeLayout].slides[groupIndex].children![childId])
+                        delete a[showId].layouts[activeLayout].slides[groupIndex].children![childId]
+                    }
+                })
+            }
+
+            return a
+        })
     },
 
     // drawer
@@ -493,6 +578,34 @@ const clickActions = {
     },
     variable_tag_filter: (obj: ObjData) => {
         toggleTagFilter(activeVariableTagFilter, getMenuTagId(obj.menu))
+    },
+    manage_timer_tags: () => {
+        openTagManager("timer")
+    },
+    timer_tag_set: (obj: ObjData) => {
+        const tagId = getMenuTagId(obj.menu)
+        if (tagId === "create") {
+            clickActions.manage_timer_tags()
+            return
+        }
+
+        const disable = get(timers)[get(selected).data[0]?.id]?.tags?.includes(tagId)
+
+        toggleSelectionTags({
+            data: obj.sel?.data,
+            tagId,
+            disable: !!disable,
+            getTags: ({ id }) => get(timers)[id]?.tags,
+            applyTags: ({ id }, tags) => {
+                timers.update((a) => {
+                    if (a[id]) a[id].tags = tags
+                    return a
+                })
+            }
+        })
+    },
+    timer_tag_filter: (obj: ObjData) => {
+        toggleTagFilter(activeTimerTagFilter, getMenuTagId(obj.menu))
     },
     action_history: () => {
         activePopup.set("action_history")
@@ -797,6 +910,15 @@ const clickActions = {
 
             return
         }
+
+        if (obj.sel?.id === "action") {
+            const id = obj.sel.data[0]?.id
+            const action = get(actions)[id]
+            if (!action) return
+            send(EXPORT, ["ACTION"], { content: { ...action, id } })
+
+            return
+        }
     },
     close: (obj: ObjData) => {
         if (isOutputWindow()) {
@@ -1043,6 +1165,7 @@ const clickActions = {
         } else if (obj.sel.id === "action") {
             const firstActionId = obj.sel.data[0]?.id
             const action = get(actions)[firstActionId]
+            if (!action) return
 
             popupData.set({ id: firstActionId })
 
@@ -1060,8 +1183,6 @@ const clickActions = {
             activePopup.set("timer")
         } else if (obj.sel.id === "variable") {
             activePopup.set("variable")
-        } else if (obj.sel.id === "trigger") {
-            activePopup.set("trigger")
         } else if (obj.sel.id === "audio_stream") {
             activePopup.set("audio_stream")
         } else if (obj.contextElem?.classList?.contains("#project_template")) {
@@ -1253,7 +1374,7 @@ const clickActions = {
         const overlay = get(overlays)[overlayId]
         if (!overlay) return
 
-        const existingActions = overlay.actions || []
+        const existingActions = Array.isArray(overlay.actions) ? overlay.actions : []
 
         popupData.set({ mode: "overlay", overlayId, existing: existingActions.map((a) => a.triggers?.[0]) })
         activePopup.set("action")
@@ -1581,26 +1702,29 @@ const clickActions = {
     changeIcon: () => activePopup.set("icon"),
 
     selectAll: (obj: ObjData) => selectAll(obj.sel),
+    text_select_all: (obj: ObjData) => {
+        const editElem = obj.contextElem?.closest(".edit") as HTMLElement | null
+        if (!editElem) return
+
+        editElem.focus()
+        if (editElem instanceof HTMLTextAreaElement) {
+            editElem.select()
+            return
+        }
+
+        const range = document.createRange()
+        range.selectNodeContents(editElem)
+        const selection = window.getSelection()
+        if (selection) {
+            selection.removeAllRanges()
+            selection.addRange(range)
+        }
+    },
 
     bind_slide: (obj: ObjData) => {
-        const ref = getLayoutRef()
         const outputId = obj.menu.id || ""
-
         const indexes: number[] = obj.sel?.data.map(({ index }) => index) || []
-        const newBindings: string[][] = []
-
-        const add = !ref[indexes[0]]?.data?.bindings?.includes(outputId)
-
-        indexes.forEach((i) => {
-            const bindings: string[] = ref[i]?.data?.bindings || []
-            const existingIndex = bindings.indexOf(outputId)
-            if (add && existingIndex < 0) bindings.push(outputId)
-            else if (!add && existingIndex >= 0) bindings.splice(existingIndex, 1)
-
-            newBindings.push(bindings)
-        })
-
-        history({ id: "SHOW_LAYOUT", newData: { key: "bindings", data: newBindings, indexes, dataIsArray: false } })
+        bindSlidesToOutput(indexes, outputId)
     },
     // bind item
     bind_item: (obj: ObjData) => {
@@ -1795,6 +1919,27 @@ const clickActions = {
             })
 
             return
+        }
+    }
+}
+
+let savedTextRange: Range | null = null
+export function saveTextSelectionRange() {
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount > 0) {
+        savedTextRange = sel.getRangeAt(0).cloneRange()
+    } else {
+        savedTextRange = null
+    }
+}
+
+function focusAndRestoreSelection(editElem: HTMLElement) {
+    editElem.focus()
+    if (!(editElem instanceof HTMLTextAreaElement) && savedTextRange) {
+        const sel = window.getSelection()
+        if (sel) {
+            sel.removeAllRanges()
+            sel.addRange(savedTextRange)
         }
     }
 }

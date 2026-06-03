@@ -3,7 +3,7 @@
     import type { ContentProviderId } from "../../../../electron/contentProviders/base/types"
     import { Main } from "../../../../types/IPC/Main"
     import { requestMain, sendMain } from "../../../IPC/main"
-    import { activePopup, autosave, cloudSyncData, dataPath, driveData, driveKeys, providerConnections, saved, special, statusIndicator } from "../../../stores"
+    import { activePopup, alertMessage, autosave, cloudSyncData, dataPath, driveData, driveKeys, providerConnections, saved, special, statusIndicator } from "../../../stores"
     import { changeTeam, setupCloudSync, socketDisconnect } from "../../../utils/cloudSync"
     import { previousAutosave, startAutosave, wait } from "../../../utils/common"
     import { validateKeys } from "../../../utils/drive"
@@ -36,7 +36,9 @@
         { value: "5min", label: translateText("5 settings.minutes") },
         { value: "10min", label: translateText("10 settings.minutes") },
         { value: "15min", label: translateText("15 settings.minutes") },
-        { value: "30min", label: translateText("30 settings.minutes") }
+        { value: "30min", label: translateText("30 settings.minutes") },
+        { value: "60min", label: translateText("60 settings.minutes") },
+        { value: "120min", label: translateText("120 settings.minutes") }
     ]
 
     // NOTE: monthly is misspelled as "mothly"
@@ -71,7 +73,7 @@
         sendMain(Main.SET_MEDIA_FOLDER_PATH, mediaFolderPath)
 
         // get default path again if reset
-        if (!mediaFolderPath) mediaFolderPath = await requestMain(Main.GET_MEDIA_FOLDER_PATH)
+        if (!mediaFolderPath) mediaFolderPath = (await requestMain(Main.GET_MEDIA_FOLDER_PATH)) || ""
     }
 
     // get times
@@ -83,7 +85,7 @@
         checkTimes()
         updater = setInterval(checkTimes, 1000)
 
-        if ($special.cloudSyncMediaFolder) mediaFolderPath = await requestMain(Main.GET_MEDIA_FOLDER_PATH)
+        if ($special.cloudSyncMediaFolder) mediaFolderPath = (await requestMain(Main.GET_MEDIA_FOLDER_PATH)) || ""
     })
     onDestroy(() => {
         if (updater) clearInterval(updater)
@@ -123,7 +125,7 @@
             return
         }
 
-        const contents = (await requestMain(Main.READ_FILE, { path })).content
+        const contents = ((await requestMain(Main.READ_FILE, { path })) || {}).content
         if (contents) validateKeys(contents)
     }
 
@@ -231,6 +233,15 @@
         save(false, { autosave: true })
     }
 
+    async function restoreCloudBackupState() {
+        if (!$cloudSyncData.id || !$cloudSyncData.team?.churchId || !$cloudSyncData.team?.id) return
+
+        const result = await requestMain(Main.RESTORE_CLOUD_BACKUP, { id: "churchApps", churchId: $cloudSyncData.team.churchId, teamId: $cloudSyncData.team.id })
+
+        alertMessage.set(result?.success ? "Cloud backup restored." : result?.error || "Could not restore cloud backup.")
+        activePopup.set("alert")
+    }
+
     // function deleteCloudData() {
     //     console.log(1)
     // }
@@ -247,7 +258,7 @@
             // activePopup.set("alert")
 
             sendMain(Main.BUNDLE_MEDIA_FILES, { openFolder: true })
-            mediaFolderPath = await requestMain(Main.GET_MEDIA_FOLDER_PATH)
+            mediaFolderPath = (await requestMain(Main.GET_MEDIA_FOLDER_PATH)) || ""
         }
     }
 </script>
@@ -318,6 +329,10 @@
             {/if}
 
             <!-- <MaterialButton variant="outlined" icon="delete" on:click={deleteCloudData} red white>Delete cloud data</MaterialButton> -->
+
+            <MaterialButton variant="outlined" icon="import" disabled={$statusIndicator === "syncing"} on:click={restoreCloudBackupState}>
+                <p><T id="cloud.restore_weekly_backup" /></p>
+            </MaterialButton>
         </svelte:fragment>
     </InputRow>
 {/if}

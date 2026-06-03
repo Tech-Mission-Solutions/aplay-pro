@@ -26,6 +26,7 @@
     import ClearButtons from "./ClearButtons.svelte"
     import MultiOutputs from "./MultiOutputs.svelte"
     import PreviewOutputs from "./PreviewOutputs.svelte"
+    import SpotifyController from "./SpotifyController.svelte"
 
     $: allActiveOutputs = getActiveOutputs($outputs, true, true, true)
     $: outputId = allActiveOutputs[0]
@@ -294,6 +295,8 @@
                 {/if}
             {/if}
         </div>
+
+        <SpotifyController />
     {/if}
 </div>
 

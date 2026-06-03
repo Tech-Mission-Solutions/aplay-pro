@@ -7,8 +7,9 @@ import { getMainWindow, isProd, mainWindow, maximizeMain, setGlobalMenu } from "
 import type { MainResponses } from "../../types/IPC/Main"
 import { Main } from "../../types/IPC/Main"
 import type { ErrorLog, LyricSearchResult, OS } from "../../types/Main"
+import { getAudioMetadata } from "../audio/audio"
 import { openNowPlaying, setPlayingState, unsetPlayingAudio } from "../audio/nowPlaying"
-import { canSync, getSyncTeams, hasDataChanged, hasTeamData, markAsNewSync, syncData } from "../cloud/syncManager"
+import { canSync, getSyncTeams, hasDataChanged, hasTeamData, markAsNewSync, restoreCloudBackup, syncData } from "../cloud/syncManager"
 import { ContentProviderRegistry } from "../contentProviders"
 import { ChurchAppsChat } from "../contentProviders/churchApps/ChurchAppsChat"
 import { deleteBackup, getBackups, restoreFiles } from "../data/backup"
@@ -31,6 +32,7 @@ import { LyricSearch } from "../utils/LyricSearch"
 import { closeMidiInPorts, getMidiInputs, getMidiOutputs, receiveMidi, sendMidi } from "../utils/midi"
 import { deleteShows, deleteShowsNotIndexed, getAllShows, getEmptyShows, refreshAllShows } from "../utils/shows"
 import { correctSpelling } from "../utils/spellcheck"
+import { executeSpotifyCommand, getSpotifyState } from "../utils/spotify"
 import checkForUpdates from "../utils/updater"
 
 export const mainResponses: MainResponses = {
@@ -118,6 +120,7 @@ export const mainResponses: MainResponses = {
     [Main.NOW_PLAYING]: (data) => setPlayingState(data),
     [Main.NOW_PLAYING_UNSET]: () => unsetPlayingAudio(),
     // [Main.MEDIA_BASE64]: (data) => storeMedia(data),
+    [Main.READ_AUDIO_METADATA]: async (data) => await getAudioMetadata(data.filePath),
     [Main.CAPTURE_SLIDE]: (data) => captureSlide(data),
     [Main.ACCESS_CAMERA_PERMISSION]: () => getPermission("camera"),
     [Main.ACCESS_MICROPHONE_PERMISSION]: () => getPermission("microphone"),
@@ -169,6 +172,7 @@ export const mainResponses: MainResponses = {
     [Main.CLOUD_DATA]: (data) => hasTeamData(data),
     [Main.CLOUD_CHANGED]: (data) => hasDataChanged(data),
     [Main.CLOUD_SYNC]: (data) => syncData(data),
+    [Main.RESTORE_CLOUD_BACKUP]: (data) => restoreCloudBackup(data),
     [Main.GET_CONVERSATION_ID]: (data) => getConversationId(data.teamId),
     [Main.SEND_SOCKET_MESSAGE]: (data) => sendSocketMessage(data),
     // Provider-based routing
@@ -224,7 +228,13 @@ export const mainResponses: MainResponses = {
     [Main.TIMECODE_STOP]: () => timecodeStop(),
     [Main.TIMECODE_VALUE]: (data) => updateTimecodeValue(data),
     [Main.TIMECODE_STATUS]: (data) => console.log(data),
-    [Main.TIMECODE_AUDIO_DATA]: (data) => processAudioData(data)
+    [Main.TIMECODE_AUDIO_DATA]: (data) => processAudioData(data),
+    // Spotify
+    [Main.SPOTIFY_GET_STATE]: () => getSpotifyState(),
+    [Main.SPOTIFY_COMMAND]: async (data) => {
+        await executeSpotifyCommand(data.command, data.value)
+        return true
+    }
 }
 
 /// ///////

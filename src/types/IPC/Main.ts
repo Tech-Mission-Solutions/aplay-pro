@@ -3,10 +3,10 @@ import type { ExifData } from "exif"
 import type { Stats } from "fs"
 import type { Bible } from "json-bible/lib/Bible"
 import type { SyncProviderId } from "../../electron/cloud/syncManager"
-import type { ContentFile, ContentLibraryCategory, ContentProviderId } from "../../electron/contentProviders/base/types"
+import type { ContentFile, ContentLibraryCategory, ContentProviderId, MediaLicense } from "../../electron/contentProviders/base/types"
 import type { _store } from "../../electron/data/store"
 import type { TimecodeMode } from "../../electron/timecode/timecode"
-import type { ErrorLog, FileFolder, LessonsData, LyricSearchResult, MainFilePaths, Media, OS, Subtitle } from "../Main"
+import type { ErrorLog, FileFolder, LessonsData, LyricSearchResult, MainFilePaths, Media, OS, SpotifyState, Subtitle } from "../Main"
 import type { Output } from "../Output"
 import type { Folders, Projects } from "../Projects"
 import type { Dictionary, Resolution, Themes } from "../Settings"
@@ -99,6 +99,7 @@ export enum Main {
     NOW_PLAYING = "NOW_PLAYING",
     NOW_PLAYING_UNSET = "NOW_PLAYING_UNSET",
     // MEDIA_BASE64 = "MEDIA_BASE64",
+    READ_AUDIO_METADATA = "READ_AUDIO_METADATA",
     CAPTURE_SLIDE = "CAPTURE_SLIDE",
     ACCESS_CAMERA_PERMISSION = "ACCESS_CAMERA_PERMISSION",
     ACCESS_MICROPHONE_PERMISSION = "ACCESS_MICROPHONE_PERMISSION",
@@ -142,6 +143,7 @@ export enum Main {
     CLOUD_DATA = "CLOUD_DATA",
     CLOUD_CHANGED = "CLOUD_CHANGED",
     CLOUD_SYNC = "CLOUD_SYNC",
+    RESTORE_CLOUD_BACKUP = "RESTORE_CLOUD_BACKUP",
     GET_CONVERSATION_ID = "GET_CONVERSATION_ID",
     SEND_SOCKET_MESSAGE = "SEND_SOCKET_MESSAGE",
     // Provider-based routing
@@ -158,7 +160,10 @@ export enum Main {
     TIMECODE_STOP = "TIMECODE_STOP",
     TIMECODE_VALUE = "TIMECODE_VALUE",
     TIMECODE_AUDIO_DATA = "TIMECODE_AUDIO_DATA",
-    TIMECODE_STATUS = "TIMECODE_STATUS"
+    TIMECODE_STATUS = "TIMECODE_STATUS",
+    // Spotify
+    SPOTIFY_GET_STATE = "SPOTIFY_GET_STATE",
+    SPOTIFY_COMMAND = "SPOTIFY_COMMAND"
 }
 
 export interface MainSendPayloads {
@@ -186,7 +191,7 @@ export interface MainSendPayloads {
     [Main.OUTPUT]: "true" | "false"
     [Main.DOES_MEDIA_EXIST]: { path: string; creationTime?: number; noCache?: boolean }
     [Main.GET_THUMBNAIL]: { input: string; size: number }
-    [Main.SAVE_IMAGE]: { id?: string; path?: string; base64?: string; buffer?: ArrayBuffer; filePath?: string[]; format?: "png" | "jpg" }
+    [Main.SAVE_IMAGE]: { id?: string; path?: string; base64?: string; buffer?: ArrayBuffer; filePath?: string[]; format?: "png" | "jpg"; openFolder?: boolean }
     [Main.PDF_TO_IMAGE]: { filePath: string }
     [Main.READ_EXIF]: { id: string }
     [Main.MEDIA_CODEC]: { path: string }
@@ -196,6 +201,7 @@ export interface MainSendPayloads {
     [Main.MEDIA_IS_DOWNLOADED]: { url: string; contentFile?: any }
     [Main.NOW_PLAYING]: { filePath: string; name: string; unknownLang: string[]; format: string; duration: number }
     // [Main.MEDIA_BASE64]: { id: string; path: string }[]
+    [Main.READ_AUDIO_METADATA]: { filePath: string }
     [Main.CAPTURE_SLIDE]: { output: { [key: string]: Output }; resolution: Resolution }
     [Main.LIBREOFFICE_CONVERT]: { type: string }
     [Main.START_SLIDESHOW]: { path: string; program: string }
@@ -232,6 +238,7 @@ export interface MainSendPayloads {
     [Main.CLOUD_DATA]: { id: SyncProviderId; churchId: string; teamId: string }
     [Main.CLOUD_CHANGED]: { id: SyncProviderId; churchId: string; teamId: string }
     [Main.CLOUD_SYNC]: { id: SyncProviderId; churchId: string; teamId: string; method: "merge" | "read_only" | "upload" | "replace" }
+    [Main.RESTORE_CLOUD_BACKUP]: { id: SyncProviderId; churchId: string; teamId: string }
     [Main.GET_CONVERSATION_ID]: { teamId: string }
     [Main.SEND_SOCKET_MESSAGE]: { churchId: string; teamId: string; displayName: string; content: string }
     // Provider-based routing
@@ -247,6 +254,9 @@ export interface MainSendPayloads {
     [Main.TIMECODE_VALUE]: number
     [Main.TIMECODE_STATUS]: "play" | "pause" | "stop"
     [Main.TIMECODE_AUDIO_DATA]: { mode: TimecodeMode; buffer: Uint8Array }
+    // Spotify
+    [Main.SPOTIFY_GET_STATE]: undefined
+    [Main.SPOTIFY_COMMAND]: { command: "playpause" | "next" | "prev" | "seek" | "setVolume" | "pause"; value?: number }
 }
 
 export interface MainReturnPayloads {
@@ -302,6 +312,7 @@ export interface MainReturnPayloads {
     [Main.MEDIA_TRACKS]: Promise<{ path: string; tracks: Subtitle[] }>
     [Main.MEDIA_IS_DOWNLOADED]: Promise<{ path: string; buffer: Buffer | null; protectedUrl?: string | null; isDownloading?: boolean } | null>
     // [Main.MEDIA_BASE64]: { id: string; content: string }[]
+    [Main.READ_AUDIO_METADATA]: Promise<any>
     [Main.CAPTURE_SLIDE]: Promise<{ base64: string } | null>
     [Main.SLIDESHOW_GET_APPS]: string[]
     [Main.GET_MIDI_OUTPUTS]: { name: string }[]
@@ -309,6 +320,7 @@ export interface MainReturnPayloads {
     [Main.GET_LYRICS]: Promise<{ lyrics: string; source: string; title: string; artist: string }>
     [Main.SEARCH_LYRICS]: Promise<LyricSearchResult[]>
     [Main.GET_SIMILAR]: { path: string; name: string }[]
+    [Main.RESTORE_CLOUD_BACKUP]: Promise<{ success: boolean; error?: string }>
     [Main.MEDIA_FOLDER_COPY]: Promise<boolean>
     [Main.LOCATE_MEDIA_FILE]: Promise<{ path: string; hasChanged: boolean } | null>
     [Main.GET_MEDIA_FOLDER_PATH]: string
@@ -330,11 +342,14 @@ export interface MainReturnPayloads {
     [Main.GET_CONTENT_PROVIDERS]: { providerId: ContentProviderId; displayName: string; hasContentLibrary: boolean }[]
     [Main.GET_CONTENT_LIBRARY]: Promise<ContentLibraryCategory[]>
     [Main.GET_PROVIDER_CONTENT]: Promise<ContentFile[]>
-    [Main.CHECK_MEDIA_LICENSE]: Promise<string | null>
+    [Main.CHECK_MEDIA_LICENSE]: Promise<MediaLicense | null>
     // Timecode
     [Main.TIMECODE_VALUE]: number | void
     [Main.TIMECODE_AUDIO_DATA]: Buffer | void
     [Main.TIMECODE_STATUS]: "play" | "pause" | "stop" | void
+    // Spotify
+    [Main.SPOTIFY_GET_STATE]: Promise<SpotifyState | null>
+    [Main.SPOTIFY_COMMAND]: Promise<boolean>
 }
 
 ///////////

@@ -47,7 +47,9 @@ export const actionData = {
     id_select_overlay: { common: true, canAddMultiple: true, name: "actions.id_select_overlay", icon: "overlays", input: "id" },
 
     // OUTPUT
-    lock_output: { SECTION: "guide_title.output", canAddMultiple: true, name: "actions.toggle_output_lock", icon: "locked", input: "output_lock" },
+    start_webrtc_stream: { SECTION: "guide_title.output", name: "output.start_streaming", icon: "record", input: "id" },
+    stop_webrtc_stream: { name: "output.stop_streaming", icon: "stop", input: "id", red: true },
+    lock_output: { canAddMultiple: true, name: "actions.toggle_output_lock", icon: "locked", input: "output_lock" },
     toggle_output_windows: { name: "actions.toggle_output_windows", icon: "outputs", input: "toggle", incompatible: ["toggle_output"] },
     toggle_output: { canAddMultiple: true, name: "actions.toggle_output_window", icon: "outputs", input: "toggle_output", incompatible: ["toggle_output_windows"] },
     // id_select_output_style: { name: "actions.id_select_output_style", icon: "styles", input: "id" },
@@ -86,7 +88,6 @@ export const actionData = {
 
     // FUNCTIONS
     change_variable: { SECTION: "tabs.functions", common: true, canAddMultiple: true, name: "actions.change_variable", icon: "variable", input: "variable" },
-    start_trigger: { common: true, canAddMultiple: true, slideId: "trigger", name: "actions.start_trigger", icon: "trigger", input: "id" },
 
     change_draw_zoom: { SECTION: "menu.draw", name: "actions.change_draw_zoom", icon: "zoom", input: "draw_zoom" },
 
@@ -94,6 +95,20 @@ export const actionData = {
     // send_midi: { SECTION: "actions.emit_data", canAddMultiple: true, slideId: "sendMidi", name: "actions.send_midi", icon: "music", input: "midi" },
     // send_rest_command: { canAddMultiple: true, name: "actions.send_rest_command", icon: "trigger", input: "rest" },
     emit_action: { SECTION: "actions.emit_data", common: true, canAddMultiple: true, name: "actions.emit_data", icon: "emitter", input: "emitter" },
+
+    // OBS Studio
+    obs_set_scene: { SECTION: "OBS Studio", name: "OBS Studio: Set scene", icon: "screen", input: "obs_scene" },
+    obs_start_livestream: { name: "OBS Studio: Start livestream", icon: "camera" },
+    obs_stop_livestream: { name: "OBS Studio: Stop livestream", icon: "camera", red: true },
+    obs_start_recording: { name: "OBS Studio: Start recording", icon: "record" },
+    obs_stop_recording: { name: "OBS Studio: Stop recording", icon: "record", red: true },
+
+    // SPOTIFY
+    spotify_play: { SECTION: "Spotify", name: "Spotify: media.play", icon: "play" },
+    spotify_pause: { name: "Spotify: media.pause", icon: "pause" },
+    spotify_fade_out: { name: "Spotify: media.fade_out", icon: "clear" },
+    spotify_next: { name: "Spotify: media.next", icon: "nextFull" },
+    spotify_previous: { name: "Spotify: media.previous", icon: "previousFull" },
 
     // OTHER
     toggle_log_song_usage: { SECTION: "settings.other", name: "settings.log_song_usage", icon: "history", input: "toggle" },

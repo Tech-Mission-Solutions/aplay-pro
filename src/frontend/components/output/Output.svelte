@@ -227,6 +227,7 @@
         isMetadataClearing = true
         setTimeout(() => {
             currentMetadataItems = []
+            cachedMetadataStr = ""
         })
     }
 

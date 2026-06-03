@@ -303,7 +303,8 @@ export function getItemTextArray(item: Item): string[] {
 
 export function getLineText(line: Line): string {
     let text = ""
-    line?.text?.forEach((content) => {
+    if (!Array.isArray(line?.text)) return ""
+    line.text.forEach((content) => {
         text += content.value
     })
     return text
@@ -346,7 +347,8 @@ export function setCaret(element: any, { line = 0, pos = 0 }, toEnd = false) {
 
     // get end child elem
     const lastEndChild = lastLineElem.childNodes[lastLineElem.childNodes.length - 1]
-    let currentEndTextLength = lastEndChild?.innerText?.length ?? 0
+    if (!lastEndChild) return
+    let currentEndTextLength = lastEndChild.innerText?.length ?? 0
 
     const breakElem = lastEndChild.childNodes[0]?.nodeName === "BR"
     if (line === 0 && breakElem) return
@@ -357,16 +359,33 @@ export function setCaret(element: any, { line = 0, pos = 0 }, toEnd = false) {
     // If startElem is a BR element, set caret before it and not inside it
     if (startElem?.nodeName === "BR") {
         const parentSpan = lineElem.childNodes[childElem]
-        range.setStart(parentSpan, 0)
+        try {
+            range.setStart(parentSpan, 0)
+        } catch {
+            return
+        }
     } else if (startElem) {
         const offset = pos - currentTextLength
         const startElemLength = startElem.length ?? startElem.textContent?.length ?? 0
         const safeStartOffset = Math.max(0, Math.min(startElemLength, offset))
-        range.setStart(startElem, safeStartOffset)
+        try {
+            range.setStart(startElem, safeStartOffset)
+        } catch {
+            return
+        }
     }
     if (toEnd) {
-        const safeEndOffset = Math.max(0, Math.min(currentEndTextLength, endElem?.length ?? 0))
-        range.setEnd(endElem, safeEndOffset)
+        let safeEndOffset = 0
+        if (endElem?.nodeType === Node.TEXT_NODE) {
+            safeEndOffset = Math.max(0, Math.min(endElem.length ?? endElem.textContent?.length ?? 0, currentEndTextLength))
+        } else if (endElem?.nodeType === Node.ELEMENT_NODE) {
+            safeEndOffset = Math.max(0, Math.min(endElem.childNodes.length, currentEndTextLength))
+        }
+        try {
+            range.setEnd(endElem, safeEndOffset)
+        } catch {
+            return
+        }
     } else range.collapse(true)
 
     sel?.removeAllRanges()

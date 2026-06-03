@@ -60,6 +60,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
                 // cloud sync update
                 if (initializing && obj.location.id === "project_ref") {
                     projects.update((a) => {
+                        if (!a[id]) return a
                         a[id].modified = Date.now()
                         return a
                     })
@@ -748,7 +749,7 @@ export const historyActions = ({ obj, undo = null }: any) => {
             let ref = _show(data.remember.showId).layouts([data.remember.layout]).ref()[0] || []
             const slideId: string = data.indexes ? ref[data.indexes[0]]?.id : ""
 
-            const createItems = !!data.data?.createItems
+            let createItems = !!data.data?.createItems
             const shiftItems = !!data.data?.shiftItems
             const previousTemplateId = show.settings?.template
 
@@ -846,6 +847,8 @@ export const historyActions = ({ obj, undo = null }: any) => {
                 const previousFirstSlideTemplateId = get(templates)[data.previousData?.template || ""]?.settings?.firstSlideTemplate || ""
 
                 Object.entries(slides).forEach(([id, slide]) => {
+                    if (!slide) return
+
                     const isGroupLocked = !!slide.locked // WIP get group slide
                     if ((slideId && slideId !== id) || !slide || isGroupLocked) return
 
@@ -871,6 +874,8 @@ export const historyActions = ({ obj, undo = null }: any) => {
                             slideTemplate = clone(get(templates)[get(groups)[globalGroup]?.template || ""]) || template
                             templateMode = "group"
                         }
+                        // always create items in group template
+                        createItems = true
                     }
 
                     // first slide template
