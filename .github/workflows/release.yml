@@ -32,7 +32,7 @@ jobs:
   #          fi
   publish_windows:
     name: "Publish Windows"
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
     #      id-token: write # REQUIRED for Azure OIDC
@@ -45,6 +45,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Change Python version: https://github.com/nodejs/node-gyp/issues/2869
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Install dependencies
         # npm ci is better, but requires package-lock.json file
