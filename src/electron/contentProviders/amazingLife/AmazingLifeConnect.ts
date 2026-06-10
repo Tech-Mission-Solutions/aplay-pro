@@ -96,6 +96,8 @@ export class AmazingLifeConnect {
     }
 
     private static isTokenExpired(access: AmazingLifeAuthData | null): boolean {
+        if (!access) return true
+
         try {
             // Decode JWT token to get expiration time
             const tokenParts = access?.access_token.split(".")
@@ -125,10 +127,7 @@ export class AmazingLifeConnect {
     }
 
     private static async refreshToken(scope: AmazingLifeScopes): Promise<AmazingLifeAuthData | null> {
-        if (!this.AMAZING_LIFE_ACCESS?.refresh_token) {
-            console.warn("No refresh token available for APlay")
-            return null
-        }
+        if (!this.AMAZING_LIFE_ACCESS?.refresh_token) return null
 
         try {
             this.initializeOAuthHelper()
