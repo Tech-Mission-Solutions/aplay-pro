@@ -53,8 +53,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        # npm ci is better, but requires package-lock.json file
-        run: npm install
+        run: npm ci
 
       - name: Cache Electron artifacts
         uses: actions/cache@v4
@@ -227,7 +226,7 @@ jobs:
         run: npm install -g node-gyp
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install dmg-license
         run: npm i dmg-license
