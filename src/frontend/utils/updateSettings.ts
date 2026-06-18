@@ -45,6 +45,7 @@ import {
     globalTags,
     groupNumbers,
     groups,
+    interactions,
     labelsDisabled,
     language,
     loaded,
@@ -95,6 +96,7 @@ import { maxConnections, outputs, scriptureSettings, scriptures, splitLines, tra
 import { checkForUpdates } from "./checkForUpdates"
 import { isMainWindow, startAutosave } from "./common"
 import { setLanguage } from "./language"
+import { startRemoteController } from "./remoteController"
 import { send } from "./request"
 import { startAutosave } from "./common"
 
@@ -353,6 +355,7 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     templateCategories: (v: any) => templateCategories.set(v),
     timers: (v: any) => timers.set(v),
     variables: (v: any) => variables.set(v),
+    interactions: (v: any) => interactions.set(v),
     audioStreams: (v: any) => audioStreams.set(v),
     audioPlaylists: (v: any) => audioPlaylists.set(v),
     theme: (v: any) => theme.set(v),
@@ -398,6 +401,9 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
             // let "activeProject" setting update first
             setTimeout(() => projectView.set(true))
             showRecentlyUsedProjects.set(false)
+        }
+        if (v.remoteController) {
+            startRemoteController(v.remoteControllerId)
         }
 
         // DEPRECATED (migrate)
