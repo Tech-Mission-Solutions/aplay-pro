@@ -266,6 +266,8 @@ export interface Variable {
 
     // random number
     animate?: boolean
+    animateTowardsResult?: boolean
+    animationDuration?: number
     eachNumberOnce?: boolean
     sets?: { name: string; minValue?: number; maxValue?: number }[]
     setName?: string // chosen random set
@@ -322,6 +324,7 @@ interface MultipleChoiceQuestion extends QuestionBase {
     type: "multi_choice"
     inputType: "buttons" | "checkbox" | "dropdown" | "radio"
     options?: { value: string; isAnswer?: boolean }[]
+    randomize?: boolean
 }
 
 export interface Trigger {
