@@ -53,6 +53,7 @@ export interface StageItem {
     auto?: boolean
     textFit?: AutosizeTypes // auto size text fix option (default: growToFit)
     button?: { press?: string; release?: string } // click actions
+    flash?: { enabled?: boolean; color?: string; count?: number } // item background flash
 
     // slide text
     slideOffset?: number

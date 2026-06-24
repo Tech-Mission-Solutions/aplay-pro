@@ -292,6 +292,7 @@ export interface Interaction {
 }
 type Options = {
     requireName?: boolean // default = true
+    randomNames?: boolean // default = false
     allAtOnce?: boolean // default = false
     maxTime?: number // seconds, default = no limit
     scoreSystem?: "incremental" | "falloff" | "speed" // default = "incremental"
@@ -407,6 +408,7 @@ export type Popups =
     | "import_scripture"
     | "create_collection"
     | "edit_event"
+    | "edit_chart"
     | "choose_chord"
     | "choose_screen"
     | "choose_camera"

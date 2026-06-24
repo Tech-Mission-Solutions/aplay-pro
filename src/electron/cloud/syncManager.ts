@@ -128,7 +128,7 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
         const parsedChanges = safeParseJSON(changesContent)
         const deviceId = getDeviceId()
 
-        if (parsedChanges) {
+        if (parsedChanges && data.method !== "replace") {
             CHANGES = parsedChanges
             if (CHANGES.version !== version) CHANGES = clone(DEFAULT_CHANGES)
             cloudChanges = clone(CHANGES)
@@ -200,8 +200,8 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
                 return
             }
 
-            // download new/modified shows (new format)
-            if (file.name.startsWith("SHOWS/") && file.name.endsWith(".show")) {
+            const normalizedName = file.name.replace(/\\/g, "/")
+            if (normalizedName.startsWith("SHOWS/") && normalizedName.endsWith(".show")) {
                 showsFound = true
                 try {
                     const cloudFile = await readFileAsync(cloudPath)
@@ -599,8 +599,6 @@ async function deleteUnusedZips(folderPath: string, excludeZip: string) {
 
 async function checkCloudEntry(id: ChangeId, key: string, cloudData: any, getLocalData: () => Promise<any> | any, isCloudNewer?: () => Promise<boolean>) {
     const cloudModTime = getModifiedDate(cloudData)
-    // entries here are expected to carry a per-item "modified" time; without one the cloud copy is
-    // invalid → skip. (Item-collections with no per-item "modified" are merged via ledger.mergeCollection.)
     if (cloudData !== null && !cloudModTime) return { action: "skip" } // invalid: no modified time
 
     const localValue = await getLocalData()

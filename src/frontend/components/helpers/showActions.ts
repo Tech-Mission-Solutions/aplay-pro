@@ -21,7 +21,7 @@ import { getCurrentTimerValue, getTimeUntilClock, playPauseGlobal } from "../dra
 import { getDynamicValue } from "../edit/scripts/itemHelpers"
 import { getTextLines } from "../edit/scripts/textStyle"
 import { clearBackground, clearOverlays, clearTimers } from "../output/clear"
-import { activeEdit, activeFocus, activeInteractions, activePage, activeProject, activeShow, allOutputs, audioData, cachedDynamicValues, customMetadata, dictionary, dynamicValueData, focusMode, media, outLocked, outputDisplay, outputs, overlays, playingAudio, playingMetronome, projects, shows, showsCache, slideTimers, special, stageShows, styles, templates, timers, variables, videosData, videosTime } from "./../../stores"
+import { activeEdit, activeFocus, activeInteractions, activePage, activeProject, activeShow, allOutputs, audioData, cachedDynamicValues, customMetadata, dictionary, dynamicValueData, focusMode, interactions, media, outLocked, outputDisplay, outputs, overlays, playingAudio, playingMetronome, projects, shows, showsCache, slideTimers, special, stageShows, styles, templates, timers, variables, videosData, videosTime } from "./../../stores"
 import { clone, keysToID, sortByName } from "./array"
 import { downloadOnlineMedia, encodeFilePath, getExtension, getFileName, getMedia, getMediaStyle, getMediaType, removeExtension } from "./media"
 import { defaultLayers, getActiveOutputs, getAllNormalOutputs, getFirstActiveOutput, getFirstOutput, getWindowOutputId, isOutCleared, refreshOut, setOutput, startFolderTimer } from "./output"
@@ -864,7 +864,14 @@ export function replaceDynamicValues(text: string, { showId, layoutId, slideInde
     function getDynamicValueText(dynamicId: string, show: Show | null): string | string[] {
         // request from frontend
         if (isOutputWin && dynamicId.startsWith("interaction_")) {
-            return requestDynamicValue(dynamicId)
+            const matches = [...text.matchAll(createRegex(dynamicId))]
+            if (matches.length === 0) return requestDynamicValue(dynamicId)
+            const results: string[] = []
+            matches.forEach(([_, num]) => {
+                const idx = num ? parseInt(num, 10) : 0
+                results[idx] = requestDynamicValue(num ? `${dynamicId}#${num}` : dynamicId) as string
+            })
+            return results
         }
 
         // VARIABLE
@@ -1142,6 +1149,8 @@ const dynamicValues = {
     interaction_players: ({ show }) => getInteractionPlayers(show),
     interaction_players_count: ({ show }) => getInteractionPlayersCount(show),
     interaction_question: ({ show }) => getInteractionQuestion(show),
+    interaction_input_options: ({ show }) => getInteractionInputOptions(show),
+    interaction_option_percentages: ({ show }) => getInteractionOptionPercentages(show),
     interaction_time: ({ show }) => getInteractionTime(show),
     interaction_answer: ({ show }) => getInteractionAnswer(show),
     interaction_player_answers: ({ show }) => getInteractionPlayerAnswers(show),
@@ -1336,6 +1345,14 @@ function getInteractionQuestion(show: Show | null) {
     return [questions.join("<br>"), ...questions]
 }
 
+function getInteractionInputOptions(show: Show | null) {
+    const interaction = _getInteraction(show)
+    if (!interaction) return ""
+
+    const options = interaction.getInputOptions()
+    return [options.join("<br>"), ...options]
+}
+
 function getInteractionTime(show: Show | null) {
     const interaction = _getInteraction(show)
     if (!interaction) return ""
@@ -1367,8 +1384,53 @@ function getInteractionPlayerAnswerLatest(show: Show | null) {
 
 function getInteractionLeaderboard(show: Show | null) {
     const interaction = _getInteraction(show)
-    if (!interaction) return ""
+    if (interaction) {
+        const leaderboard = interaction.getLeaderboard()
+        return [leaderboard.join("<br>"), ...leaderboard]
+    }
 
-    const leaderboard = interaction.getLeaderboard()
-    return [leaderboard.join("<br>"), ...leaderboard]
+    // fallback to previous leaderboard when closed
+    const interactionId = getInteractionId(show)
+    const savedInteraction = interactionId ? get(interactions)[interactionId] : null
+    const lastHistory = savedInteraction?.history?.at(-1)
+    if (lastHistory?.leaderboard) {
+        const leaderboard = lastHistory.leaderboard.map((c: any) => `${c.name}: ${c.score}`)
+        return [leaderboard.join("<br>"), ...leaderboard]
+    }
+
+    return ""
+}
+
+function getInteractionOptionPercentages(show: Show | null) {
+    const interaction = _getInteraction(show)
+    if (interaction) {
+        const percentages = interaction.getOptionPercentages()
+        return percentages.length > 0 ? percentages : ""
+    }
+
+    // fallback to previous option percentages when closed
+    const interactionId = getInteractionId(show)
+    const savedInteraction = interactionId ? get(interactions)[interactionId] : null
+    const lastHistory = savedInteraction?.history?.at(-1)
+    if (lastHistory?.inputs && savedInteraction?.inputs) {
+        const inputIndex = lastHistory.inputs.length - 1
+        const input = savedInteraction.inputs[inputIndex]
+        const historyInput = lastHistory.inputs[inputIndex]
+        if (input && input.type === "multi_choice" && input.options && historyInput?.answers) {
+            const totalAnswers = historyInput.answers.length
+            const percentages = input.options.map((o: any) => {
+                if (totalAnswers === 0) return "0%"
+                const chosenCount = historyInput.answers.filter((ans: any) => {
+                    if (!ans || ans.value === undefined) return false
+                    const clientValues = Array.isArray(ans.value) ? ans.value : [ans.value]
+                    return clientValues.includes(o.value)
+                }).length
+                const percent = Math.round((chosenCount / totalAnswers) * 100)
+                return `${percent}%`
+            })
+            return [percentages.join("<br>"), ...percentages]
+        }
+    }
+
+    return ""
 }

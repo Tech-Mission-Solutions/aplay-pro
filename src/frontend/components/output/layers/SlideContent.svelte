@@ -78,10 +78,20 @@
     // $: videoTime = $videosTime[outputId] || 0 // WIP only update if the items text has a video dynamic value
     // $: if ($activeTimers || $variables || $playingAudio || $playingAudioPaths || videoTime) updateValues()
     let conditionsUpdater = 0
-    const updaterInterval = setInterval(() => {
-        if (isClearing) return
-        if (currentItems.find((a) => a?.conditions)) conditionsUpdater++
-    }, 300)
+    let isMic = false
+    $: isMic = JSON.stringify(currentItems.map((a) => a?.conditions) || "").includes('"element":"volume"')
+
+    let updaterInterval: NodeJS.Timeout
+    $: {
+        clearInterval(updaterInterval)
+        updaterInterval = setInterval(
+            () => {
+                if (isClearing) return
+                if (currentItems.find((a) => a?.conditions)) conditionsUpdater++
+            },
+            isMic ? 100 : 300
+        )
+    }
     onDestroy(() => clearInterval(updaterInterval))
 
     // do not update if only line has changed
@@ -104,6 +114,16 @@
     let currentSlideItems: Item[] | null = null
     $: if (currentSlide?.items !== 0) {
         if (JSON.stringify(currentSlide?.items) !== JSON.stringify(currentSlideItems)) currentSlideItems = clone(currentSlide?.items || null)
+    }
+    $: if (current && outSlide) {
+        if (current.outSlide) {
+            current.outSlide.itemClickReveal = outSlide.itemClickReveal
+            current.outSlide.revealCount = outSlide.revealCount
+            current.outSlide.line = outSlide.line
+        }
+    }
+    $: if (current && lines) {
+        current.lines = clone(lines)
     }
 
     $: if (currentSlideItems !== undefined || currentOutSlide || currentLines) updateItems()

@@ -1,9 +1,10 @@
 import fs from "fs"
+import path from "path"
 import yauzl from "yauzl"
 import yazl from "yazl"
 import { ToMain } from "../../types/IPC/ToMain"
 import { sendToMain } from "../IPC/main"
-import { getExtension } from "../utils/files"
+import { createFolder, getExtension } from "../utils/files"
 
 // https://www.npmjs.com/package/yazl (compression)
 // https://www.npmjs.com/package/yauzl (decompression)
@@ -164,9 +165,9 @@ function processEntry(entry: yauzl.Entry, zipfile: yauzl.ZipFile, data: { conten
         }
 
         if (outputPath) {
-            streamToDisk(readStream, outputPath, name, extension, data, zipfile)
+            streamToDisk(readStream, outputPath, safeName, extension, data, zipfile)
         } else {
-            bufferInMemory(readStream, name, extension, asBuffer, data, zipfile)
+            bufferInMemory(readStream, safeName, extension, asBuffer, data, zipfile)
         }
     })
 }
@@ -177,6 +178,12 @@ function streamToDisk(readStream: NodeJS.ReadableStream, outputPath: string, nam
         if (hasAdvanced) return
         hasAdvanced = true
         zipfile.readEntry()
+    }
+
+    try {
+        createFolder(path.dirname(outputPath))
+    } catch (err) {
+        console.error("Failed to create parent directory for extraction:", outputPath, err)
     }
 
     const writeStream = fs.createWriteStream(outputPath)
@@ -238,7 +245,7 @@ export function getZipModifiedDates(filePath: string): Promise<{ [key: string]: 
             const modified: { [key: string]: Date } = {}
 
             zipfile.on("entry", (entry: yauzl.Entry) => {
-                modified[entry.fileName] = entry.getLastModDate()
+                modified[sanitizeZipPath(entry.fileName)] = entry.getLastModDate()
                 zipfile.readEntry()
             })
 

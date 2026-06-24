@@ -1098,7 +1098,7 @@ let currentlyBundling = false
  *
  * @param openFolderWhenDone [default=false] Whether to open the output folder when done
  */
-export function bundleMediaFiles({ openFolder = false }: { openFolder?: boolean } = {}) {
+export function bundleMediaFiles({ openFolder = false, outputPath = "" }: { openFolder?: boolean; outputPath?: string } = {}) {
     if (currentlyBundling) return
     currentlyBundling = true
 
@@ -1168,8 +1168,8 @@ export function bundleMediaFiles({ openFolder = false }: { openFolder?: boolean 
         return
     }
 
-    // bundle should use default Media folder, and not any custom sync folders
-    const outputFolder = getDataFolderPath("media")
+    // use custom output path or FreeShow Media folder
+    const outputFolder = outputPath || getDataFolderPath("media")
 
     // copy media files
     addToMediaFolder(allMediaFiles, outputFolder) // skip awaiting
@@ -1227,8 +1227,6 @@ function getFileParentFolderId(filePath: string) {
 
 export function loadShows(returnShows = false, reCacheNames: string[] = []) {
     const showsPath = getDataFolderPath("shows")
-
-    specialCaseFixer()
 
     // list all shows in folder
     let filesInFolder: string[] = readFolder(showsPath)
@@ -1298,8 +1296,6 @@ export function loadShows(returnShows = false, reCacheNames: string[] = []) {
 
 export async function loadShowsAsync(returnShows = false, reCacheNames: string[] = []) {
     const showsPath = getDataFolderPath("shows")
-
-    specialCaseFixer()
 
     // list all shows in folder
     const allFiles = await readFolderAsync(showsPath)
@@ -1524,7 +1520,7 @@ const FIXES = {
         setAutoProfile("admin")
     }
 }
-function specialCaseFixer() {
+export function specialCaseFixer() {
     const defaultDataFolder = getDefaultDataFolderRoot()
     if (!doesPathExist(defaultDataFolder)) return
 

@@ -1,8 +1,12 @@
 import { get } from "svelte/store"
 import { uid } from "uid"
+import { OUTPUT } from "../../../../types/Channels"
 import type { Condition, ConditionValue, Item, ItemType, Slide } from "../../../../types/Show"
 import type { StageItem } from "../../../../types/Stage"
-import { activeEdit, activeShow, activeStage, activeTimers, allOutputs, outputs, outputSlideCache, overlays, refreshEditSlide, showsCache, stageShows, templates, timers, variables } from "../../../stores"
+import { AudioMicrophone } from "../../../audio/audioMicrophone"
+import { activeEdit, activeShow, activeStage, activeTimers, allOutputs, audioChannels, outputs, outputSlideCache, overlays, refreshEditSlide, showsCache, stageShows, templates, timers, variables } from "../../../stores"
+import { isOutputWindow } from "../../../utils/common"
+import { send } from "../../../utils/request"
 import { addSlideAction } from "../../actions/actions"
 import { createNewTimer, getCurrentTimerValue } from "../../drawer/timers/timers"
 import { clone, keysToID, sortByName } from "../../helpers/array"
@@ -88,6 +92,25 @@ export function addItem(type: ItemType, id: string | null = null, options: any =
     else if (type === "slide_tracker") newData.auto = true
     else if (type === "web") newData.web = { url: "" }
     else if (type === "captions") newData.captions = { roomId: "freeshow" + uid(6) }
+    else if (type === "chart") newData.chart = { type: "bar", data: "" }
+    else if (type === "table") {
+        newData.table = {
+            borderColor: "rgba(255,255,255,0.2)",
+            borderWidth: 1,
+            rows: [
+                {
+                    cells: [
+                        { text: "", style: "font-weight: bold; background-color: rgba(255, 255, 255, 0.05);" },
+                        { text: "", style: "font-weight: bold; background-color: rgba(255, 255, 255, 0.05);" },
+                        { text: "", style: "font-weight: bold; background-color: rgba(255, 255, 255, 0.05);" }
+                    ]
+                },
+                { cells: [{ text: "" }, { text: "" }, { text: "" }] },
+                { cells: [{ text: "" }, { text: "" }, { text: "" }] }
+            ]
+        }
+        newData.textFit = "none"
+    }
     // else if (type === "button") {
     //     // make square, colored, rounded and center
     //     let size: number = 300
@@ -368,6 +391,19 @@ export function checkConditionValue(cVal: ConditionValue, itemsText: string, typ
         if (Array.isArray(val)) value = val[Number(cVal.index ?? 0)]
         else value = val
     } else if (element === "dynamicValue") value = getDynamicValue(elementId, type)
+    else if (element === "volume") {
+        if (isOutputWindow()) {
+            send(OUTPUT, ["MAIN_REQUEST_VOLUME"], { deviceId: elementId })
+            value = AudioMicrophone.getVolume(elementId).toString()
+        } else if (elementId === "main") {
+            const channels = get(audioChannels)
+            const db = channels.length ? Math.max(...channels.map((c) => c.dB?.value ?? -80)) : -80
+            value = Math.round(db).toString()
+        } else {
+            AudioMicrophone.startListening(elementId)
+            value = AudioMicrophone.getVolume(elementId).toString()
+        }
+    }
 
     if (operator === "is") {
         return value === dataValue
