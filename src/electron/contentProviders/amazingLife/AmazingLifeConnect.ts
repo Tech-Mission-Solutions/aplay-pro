@@ -134,7 +134,6 @@ export class AmazingLifeConnect {
             this.initializeOAuthHelper()
             const refreshed = await this.oauthHelper.refreshAccessToken(currentAccess.refresh_token, scope)
             if (refreshed) {
-                this.AMAZING_LIFE_ACCESS = refreshed
                 setContentProviderAccess("amazinglife", scope, refreshed)
             }
             return refreshed
