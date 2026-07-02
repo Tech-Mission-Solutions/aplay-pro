@@ -1,7 +1,8 @@
 name: Release
 on:
   push:
-    branches: 
+    branches:
+      - aplay-pro-release6
       - aplay-pro-release4
       - aplay-pro-release
       - aplay-pro-pre-release
