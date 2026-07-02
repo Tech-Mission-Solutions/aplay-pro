@@ -36,7 +36,7 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: read
-    #      id-token: write # REQUIRED for Azure OIDC
+      id-token: write # REQUIRED for Azure OIDC
 
     steps:
       - name: Check out Git repository
