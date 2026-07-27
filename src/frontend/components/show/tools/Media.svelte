@@ -180,7 +180,7 @@
                 <!-- TODO: cameras -->
                 {@const mediaStyle = getMediaStyle(media.data, outputStyle)}
 
-                <SelectElem id="media" data={{ ...background }} draggable>
+                <SelectElem id="media" data={{ ...background, path: media.path || background.path }} draggable>
                     <div class="media_item item context #show_media" class:active={findMatchingOut(media.path || "", $outputs)}>
                         <HoverButton
                             style="flex: 2;height: 50px;max-width: 100px;"
@@ -302,7 +302,7 @@
 
                 <SelectElem id="action" data={action} draggable>
                     <!-- class="context #action" -->
-                    <Button on:click={() => runAction(action)} style="padding: 8px;width: 100%;" title={action.name} bold={false}>
+                    <Button on:click={() => runAction(action, { source: "click" })} style="padding: 8px;width: 100%;" title={action.name} bold={false}>
                         <Icon id={customData.icon || "actions"} size={1.1} style="margin-inline-start: 0.5em;" right />
                         {#key customData.name}
                             <p>

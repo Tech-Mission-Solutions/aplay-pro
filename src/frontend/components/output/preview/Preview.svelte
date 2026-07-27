@@ -48,7 +48,7 @@
         }
 
         const functionKey = /^F(?:[1-9]|1[0-9]|2[0-4])$/
-        if ((e.target?.closest("input") || e.target?.closest(".edit")) && !functionKey.test(e.key)) return
+        if ((e.target?.closest?.("input") || e.target?.closest?.(".edit")) && !functionKey.test(e.key)) return
 
         // start action with custom shortcut key
         // /^[A-Z]{1}$/i.test(e.key) &&
@@ -123,7 +123,7 @@
             // can become [object Object] in some rare cases
             if (typeof action.keypressActivate !== "string") return
             if (action.keypressActivate.toUpperCase() === key) {
-                runAction(action)
+                runAction(action, { source: "keypress" })
                 actionTriggered = true
             }
         })

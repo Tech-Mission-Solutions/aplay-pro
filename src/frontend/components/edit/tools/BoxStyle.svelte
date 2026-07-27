@@ -58,10 +58,13 @@
             if (e.target.closest(".menus") || e.target.closest(".popup") || e.target.closest(".drawer") || e.target.closest(".chords") || e.target.closest(".contextMenu") || e.target.closest(".editTools")) return
         }
 
+        const activeEl = document.activeElement as HTMLElement | null
+        if (activeEl?.closest(".tools") || activeEl?.closest(".menus") || activeEl?.closest(".popup") || activeEl?.closest(".drawer") || activeEl?.closest(".chords") || activeEl?.closest(".contextMenu") || activeEl?.closest(".editTools") || document.querySelector(".editTools:hover")) return
+
         let sel = window.getSelection()
 
         if (sel?.type === "None") {
-            if ((document.activeElement as HTMLElement | null)?.closest(".tools")) return
+            if (activeEl === document.body) return
             selection = null
             activeRowIdx = -1
             activeColIdx = -1
@@ -69,7 +72,7 @@
         }
 
         const anchorElem = (sel?.anchorNode as Element)?.nodeType === Node.ELEMENT_NODE ? (sel?.anchorNode as Element) : sel?.anchorNode?.parentElement
-        if (!anchorElem?.closest(".edit")) {
+        if (!anchorElem?.closest?.(".edit")) {
             activeRowIdx = -1
             activeColIdx = -1
             return
@@ -85,7 +88,7 @@
 
     function mousedown(e: any) {
         // store if going to a text input in the tools
-        if (e.target.closest(".tools")) getTextSelection(e)
+        if (e.target.closest(".tools") || e.target.closest(".menus") || e.target.closest(".popup") || e.target.closest(".drawer") || e.target.closest(".chords") || e.target.closest(".contextMenu") || e.target.closest(".editTools")) getTextSelection(e)
     }
 
     function keyup(e: KeyboardEvent) {
@@ -197,8 +200,17 @@
         const backwardSelection = currentDomSelection ? isSelectionBackward(currentDomSelection) : false
 
         let value = shortcut()
-        // WIP line-through is removed
-        if (styles[value.key]?.includes(value.value)) value.value = ""
+
+        if (value.key === "text-decoration") {
+            // don't remove line-through if underline is toggled
+            const currentVal = styles[value.key] || ""
+            let parts = currentVal.split(" ").filter((p: string) => p)
+            if (parts.includes(value.value)) parts = parts.filter((p: string) => p !== value.value)
+            else parts.push(value.value)
+            value.value = parts.join(" ")
+        } else if (styles[value.key]?.includes(value.value)) {
+            value.value = ""
+        }
 
         updateValue({ detail: value })
 
@@ -214,18 +226,14 @@
 
     // -----
 
-    const setItemStyle = ["list", "timer", "clock", "icon", "events", "camera", "variable", "web", "slide_tracker", "table"]
+    const setItemStyle = ["timer", "clock", "icon", "events", "camera", "variable", "web", "slide_tracker", "table"]
 
     const setBox = () => clone(itemBoxes[id])!
     let box = setBox()
     $: if ($activeEdit.id || $activeShow?.id || $activeEdit.slide) box = setBox()
 
     // get item values
-    $: style = item?.lines
-        ? getItemStyleAtPos(item.lines, selection)
-        : (item?.type === "table" && activeRowIdx >= 0 && activeColIdx >= 0 && item.table?.rows?.[activeRowIdx]?.cells?.[activeColIdx])
-            ? item.table.rows[activeRowIdx].cells[activeColIdx].style || ""
-            : item?.style || ""
+    $: style = item?.lines ? getItemStyleAtPos(item.lines, selection) : item?.type === "table" && activeRowIdx >= 0 && activeColIdx >= 0 && item.table?.rows?.[activeRowIdx]?.cells?.[activeColIdx] ? item.table.rows[activeRowIdx].cells[activeColIdx].style || "" : item?.style || ""
     let styles: any = {}
     $: if (style !== undefined) styles = getStyles(style, true)
 
@@ -279,6 +287,8 @@
         const timerLength = Math.abs((timer?.start || 0) - (timer?.end || 0))
         setBoxInputValue(box, "default", "timer.showHours", "value", item.timer?.showHours !== false)
         setBoxInputValue(box, "default", "timer.showHours", "hidden", (item.timer?.viewType || "time") !== "time" || timerLength < 3600)
+        setBoxInputValue(box, "default", "timer.padding", "value", item.timer?.padding !== false)
+        setBoxInputValue(box, "default", "timer.padding", "hidden", (item.timer?.viewType || "time") !== "time")
     }
     $: if (id === "clock" && item) {
         const clockType = item.clock?.type || "digital"
@@ -308,6 +318,12 @@
         setBoxInputValue(box, "default", "events.startDaysFromToday", "disabled", !!item.events?.enableStartDate)
         setBoxInputValue(box, "default", "events.startDate", "hidden", !item.events?.enableStartDate)
         setBoxInputValue(box, "default", "events.startTime", "hidden", !item.events?.enableStartDate)
+        setBoxInputValue(box, "default", "events.fromTime", "hidden", !item.events?.justOneDay)
+        setBoxInputValue(box, "default", "events.toTime", "hidden", !item.events?.justOneDay)
+    }
+    $: if (id === "chart" && item) {
+        setBoxInputValue(box, "default", "chart.holeSize", "hidden", item.chart?.type !== "pie")
+        setBoxInputValue(box, "default", "chart.holeSize", "value", item.chart?.holeSize ?? 0)
     }
     $: if (id === "chart" && item) {
         setBoxInputValue(box, "default", "chart.holeSize", "hidden", item.chart?.type !== "pie")
@@ -330,8 +346,13 @@
             if (!item) return
 
             input.id = splitted[0]
-            value = item[splitted[0]] || {}
-            value[splitted[1]] = input.value
+
+            let newValue = item[splitted[0]]
+            if (typeof newValue !== "object" || newValue === null) newValue = {}
+            else newValue = clone(newValue)
+
+            newValue[splitted[1]] = input.value
+            value = newValue
         }
 
         function getSelectedItem() {
@@ -397,7 +418,10 @@
                 }
 
                 let splitted = input.id.split(".")
-                if (!a[$activeEdit.id!].items[i][splitted[0]]) a[$activeEdit.id!].items[i][splitted[0]] = {}
+                let nested = a[$activeEdit.id!].items[i][splitted[0]]
+                if (typeof nested !== "object" || nested === null) {
+                    a[$activeEdit.id!].items[i][splitted[0]] = {}
+                }
                 a[$activeEdit.id!].items[i][splitted[0]][splitted[1]] = value
             })
 

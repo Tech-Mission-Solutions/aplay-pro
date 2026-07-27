@@ -9,27 +9,6 @@ import { captionLanguages } from "./captionLanguages"
 dayjs.extend(localizedFormat)
 dayjs.extend(extendedFormat)
 
-export type EditInput = {
-    name?: string
-    id?: string
-    icon?: string
-    key?: string
-    input: string
-    value?: string | number | boolean | any[]
-    extension?: string
-    hidden?: boolean
-    disabled?: string | boolean
-    valueIndex?: number
-    values?: any
-    popup?: string
-    slider?: boolean // include number slider
-    sliderValues?: any // custom number slider values
-    styleValue?: string // custom css styling
-    title?: string // custom hover title
-    relative?: boolean // updated values should be relative to each selected item (only for number px values)
-    placeholder?: string
-}
-
 export function setBoxInputValue(box: BoxContent2 | { [key: string]: EditBoxSection }, sectionId: string, inputId: string, key: keyof EditInput | string, value: any) {
     const newBox = (box?.sections ? box.sections : box) as { [key: string]: EditBoxSection }
 
@@ -63,14 +42,14 @@ export type BoxContent2 = {
 }
 export type EditBoxSection = {
     // openApplyValue?: boolean // show apply value button
-    inputs: EditInput2[][]
+    inputs: EditInput[][]
     name?: string
     noReset?: boolean
     alwaysOpen?: boolean
     defaultValues?: any[]
     expandAutoValue?: { [key: string]: any }
 }
-export type EditInput2 = {
+export type EditInput = {
     id: string
     key?: string
     valueIndex?: number // css key subvalue (e.g. box-shadow)
@@ -98,6 +77,25 @@ export const mediaFitOptionsNoBlur = [
     { value: "contain", label: "media.contain" },
     { value: "cover", label: "media.cover" },
     { value: "fill", label: "media.fill" }
+]
+
+export const mediaBlendOptions = [
+    { value: "normal", label: "color.normal" },
+    { value: "screen", label: "Screen" },
+    { value: "multiply", label: "Multiply" },
+    { value: "overlay", label: "Overlay" },
+    { value: "soft-light", label: "Soft Light" },
+    { value: "hard-light", label: "Hard Light" },
+    { value: "color-dodge", label: "Color Dodge" },
+    { value: "color-burn", label: "Color Burn" },
+    { value: "lighten", label: "Lighten" },
+    { value: "darken", label: "Darken" },
+    { value: "difference", label: "Difference" },
+    { value: "exclusion", label: "Exclusion" },
+    { value: "hue", label: "Hue" },
+    { value: "saturation", label: "Saturation" },
+    { value: "color", label: "Color" },
+    { value: "luminosity", label: "Luminosity" }
 ]
 
 export const filterSection = splitIntoRows([
@@ -128,8 +126,6 @@ const alignY = [
 
 export const textSections: { [key: string]: EditBoxSection } = {
     default: {
-        // WIP icon color..?
-
         inputs: [
             [
                 { id: "style", key: "font-family", type: "fontDropdown", value: "CMGSans", styleValue: "", values: { label: "edit.family", style: "flex: 4;max-width: 80%;" } },
@@ -154,9 +150,9 @@ export const textSections: { [key: string]: EditBoxSection } = {
                 }
             ],
             [
-                { id: "style", key: "font-weight", type: "toggle", value: "bold", values: { label: "edit._title_bold", icon: "bold" } },
-                { id: "style", key: "font-style", type: "toggle", value: "italic", values: { label: "edit._title_italic", icon: "italic" } },
-                { id: "style", key: "text-decoration", type: "toggle", value: "underline", values: { label: "edit._title_underline", icon: "underline" } },
+                { id: "style", key: "font-weight", type: "toggle", value: "bold", values: { label: "edit._title_bold [Ctrl+B]", icon: "bold" } },
+                { id: "style", key: "font-style", type: "toggle", value: "italic", values: { label: "edit._title_italic [Ctrl+I]", icon: "italic" } },
+                { id: "style", key: "text-decoration", type: "toggle", value: "underline", values: { label: "edit._title_underline [Ctrl+U]", icon: "underline" } },
                 { id: "style", key: "text-decoration", type: "toggle", value: "line-through", values: { label: "edit._title_strikethrough", icon: "strikethrough" } }
             ]
         ]
@@ -333,6 +329,7 @@ const mediaSections: { [key: string]: EditBoxSection } = {
             { id: "src", type: "media", value: "", values: { label: "items.media" } },
             { id: "fit", type: "dropdown", value: "contain", values: { label: "media.fit", defaultValue: "contain", options: mediaFitOptions } },
             // { name: "popup.media_fit", id: "fit", input: "popup", popup: "media_fit" }, // WIP
+            { id: "blend", type: "dropdown", value: "normal", values: { label: "media.blend", defaultValue: "normal", options: mediaBlendOptions } },
             { id: "muted", type: "checkbox", value: false, values: { label: "actions.mute" } }, // , hidden: true
             { id: "loop", type: "checkbox", value: true, values: { label: "media._loop" } },
             { id: "speed", type: "number", value: 1, values: { label: "media.speed", defaultValue: 1, step: 0.1, min: 0.1, max: 15, showSlider: true } },
@@ -350,7 +347,7 @@ const mediaSections: { [key: string]: EditBoxSection } = {
 
 ///
 
-export function splitIntoRows(inputs: EditInput2[]) {
+export function splitIntoRows(inputs: EditInput[]) {
     return inputs.map((a) => [a])
 }
 
@@ -432,7 +429,8 @@ export const itemBoxes: Box2 = {
                         }
                     },
                     { id: "timer.circleMask", type: "checkbox", value: false, values: { label: "timer.mask" } },
-                    { id: "timer.showHours", type: "checkbox", value: true, values: { label: "timer.hours" } }
+                    { id: "timer.showHours", type: "checkbox", value: true, values: { label: "timer.hours" } },
+                    { id: "timer.padding", type: "checkbox", value: true, values: { label: "timer.padding" } }
                 ])
             })
         }
@@ -577,6 +575,10 @@ export const itemBoxes: Box2 = {
                     [{ id: "events.maxEvents", type: "number", value: 5, values: { label: "edit.max_events", max: 20 } }],
                     [{ id: "events.startDaysFromToday", type: "number", value: 0, values: { label: "edit.start_days_from_today", max: 10000 } }],
                     [{ id: "events.justOneDay", type: "checkbox", value: false, values: { label: "edit.just_one_day" } }],
+                    [
+                        { id: "events.fromTime", type: "time", hidden: true, value: "00:00", values: { label: "calendar.from_time" } },
+                        { id: "events.toTime", type: "time", hidden: true, value: "00:00", values: { label: "calendar.to_time" } }
+                    ],
                     [{ id: "events.enableStartDate", type: "checkbox", value: false, values: { label: "edit.enable_start_date" } }],
                     [
                         { id: "events.startDate", type: "date", hidden: true, value: "", values: { label: "calendar.from_date" } },
@@ -608,6 +610,22 @@ export const itemBoxes: Box2 = {
         sections: {
             default: {
                 inputs: [
+                    [
+                        {
+                            id: "visualizer.type",
+                            type: "dropdown",
+                            value: "bars",
+                            values: {
+                                label: "sort.type",
+                                defaultValue: "bars",
+                                options: [
+                                    { value: "bars", label: "Lines" },
+                                    { value: "particles", label: "Particles" },
+                                    { value: "kaleidoscope", label: "Kaleidoscope" }
+                                ]
+                            }
+                        }
+                    ],
                     [
                         { id: "visualizer.padding", type: "number", value: 0, values: { label: "edit.padding", style: "flex: 4;" } },
                         { id: "visualizer.color", type: "color", value: "", values: { label: "edit.color", allowEmpty: true, allowOpacity: true, noLabel: true, style: "flex: 1;" } }

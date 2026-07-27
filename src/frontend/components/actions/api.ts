@@ -17,7 +17,7 @@ import { startMetronome } from "../drawer/audio/metronome"
 import { getInteraction, startInteraction, stopInteraction } from "../drawer/pages/interactions"
 import { pauseAllTimers } from "../drawer/timers/timers"
 import { getSlideThumbnail, getThumbnail } from "../helpers/media"
-import { changeStageOutputLayout, startCamera, startScreen, startStreaming, stopStreaming, toggleOutputs } from "../helpers/output"
+import { changeStageOutputLayout, startCamera, startScreen, startStreaming, stopStreaming, startRtmpStreaming, stopRtmpStreaming, toggleOutputs } from "../helpers/output"
 import { OutputHelper } from "../helpers/OutputHelper"
 import { changeOutputStyle, playSlideTimers, randomSlide, replaceDynamicValues, selectProjectShow, sendMidi, startShowSync } from "../helpers/showActions"
 import { startTimerById, startTimerByName, stopTimers } from "../helpers/timerTick"
@@ -267,6 +267,8 @@ export const API_ACTIONS = {
     // OUTPUT
     start_webrtc_stream: (data: API_id_optional) => startStreaming(data.id),
     stop_webrtc_stream: (data: API_id_optional) => stopStreaming(data.id),
+    start_rtmp_stream: (data: API_id_optional) => startRtmpStreaming(data.id),
+    stop_rtmp_stream: (data: API_id_optional) => stopRtmpStreaming(data.id),
     lock_output: (data: API_output_lock) => toggleLock(data), // BC
     toggle_output_windows: (data: API_toggle_specific = {}) => toggleOutputs(null, { state: data.value }), // BC
     toggle_output: (data: API_toggle) => toggleOutputs([data.id], { state: data.value }),
@@ -352,8 +354,8 @@ export const API_ACTIONS = {
     toggle_log_song_usage: (data: API_toggle_specific) => toggleLogSongUsage(data),
 
     // ACTION
-    name_run_action: (data: API_strval) => runActionByName(data.value), // BC
-    run_action: (data: API_id) => runActionId(data.id), // BC
+    name_run_action: (data: API_strval) => runActionByName(data.value, "api"), // BC
+    run_action: (data: API_id) => runActionId(data.id, "api"), // BC
     toggle_action: (data: API_toggle) => toggleAction(data),
 
     // ADD
@@ -428,7 +430,3 @@ export async function triggerAction(data: API) {
 
     sendMain(Main.API_TRIGGER, { ...data, returnId, data: returnData })
 }
-
-// export function sendDataAPI(data: any) {
-//     send("API_DATA", data)
-// }

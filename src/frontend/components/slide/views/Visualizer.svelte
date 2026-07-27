@@ -5,6 +5,8 @@
     import { AudioAnalyser } from "../../../audio/audioAnalyser"
     import { currentWindow, visualizerData } from "../../../stores"
     import { send } from "../../../utils/request"
+    import { drawKaleidoscope } from "./visualizerKaleidoscope"
+    import { drawParticles } from "./visualizerParticles"
 
     export let item: Item
     export let preview = false
@@ -48,9 +50,13 @@
     let rendering = 0
     function visualizer() {
         if (!canvas || rendering) return
-        if (!ctx) {
-            canvas.width = window.innerWidth
-            canvas.height = window.innerHeight
+
+        const targetWidth = Math.ceil(canvas.clientWidth) || window.innerWidth
+        const targetHeight = Math.ceil(canvas.clientHeight) || window.innerHeight
+
+        if (!ctx || canvas.width !== targetWidth || canvas.height !== targetHeight) {
+            canvas.width = targetWidth
+            canvas.height = targetHeight
             ctx = canvas.getContext("2d")
         }
 
@@ -64,21 +70,35 @@
         let barWidth = WIDTH / bufferLength - padding
 
         let x = 0
+        let frameCounter = 0
+        const visualizerType = item.visualizer?.type || "bars"
 
         if (edit) {
             // wait for color/padding to update
             setTimeout(() => {
                 ctx!.clearRect(0, 0, WIDTH, HEIGHT)
+                const mockBars: any[] = []
                 for (let i = 0; i < bufferLength; i++) {
                     const sineFactor = Math.abs(Math.sin((1 - i / bufferLength) * Math.PI * 8))
                     const barHeight = HEIGHT * (0.5 * sineFactor + 0.5) * ((bufferLength - i) / bufferLength)
-                    generateBar({ height: barHeight, percentage: sineFactor })
+                    mockBars.push({ height: barHeight, percentage: sineFactor })
+                }
+
+                if (visualizerType === "kaleidoscope") {
+                    drawKaleidoscope({ ctx: ctx!, bars: mockBars, width: WIDTH, height: HEIGHT, color, padding, edit })
+                } else if (visualizerType === "particles") {
+                    drawParticles({ ctx: ctx!, bars: mockBars, width: WIDTH, height: HEIGHT, color, padding, edit })
+                } else {
+                    x = 0
+                    for (let i = 0; i < bufferLength; i++) {
+                        generateBar(mockBars[i])
+                    }
                 }
             })
             return
         }
 
-        // don't show highest frequenzies as they are often flat
+        // don't show highest frequencies as they are often flat
         barWidth *= 1.42 // 1.3
 
         if ($currentWindow) {
@@ -89,9 +109,10 @@
         const maxHeightValue = analysers[0]?.fftSize // 256
         if (!maxHeightValue) return
 
-        const dataArrays: Uint8Array[] = analysers.map(() => new Uint8Array(bufferLength))
+        const dataArrays: any[] = analysers.map(() => new Uint8Array(bufferLength))
+        let lastTime = 0
 
-        function renderFrame() {
+        function renderFrame(timestamp: number = 0) {
             if (!$visualizerData && !analysers?.length) {
                 ctx!.clearRect(0, 0, WIDTH, HEIGHT)
                 cancelAnimationFrame(rendering)
@@ -102,13 +123,36 @@
                 return
             }
 
-            ctx!.clearRect(0, 0, WIDTH, HEIGHT)
-            x = 0
+            if (!$currentWindow) {
+                // Throttle main window analyzer and IPC send to ~30fps
+                if (timestamp - lastTime < 30) {
+                    rendering = requestAnimationFrame(renderFrame)
+                    return
+                }
+                lastTime = timestamp
+            }
+
+            // Limit drawing visual updates in the preview window to save performance (draw every 5th frame, ~12fps)
+            const shouldDraw = $currentWindow || edit || (frameCounter % 5 === 0)
+            frameCounter++
+
+            if (shouldDraw) {
+                ctx!.clearRect(0, 0, WIDTH, HEIGHT)
+                x = 0
+            }
 
             if ($visualizerData) {
                 let bars = $visualizerData.bars
-                for (let i = 0; i < $visualizerData.buffers; i++) {
-                    generateBar(bars[i])
+                if (shouldDraw) {
+                    if (visualizerType === "kaleidoscope") {
+                        drawKaleidoscope({ ctx: ctx!, bars, width: WIDTH, height: HEIGHT, color, padding, edit })
+                    } else if (visualizerType === "particles") {
+                        drawParticles({ ctx: ctx!, bars, width: WIDTH, height: HEIGHT, color, padding, edit })
+                    } else {
+                        for (let i = 0; i < $visualizerData.buffers; i++) {
+                            generateBar(bars[i])
+                        }
+                    }
                 }
 
                 return
@@ -122,14 +166,24 @@
             // update frequency data for all analysers
             analysers.forEach((analyser, i) => analyser.getByteFrequencyData(dataArrays[i]))
 
-            let bars: { height: number; percentage: number }[] = []
+            let bars: any[] = []
             for (let i = 0; i < bufferLength; i++) {
                 const sum = dataArrays[0][i] + dataArrays[1][i]
                 const percentage = Math.round(sum / dataArrays.length) / maxHeightValue
                 const barHeight = HEIGHT * percentage
 
                 bars.push({ height: barHeight, percentage })
-                generateBar({ height: barHeight, percentage })
+                if (shouldDraw && visualizerType === "bars") {
+                    generateBar({ height: barHeight, percentage })
+                }
+            }
+
+            if (shouldDraw) {
+                if (visualizerType === "kaleidoscope") {
+                    drawKaleidoscope({ ctx: ctx!, bars, width: WIDTH, height: HEIGHT, color, padding, edit })
+                } else if (visualizerType === "particles") {
+                    drawParticles({ ctx: ctx!, bars, width: WIDTH, height: HEIGHT, color, padding, edit })
+                }
             }
 
             send(OUTPUT, ["VISUALIZER_DATA"], { bars, buffers: bufferLength })
@@ -138,14 +192,16 @@
         if (rendering) cancelAnimationFrame(rendering)
         renderFrame()
 
-        function generateBar({ height, percentage }: { height: number; percentage: number }) {
+        function generateBar({ percentage }: { height: number; percentage: number }) {
             const r = 255 * percentage
             const g = 5
             const b = 150
 
+            const barHeight = HEIGHT * percentage
+
             if (color === "rgb(0 0 0 / 0)") color = ""
             ctx!.fillStyle = color || `rgb(${r}, ${g}, ${b})`
-            ctx!.fillRect(x, HEIGHT - height, barWidth, height)
+            ctx!.fillRect(x, HEIGHT - barHeight, barWidth, barHeight)
 
             x += barWidth + padding
         }
@@ -161,5 +217,7 @@
         left: 0;
         width: 100%;
         height: 100%;
+        overflow: hidden;
+        border-radius: inherit;
     }
 </style>

@@ -135,9 +135,6 @@ function hasExpired(access: PCOAuthData): boolean {
     const expirationTime = (access.created_at + access.expires_in) * 1000
     const currentTime = Date.now()
 
-    // TODO: consider whether we want to allow a small buffer for expiration (to avoid issues with a token expiring right at the moment of use)
-    // e.g., 5 minutes before actual expiration
-
     return currentTime >= expirationTime
 }
 
@@ -209,9 +206,9 @@ export function pcoDisconnect(scope: PCOScopes = "services") {
     return { success: true }
 }
 
-export async function pcoStartupLoad(scope: PCOScopes = "services") {
+export async function pcoStartupLoad(scope: PCOScopes = "services", syncFolderIds?: string[]) {
     if (!getContentProviderAccess("planningcenter", scope)) return
-    await pcoLoadServices()
+    await pcoLoadServices(syncFolderIds)
 }
 
 function connectionInitialized(isFirstConnection = false): void {

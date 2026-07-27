@@ -80,11 +80,10 @@
         })
     }
 
-    // WIP take off on click if already applied? - it's auto removed when slide is edited & you can remove it in the bottom right menu
     $: isShowActive = !!($activeShow && ($activeShow?.type || "show") === "show")
     let alerted = false
     function templateClick(e: MouseEvent | null = null, templateId: string) {
-        if (e?.target?.closest(".edit") || e?.target?.closest(".icons")) return
+        if (e?.target?.closest?.(".edit") || e?.target?.closest?.(".icons")) return
         if (!$activeShow || !isShowActive || e?.ctrlKey || e?.metaKey) return
 
         if ($showsCache[$activeShow.id]?.locked) {

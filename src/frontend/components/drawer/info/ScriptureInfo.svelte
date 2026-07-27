@@ -1,13 +1,15 @@
 <script lang="ts">
+    import type { MediaStyle } from "../../../../types/Main"
     import type { BibleContent } from "../../../../types/Scripture"
     import type { Item } from "../../../../types/Show"
-    import { activeEdit, activePage, activeScripture, activeStyle, drawerTabsData, outputs, scriptureSettings, settingsTab, styles, templates } from "../../../stores"
+    import { activeEdit, activePage, activeScripture, activeStyle, drawerTabsData, media, outputs, scriptureSettings, settingsTab, styles, templates } from "../../../stores"
     import { setDefaultScriptureTemplates } from "../../../utils/createData"
     import { confirmCustom } from "../../../utils/popup"
     import { mediaExtensions } from "../../../values/extensions"
     import T from "../../helpers/T.svelte"
     import { clone } from "../../helpers/array"
     import { history } from "../../helpers/history"
+    import { getMediaStyle } from "../../helpers/media"
     import { getAllNormalOutputs, getFirstActiveOutput } from "../../helpers/output"
     import InputRow from "../../input/InputRow.svelte"
     import Link from "../../inputs/Link.svelte"
@@ -182,15 +184,19 @@
 
         history({ id: "UPDATE", newData, oldData: { id: templateId }, location: { page: "edit", id: "template_settings", override: templateId } })
     }
+
+    // get styling
+    $: bgPath = templateBackground
+    let mediaStyle: MediaStyle = {}
+    $: if (bgPath) mediaStyle = getMediaStyle($media[bgPath], outputStyle)
 </script>
 
 <!-- scripture is for focusedArea -->
 <div class="scroll split scripture" style="padding-bottom: 46px;">
     <Zoomed style="width: 100%;" {background}>
         {#if selectedVerses.length}
-            {#if templateBackground}
-                <!-- WIP mediaStyle -->
-                <Media path={templateBackground} videoData={{ paused: false, muted: true, loop: true }} mirror />
+            {#if bgPath}
+                <Media path={bgPath} {mediaStyle} videoData={{ paused: false, muted: true, loop: true }} mirror />
             {/if}
 
             {#key currentOutputSlides}
@@ -225,7 +231,7 @@
                 <svelte:fragment slot="menu">
                     {#if $scriptureSettings.splitLongVerses}
                         <MaterialToggleSwitch label="scripture.split_long_verses_suffix" checked={$scriptureSettings.splitLongVersesSuffix} defaultValue={false} on:change={(e) => update("splitLongVersesSuffix", e.detail)} />
-                        <MaterialNumberInput label="edit.size" value={$scriptureSettings.longVersesChars || 100} defaultValue={100} min={50} on:change={(e) => update("longVersesChars", e.detail)} />
+                        <MaterialNumberInput label="edit.size" value={$scriptureSettings.longVersesChars || 100} defaultValue={100} min={20} on:change={(e) => update("longVersesChars", e.detail)} />
                         <MaterialNumberInput label="scripture.tolerance" value={$scriptureSettings.longVersesTolerance || 0} defaultValue={0} min={0} max={100} on:change={(e) => update("longVersesTolerance", e.detail)} />
                     {/if}
                 </svelte:fragment>

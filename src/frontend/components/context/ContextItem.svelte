@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { AudioPlayer } from "../../audio/audioPlayer"
     import { cameraManager } from "../../media/cameraManager"
     import { actions, activeEdit, activeProject, activeRecording, activeShow, categories, colorbars, dictionary, disabledServers, drawerTabsData, effects, effectsLibrary, events, forceClock, globalTags, livePrepare, media, mediaFolders, os, outputs, overlayCategories, overlays, projects, redoHistory, scriptures, selected, shows, showsCache, slidesOptions, special, spellcheck, stageShows, styles, templateCategories, timers, topContextActive, undoHistory } from "../../stores"
     import { translateText } from "../../utils/language"
@@ -111,7 +112,7 @@
                 let ref = getLayoutRef()
                 isEnabled = ref[$selected.data[0]?.index]?.data?.disabled || false
             } else if ($selected.id === "stage") {
-                isEnabled = $stageShows[$selected.data[0]?.id]?.disabled
+                isEnabled = $stageShows[$selected.data[0]?.id]?.disabled || false
             } else if ($selected.id === "action") {
                 let action = $actions[$selected.data[0]?.id] || {}
                 if (!action.customActivation) hide = true
@@ -186,6 +187,9 @@
                 if ($spellcheck?.suggestions) hide = true
             }, 20)
         },
+        insert_virtual_break: () => {
+            if (window.getSelection()?.toString()) hide = true
+        },
         createSlideshow: () => {
             hide = $selected.id !== "media" || $selected.data.length < 2
         },
@@ -222,14 +226,22 @@
             }
         },
         effects_library_add: () => {
-            // WIP don't show this if not an effect
-            let isEnabled = false
             let path = $selected.data[0]?.path || $selected.data[0]?.id
-            let existing = $effectsLibrary.find((a) => a.path === path)
-            if (path && existing) isEnabled = true
+            if (path) {
+                const duration = AudioPlayer.getDurationSync(path)
+                const isEffect = AudioPlayer.getAudioType(path, duration) === "effect"
+                // don't show if not an effect
+                if (!isEffect) {
+                    hide = true
+                    return
+                }
+            }
 
-            enabled = isEnabled
-            menu.label = isEnabled ? "media.effects_library_remove" : "media.effects_library_add"
+            let existing = $effectsLibrary.find((a) => a.path === path)
+            if (path && existing) enabled = true
+            else enabled = false
+
+            menu.label = enabled ? "media.effects_library_remove" : "media.effects_library_add"
         },
         startup_activate: () => {
             const startupCameras = cameraManager.getStartupCameras()
@@ -427,7 +439,6 @@
     let shortcut = ""
     $: if (menu?.shortcuts) getShortcuts()
     function getShortcuts() {
-        // WIP multiple
         let s = menu.shortcuts![0]
         if ($os.platform === "darwin") s = s.replaceAll("Ctrl", "Cmd") // .replaceAll("Alt", "Option")
         shortcut = s

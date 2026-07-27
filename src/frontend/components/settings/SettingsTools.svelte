@@ -46,7 +46,7 @@
     </div>
 {:else if openedTab === "display_settings"}
     <div class="bottom">
-        {#if Object.keys($outputs).length > 1}
+        {#if Object.values($outputs).filter((o) => !o.invisible).length > 1}
             <MaterialButton variant="outlined" icon="screen" on:click={() => open("output_selector")} small>
                 <T id="popup.output_selector" />
             </MaterialButton>
@@ -60,6 +60,7 @@
         <MaterialButton variant="outlined" icon="folder" on:click={openAppData} small>
             <T id="actions.open_app_data_folder" />
         </MaterialButton>
+        <!-- in settings>Files we can press "Open in system" on the user data folder, so we don't need this! - but it makes sense to have it next to "Open app data folder" -->
         <MaterialButton variant="outlined" icon="folder" on:click={openUserData} small>
             <T id="actions.open_user_data_folder" />
         </MaterialButton>

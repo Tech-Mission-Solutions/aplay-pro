@@ -84,7 +84,7 @@ export class AmazingLifeConnect {
         }
 
         if (this.isTokenExpired(accessData)) {
-            accessData = await this.refreshToken(scope)
+            accessData = await this.refreshToken(scope, accessData)
             if (!accessData) {
                 console.error("Failed to refresh token")
                 return null

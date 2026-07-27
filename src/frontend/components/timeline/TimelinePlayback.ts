@@ -104,6 +104,7 @@ export class TimelinePlayback {
         this.playingAudio = []
         this.playingVideoPaths = []
 
+        this.lastSentFrame = -1
         this.setAsPlayer()
         isTimelinePlaying.set(true)
         this.initTimecode()
@@ -141,6 +142,7 @@ export class TimelinePlayback {
     }
 
     stop() {
+        this.lastSentFrame = -1
         if (activePlayback === this) {
             activePlayback = null
             isTimelinePlaying.set(false)
@@ -177,6 +179,7 @@ export class TimelinePlayback {
     }
 
     reset() {
+        this.lastSentFrame = -1
         this.updateDuration()
         this.setTime(0)
         this.stop()
@@ -354,7 +357,7 @@ export class TimelinePlayback {
     private previousSlide: { id?: string; index?: number } = {}
     private playAction(action: TimelineAction, ref: typeof this.ref) {
         if (action.type === "action") {
-            runAction({ id: action.id, ...action.data })
+            runAction({ id: action.id, ...action.data }, { source: "timeline" })
         } else if (action.type === "slide") {
             this.previousSlide = action.data
             ShowTimeline.playSlide(action.data, ref)
@@ -699,7 +702,7 @@ export class TimelinePlayback {
         const frameDuration = 1000 / framerate
         const currentFrame = Math.floor(this.currentTime / frameDuration)
 
-        if (currentFrame <= this.lastSentFrame) return
+        if (currentFrame === this.lastSentFrame) return
         this.lastSentFrame = currentFrame
 
         sendMain(Main.TIMECODE_VALUE, this.currentTime)

@@ -107,8 +107,6 @@ export class AudioAnalyser {
             }
 
             this.updateScales()
-
-            console.log(`Audio source "${id}" connected to equalizer and analysis chain (${this.channels} channels, volume: ${initialVolume.toFixed(2)})`)
         } else {
             console.warn(`Failed to connect audio source "${id}" to equalizer`)
         }
@@ -137,15 +135,15 @@ export class AudioAnalyser {
         Object.keys(this.gainNodes).forEach((id) => {
             const gainNode = this.gainNodes[id]
             if (gainNode) {
-                let baseVolume = 1.0
+                let baseVolume: number | null = null
                 const audioPlaying = get(playingAudio)[id]
                 if (audioPlaying) {
                     baseVolume = audioPlaying.audio?.volume ?? 1.0
                 } else {
                     const videoPlaying = get(playingVideos).find((v) => v.id === id)
-                    baseVolume = videoPlaying?.video?.volume ?? 1.0
+                    if (videoPlaying) baseVolume = videoPlaying.video?.volume ?? 1.0
                 }
-                gainNode.gain.setValueAtTime(baseVolume * scale, this.ac.currentTime)
+                if (baseVolume !== null) gainNode.gain.setValueAtTime(baseVolume * scale, this.ac.currentTime)
             }
         })
     }
@@ -155,7 +153,6 @@ export class AudioAnalyser {
             AudioMultichannel.detectFileChannelCount(audio.src, this.maxChannels)
                 .then((channels) => {
                     if (channels > this.channels) {
-                        console.log(`Upgrading to ${channels} channels for "${id}"`)
                         this.updateChannelCount(channels)
                     }
                 })
@@ -262,15 +259,7 @@ export class AudioAnalyser {
     // update channel count and reinitialize audio nodes
     static updateChannelCount(newChannelCount: number) {
         const validatedChannelCount = AudioMultichannel.validateChannelCount(newChannelCount)
-        if (!AudioMultichannel.shouldUpdateChannelCount(this.channels, validatedChannelCount)) {
-            console.log(`Channel count update skipped: current=${this.channels}, requested=${newChannelCount}, validated=${validatedChannelCount}`)
-            return
-        }
-
-        console.log(`🔄 Updating channel count from ${this.channels} to ${validatedChannelCount}`)
-
-        // Log debug info before update
-        AudioMultichannel.debugChannelInfo(this.ac, this.channels, this.maxChannels)
+        if (!AudioMultichannel.shouldUpdateChannelCount(this.channels, validatedChannelCount)) return
 
         // disconnect existing connections
         if (this.splitter) {
@@ -289,8 +278,6 @@ export class AudioAnalyser {
         if (this.gainNode) AudioMultichannel.configureNodeForMultichannel(this.gainNode, this.channels)
 
         this.reconnectAllSources()
-
-        console.log(`✅ Channel count updated to ${this.channels}`)
     }
 
     private static reconnectAllSources() {
@@ -501,8 +488,11 @@ export class AudioAnalyser {
         // any outputs with webrtc streaming enabled
         if (outputList.find((a) => a && a.enabled && a.webrtc)) return true
 
-        // any outputs with ndi audio enabled
-        if (outputList.find((a) => a && a.enabled && a.ndi && a.ndiData?.audio)) return true
+        // any outputs with rtmp streaming enabled
+        if (outputList.find((a) => a && a.enabled && a.rtmp)) return true
+
+        // any outputs with ndi enabled
+        if (outputList.find((a) => a && a.enabled && a.ndi)) return true
 
         // any outputs with blackmagic enabled (audio always enabled for blackmagic)
         if (outputList.find((a) => a && a.enabled && a.blackmagic)) return true

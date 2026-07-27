@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { ClickEvent } from "../../../types/Main"
-    import { activeEdit, activePage, activeShow, editHistory, effects, focusMode, labelsDisabled, overlays, refreshEditSlide, shows, templates, textEditActive } from "../../stores"
+    import { activeEdit, activePage, activeShow, editHistory, editMode, effects, focusMode, labelsDisabled, overlays, refreshEditSlide, shows, templates } from "../../stores"
     import { getAccess } from "../../utils/profile"
     import Icon from "../helpers/Icon.svelte"
     import T from "../helpers/T.svelte"
@@ -91,6 +91,26 @@
     // don't change order when changing edits
     $: if ($editHistory.length !== clonedHistory.length || (!$activeEdit.id && !$activeShow?.id)) setTimeout(() => (clonedHistory = clone($editHistory).reverse()))
 
+    $: activeIndex = clonedHistory.findIndex((edited) => ($activeEdit.id ? $activeEdit.id === edited.id : currentShowId === edited.id))
+    function handleKeyDown(e: KeyboardEvent) {
+        if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return
+
+        const showRecent = !($focusMode && currentShowId) && ($activeEdit.id || ((!currentShowId || !$shows[currentShowId]) && $editHistory.length) || $editMode === "text_edit")
+        if (!showRecent || clonedHistory.length === 0) return
+
+        if (e.key === "ArrowDown") {
+            e.preventDefault()
+            let nextIndex = activeIndex + 1
+            if (activeIndex === -1) nextIndex = 0
+            if (nextIndex < clonedHistory.length) openRecent(clonedHistory[nextIndex])
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault()
+            let prevIndex = activeIndex - 1
+            if (activeIndex === -1) prevIndex = 0
+            if (prevIndex >= 0) openRecent(clonedHistory[prevIndex])
+        }
+    }
+
     function openRecent(edited) {
         activeEdit.set(edited.edit)
         if (edited.edit?.type !== "audio") refreshEditSlide.set(true)
@@ -104,7 +124,7 @@
     $: isLocked = $shows[currentShowId]?.locked || profile.global === "read" || profile[$shows[currentShowId]?.category || ""] === "read"
 </script>
 
-<!-- WIP history keyboard navigation up/down? -->
+<svelte:window on:keydown={handleKeyDown} />
 
 {#if $focusMode}
     <Button on:click={() => activePage.set("show")} center dark>
@@ -115,7 +135,7 @@
 
 {#if $focusMode && currentShowId}
     <Slides />
-{:else if $activeEdit.id || ((!currentShowId || !$shows[currentShowId]) && $editHistory.length) || $textEditActive}
+{:else if $activeEdit.id || ((!currentShowId || !$shows[currentShowId]) && $editHistory.length) || $editMode === "text_edit"}
     <div class="title">
         <h3 style="font-style: italic;opacity: 0.7;"><T id="edit.recent" /></h3>
     </div>

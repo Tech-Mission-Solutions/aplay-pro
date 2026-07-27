@@ -109,15 +109,17 @@
         change_output_style: () => convertToOptions($styles),
         id_start_timer: () => convertToOptions($timers),
         variable: () => convertToOptions($variables), // .map((a) => ({...a, type: $variables[a.id]?.type}))
-        // WIP remove all actions that reference this action and so on - to prevent infinite loop
-        run_action: () => convertToOptions($actions).filter((a) => a.label && a.value !== mainId),
+        // remove actions that is set to run this action to prevent loops
+        run_action: () => convertToOptions($actions).filter((a) => a.label && a.value !== mainId && $actions[a.value]?.actionValues?.run_action?.id !== mainId),
         set_template: () => convertToOptions($templates),
         toggle_output: () => convertToOptions($outputs),
         mute_output: () => sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label"),
         unmute_output: () => sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label"),
         interactions: () => convertToOptions($interactions),
         start_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")],
-        stop_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")]
+        stop_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")],
+        start_rtmp_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")],
+        stop_rtmp_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")]
     }
 
     $: options = getOptions[actionId]?.() || []

@@ -26,6 +26,15 @@
     // WIP image is flashing a bit in scripture transition none
 
     function startTransition() {
+        // prevent stacking of the same item on update
+        const lastStateId = Object.keys(currentlyTransitioning).pop()
+        if (lastStateId) {
+            const lastState = currentlyTransitioning[lastStateId]
+            if (JSON.stringify(lastState.item) === JSON.stringify(item) && JSON.stringify(lastState.lines) === JSON.stringify(lines) && JSON.stringify(lastState.outSlide) === JSON.stringify(outSlide) && JSON.stringify(lastState.currentSlide) === JSON.stringify(currentSlide)) {
+                return
+            }
+        }
+
         let itemTransition = item.actions?.transition ? clone(item.actions.transition) : null
         if (itemTransition?.type === "none") itemTransition.duration = 0
 

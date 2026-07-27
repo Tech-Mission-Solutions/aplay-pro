@@ -215,6 +215,8 @@ export const dropActions = {
             data = data.map((a) => ({ id: a.path, name: removeExtension(a.name), type: "audio" }))
         } else if (drag.id === "overlay") {
             data = data.map((a) => ({ id: a, type: "overlay" }))
+        } else if (drag.id === "effect") {
+            data = data.map((a) => ({ id: a, type: "effect" }))
         } else if (drag.id === "player") {
             data = data.map((a) => {
                 // store actual player data in project
@@ -568,8 +570,6 @@ const slideDrop = {
         let data = clone(drag.data)
         if (!data.length) return
 
-        // TODO: move multiple add to possible slides
-
         // check files
         if (drag.id === "files") {
             data = []
@@ -687,7 +687,6 @@ const slideDrop = {
         h.location!.layoutSlide = drop.index
 
         data.forEach((audio) => {
-            // TODO: drop both audio & video files...
             h.newData = { name: audio.name || audio.path || audio.id, path: audio.path || audio.id, type: "audio" }
             history(h)
         })
@@ -769,12 +768,8 @@ const slideDrop = {
                 return false
             })
         } else if (drag.id === "group") {
-            // WIP this does not work on children
-
             if (drop.center) {
                 if (drop.trigger?.includes("end")) newIndex--
-                // ref.splice(drop.index, 1)
-                // WIP adding to children will not remove old children
             }
 
             moved = data.map(({ index, id }) => ref[index] || { type: "parent", id })
@@ -783,9 +778,6 @@ const slideDrop = {
 
         // sort layout ref
         const newLayoutRef = addToPos(ref, moved, newIndex)
-
-        // TODO: dragging a current group on child will not remove old children
-        // TODO: dragging a parent slide over its own childs will not change children
 
         // check if first slide child
         if (newLayoutRef[0]?.type === "child") newLayoutRef[0].newType = "parent"
@@ -1012,6 +1004,18 @@ const slideDrop = {
 
         drag.data.forEach((action) => {
             if (!action?.triggers) return
+
+            const isSelfTrigger = action.triggers.some((trigger) => {
+                const triggerId = getActionTriggerId(trigger)
+                if (triggerId !== "index_select_slide") return false
+                const targetIndex = action.actionValues?.[trigger]?.index ?? action.actionValues?.index_select_slide?.index
+                return targetIndex !== undefined && Number(targetIndex) === Number(drop.index)
+            })
+            if (isSelfTrigger) {
+                alertMessage.set("The action can't be added to this slide because it is set to trigger the same slide which will cause an infinite loop!")
+                activePopup.set("alert")
+                return
+            }
 
             if (action.triggers.length > 1) {
                 const existingRunActionIndex = slideActions.findIndex((a) => a.actionValues?.run_action?.id === action.id)

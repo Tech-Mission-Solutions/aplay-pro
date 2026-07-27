@@ -153,6 +153,7 @@ export interface SlidesOptions {
 export interface MediaOptions {
     columns: number
     mode: "grid" | "list"
+    view?: "all" | "image" | "video" | "folder"
 }
 
 export interface ActiveEdit {
@@ -165,7 +166,7 @@ export interface ActiveEdit {
     data?: any // camera data
 }
 
-export type FileFolder = { isFolder: false; path: string; name: string; thumbnailPath?: string; stats: Stats } | { isFolder: true; path: string; name: string; files: string[] }
+export type FileFolder = { isFolder: false; path: string; name: string; thumbnailPath?: string; stats: Stats } | { isFolder: true; path: string; name: string; files: string[]; noMedia?: boolean }
 
 export type MediaFit = "contain" | "cover" | "fill" | "blur"
 export interface Media {
@@ -176,6 +177,7 @@ export interface MediaStyle {
     filter?: string
     flipped?: boolean
     flippedY?: boolean
+    blend?: string
     fit?: MediaFit | ""
     fitOptions?: any
     speed?: string
@@ -412,7 +414,8 @@ export type Popups =
     | "choose_chord"
     | "choose_screen"
     | "choose_camera"
-    | "choose_output"
+    | "choose_output_input"
+    | "choose_output_type"
     | "choose_style"
     | "change_output_values"
     | "output_selector"
@@ -450,6 +453,8 @@ export type Popups =
     | "drawer_search_options"
     | "template_info"
     | "cleaning_utility"
+    | "pco_picker"
+    | "sync_folders"
 
 export type DefaultProjectNames = "date" | "today" | "sunday" | "week" | "custom" | "blank"
 

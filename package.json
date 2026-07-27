@@ -1,6 +1,6 @@
 {
     "name": "aplay-pro",
-    "version": "6.0.4",
+    "version": "6.0.5",
     "private": true,
     "main": "build/electron/index.js",
     "description": "APlay Pro is a user-friendly presenter software customized for Amazing Life.",
@@ -16,6 +16,7 @@
     },
     "scripts": {
         "postinstall": "electron-builder install-app-deps",
+        "rebuild-opus": "electron-rebuild -f -w @discordjs/opus",
         "---DEVELOPMENT---": "",
         "start": "node scripts/start.js",
         "start:old": "npx cross-env NODE_ENV=development npm-run-all -p -r build:frontend:dev start:electron",
@@ -150,6 +151,7 @@
         "osc-js": "^2.4.1",
         "pcm-convert": "^1.6.5",
         "protobufjs": "^7.5.3",
+        "pusher-js": "^8.5.0",
         "slideshow": "github:vassbo/slideshow#224d50f",
         "socket.io": "^4.8.1",
         "uid": "^2.0.2",

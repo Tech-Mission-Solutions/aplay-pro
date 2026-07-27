@@ -1,7 +1,8 @@
 import { get } from "svelte/store"
 import type { Media } from "../../../types/Show"
-import { actions, actionTags, activeActionTagFilter, activeEdit, activeMediaTagFilter, activePlayerTagFilter, activeTagFilter, activeVariableTagFilter, activeTimerTagFilter, contextData, drawerTabsData, globalTags, groups, media, mediaTags, outputs, overlays, playerTags, playerVideos, selected, shows, sorted, variables, variableTags, timers, timerTags } from "../../stores"
+import { actions, actionTags, activeActionTagFilter, activeEdit, activeMediaTagFilter, activePlayerTagFilter, activeTagFilter, activeTimerTagFilter, activeVariableTagFilter, contextData, drawerTabsData, globalTags, groups, media, mediaOptions, mediaTags, outputs, overlays, playerTags, playerVideos, selected, shows, sorted, timers, timerTags, variables, variableTags } from "../../stores"
 import { translateText } from "../../utils/language"
+import { isGroupHidden } from "../../utils/profile"
 import { drawerTabs } from "../../values/tabs"
 import { actionData } from "../actions/actionData"
 import { getActionName, getActionTriggerId } from "../actions/actions"
@@ -13,7 +14,7 @@ import { removeExtension } from "../helpers/media"
 import { getLayoutRef } from "../helpers/show"
 import { _show } from "../helpers/shows"
 import { createTagItems, getSelectedTagIds } from "../helpers/tags"
-import type { ContextMenuItem } from "./contextMenus"
+import { type ContextMenuItem } from "./contextMenus"
 
 const loadActions = {
     enabled_drawer_tabs: (items: ContextMenuItem[]) => {
@@ -92,6 +93,14 @@ const loadActions = {
     sort_shows: (items: ContextMenuItem[]) => sortItems(items, "shows"),
     sort_projects: (items: ContextMenuItem[]) => sortItems(items, "projects"),
     sort_media: (items: ContextMenuItem[]) => sortItems(items, "media"),
+    media_view: () => {
+        const view = get(mediaOptions).view || "all"
+        return [
+            { label: "media.all", icon: "media", id: "all", enabled: view === "all" },
+            { label: "media.image", icon: "image", id: "image", enabled: view === "image" },
+            { label: "media.video", icon: "video", id: "video", enabled: view === "video" }
+        ]
+    },
     slide_groups: (items: ContextMenuItem[]) => {
         const selectedIndex = get(selected).data[0]?.index
         const ref = getLayoutRef()
@@ -103,12 +112,14 @@ const loadActions = {
         const noGroup = currentSlide.group === "." || currentGroup === "none"
         const isParent = slideRef.type === "parent"
 
-        items = Object.entries(get(groups)).map(([id, a]) => {
-            // strange bug, where name is { "isTrusted": true }, maybe an old issue
-            // https://www.reddit.com/r/freeshowapp/comments/1j0w6mt/freeshow_keeps_on_freezing
-            if (typeof a.name !== "string") a.name = ""
-            return { id, color: a.color, label: a.default ? "groups." + a.name : a.name, translate: !!a.default, enabled: id === currentGroup }
-        })
+        items = Object.entries(get(groups))
+            .filter(([id]) => !isGroupHidden(id))
+            .map(([id, a]) => {
+                // strange bug, where name is { "isTrusted": true }, maybe an old issue
+                // https://www.reddit.com/r/freeshowapp/comments/1j0w6mt/freeshow_keeps_on_freezing
+                if (typeof a.name !== "string") a.name = ""
+                return { id, color: a.color, label: a.default ? "groups." + a.name : a.name, translate: !!a.default, enabled: id === currentGroup }
+            })
 
         if (!isParent && !items.length) return [{ label: "empty.general", disabled: true }]
 
@@ -370,8 +381,6 @@ function sortItems(items: ContextMenuItem[], id: "shows" | "projects" | "media")
     ]
     if (id === "shows") {
         items.push({ id: "used", label: "info.used", icon: "calendar", enabled: type === "used" })
-
-        // WIP load used metadata values...
     }
 
     return items
