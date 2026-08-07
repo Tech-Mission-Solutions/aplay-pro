@@ -123,13 +123,28 @@ jobs:
       #          echo "Federated token file:"
       #          Test-Path $env:AZURE_FEDERATED_TOKEN_FILE
 
-      # Build Windows artifacts
+      # Build Windows artifacts without publishing. Publishing from both platform
+      # jobs can race and create two draft releases for the same tag.
       - name: Build Windows App
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           ELECTRON_BUILDER_HTTP_TIMEOUT: 600000
           ELECTRON_BUILDER_HTTP_RETRY: 5
-        run: npm run release
+        run: |
+          npm run build
+          npx electron-builder --config config/building/electron-builder.yaml --publish never
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/*.yml
+            !dist/builder*.yml
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
 
   #      - name: Install AzureSignTool
   #        run: dotnet tool install --global AzureSignTool
@@ -256,12 +271,69 @@ jobs:
         run: sleep 180
         shell: bash
 
-      - name: Build and release app
+      - name: Build MacOS App
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLEID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLEIDPASS }}
           APPLE_TEAM_ID: ${{ secrets.APPLETEAMID }}
-        run: npm run release
+        run: |
+          npm run build
+          npx electron-builder --config config/building/electron-builder.yaml --publish never
+
+      - name: Upload MacOS release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/*.yml
+            !dist/builder*.yml
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish_release:
+    name: "Publish Release"
+    needs:
+      - publish_windows
+      - publish_mac
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            release_tag="v$(node -p "require('./package.json').version")"
+          fi
+
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download all release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update one draft release
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          fail_on_unmatched_files: true
+          files: release-assets/*
