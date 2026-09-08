@@ -18,9 +18,11 @@ import {
     audioEffects,
     audioFolders,
     audioPlaylists,
+    audioRouting,
     autoOutput,
     autosave,
     calendarAddShow,
+    calendars,
     categories,
     cloudSyncData,
     contentProviderData,
@@ -44,7 +46,6 @@ import {
     folders,
     formatNewShow,
     fullColors,
-    gain,
     globalRegexes,
     globalTags,
     groupNumbers,
@@ -106,8 +107,7 @@ import {
     usageLog,
     variableTags,
     variables,
-    videoMarkers,
-    volume
+    videoMarkers
 } from "../stores"
 import type { SaveActions, SaveData, SaveList, SaveListSettings, SaveListSyncedSettings } from "./../../types/Save"
 import { audioStreams, companion } from "./../stores"
@@ -142,6 +142,13 @@ export function save(closeWhenFinished = false, customTriggers: SaveActions = {}
         })
     }
 
+    // strip runtime state that should not save
+    const sanitizedOutputs = clone(get(outputs))
+    Object.values(sanitizedOutputs).forEach((out: any) => {
+        if (out.webrtcData) out.webrtcData.streaming = false
+        if (out.rtmpData) out.rtmpData.streaming = false
+    })
+
     const settings: { [key in SaveListSettings]: any } = {
         initialized: true,
         activeProject: get(activeProject),
@@ -169,7 +176,7 @@ export function save(closeWhenFinished = false, customTriggers: SaveActions = {}
         mediaOptions: get(mediaOptions),
         openedFolders: get(openedFolders),
         outLocked: get(outLocked),
-        outputs: get(outputs),
+        outputs: sanitizedOutputs,
         sorted: get(sorted),
         remotePassword: get(remotePassword),
         resized: get(resized),
@@ -179,8 +186,6 @@ export function save(closeWhenFinished = false, customTriggers: SaveActions = {}
         theme: get(theme),
         transitionData: get(transitionData),
         // themes: get(themes),
-        volume: get(volume),
-        gain: get(gain),
         audioChannelsData: get(audioChannelsData),
         cloudSyncData: get(cloudSyncData),
         driveData: get(driveData),
@@ -260,6 +265,7 @@ export function getSyncedSettings(): { [key in SaveListSyncedSettings]: any } {
         emitters,
         playerVideos,
         videoMarkers,
+        calendars,
         mediaTags,
         playerTags,
         actionTags,
@@ -271,6 +277,7 @@ export function getSyncedSettings(): { [key in SaveListSyncedSettings]: any } {
         globalRegexes,
         customMetadata,
         effects,
+        audioRouting,
         deletedDefaults
     }
 }
@@ -472,12 +479,11 @@ const saveList: { [key in SaveList]: any } = {
     theme,
     themes,
     transitionData,
-    volume: null,
-    gain: null,
     audioChannelsData,
     midiIn: actions,
     emitters,
     videoMarkers,
+    calendars: null,
     mediaTags,
     playerTags,
     actionTags,
@@ -502,5 +508,6 @@ const saveList: { [key in SaveList]: any } = {
     contentProviderData,
     obsData: null,
     effects,
+    audioRouting,
     deletedDefaults: null
 }

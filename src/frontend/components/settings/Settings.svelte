@@ -1,9 +1,11 @@
 <script lang="ts">
+    import { resetAudioRouting } from "../../audio/routing/audioRoutingInit"
     import { dictionary, settingsTab } from "../../stores"
     import { translateText } from "../../utils/language"
     import Icon from "../helpers/Icon.svelte"
     import MaterialButton from "../inputs/MaterialButton.svelte"
     import Tip from "../main/Tip.svelte"
+    import AudioRouting from "./tabs/AudioRouting.svelte"
     import Connection from "./tabs/Connection.svelte"
     import Files from "./tabs/Files.svelte"
     import FilesButtons from "./tabs/FilesButtons.svelte"
@@ -34,6 +36,7 @@
     const hints = {
         display_settings: "settings.outputs_hint",
         styles: "settings.styles_hint",
+        audio: "settings.audio_hint",
         profiles: "profile.profiles_hint"
     }
 
@@ -51,6 +54,8 @@
 
             {#if tabId === "styles"}
                 <StylesButtons />
+            {:else if tabId === "audio"}
+                <MaterialButton title="actions.reset" icon="reset" on:click={resetAudioRouting} />
             {:else if tabId === "profiles"}
                 <ProfilesButtons />
             {:else if tabId === "theme"}
@@ -63,7 +68,7 @@
         </div>
     </div>
 
-    <div class="scroll" on:scroll={scroll}>
+    <div class="scroll" style={tabId === "audio" ? "--padding: 20px;" : ""} on:scroll={scroll}>
         {#if tabId === "general"}
             <General />
         {:else if tabId === "display_settings"}
@@ -74,6 +79,8 @@
             {/if}
         {:else if tabId === "styles"}
             <Styles />
+        {:else if tabId === "audio"}
+            <AudioRouting />
         {:else if tabId === "connection"}
             <Connection />
         {:else if tabId === "files"}

@@ -1,13 +1,18 @@
 <script lang="ts">
     import type { Item } from "../../../../types/Show"
     import { activeEdit, activeShow, openToolsTab, os, outputs, showsCache, special, templates, variables } from "../../../stores"
+    import { startResizing } from "../../../utils/cursor"
     import { translateText } from "../../../utils/language"
     import { getAccess } from "../../../utils/profile"
+    import { isComposing } from "../../../utils/shortcuts"
     import { deleteAction } from "../../helpers/clipboard"
     import { history } from "../../helpers/history"
+    import { isCroppedItem } from "../../helpers/cropping"
     import { getExtension, getFileName, getMediaType } from "../../helpers/media"
     import { getFirstActiveOutput, getOutputResolution, percentageStylePos } from "../../helpers/output"
+    import { isSlideLocked } from "../../helpers/show"
     import { createCSSVariables } from "../../helpers/showActions"
+    import { getItemStyle } from "../../helpers/style"
     import MaterialButton from "../../inputs/MaterialButton.svelte"
     import SlideItems from "../../slide/SlideItems.svelte"
     import EditboxCropping from "./EditboxCropping.svelte"
@@ -80,6 +85,12 @@
         let target = e.target.closest(".item")
         if (!target) return
 
+        const square = e.target.closest(".square")
+        if (square) {
+            const cursor = window.getComputedStyle(square).cursor || "nwse-resize"
+            startResizing(cursor)
+        }
+
         mouse = {
             x: e.clientX,
             y: e.clientY,
@@ -110,6 +121,7 @@
     function keydown(e: KeyboardEvent) {
         if (e.key === "Shift") isShiftPressed = true
 
+        if (isComposing(e)) return
         if (cropElem?.handleKeydown(e)) return
 
         if (e.key === "Escape") {
@@ -206,8 +218,8 @@
     $: isDisabledVariable = item?.type === "variable" && $variables[item.variable?.id]?.enabled === false
     // SHOW IS LOCKED FOR EDITING
     let profile = getAccess("shows")
-    $: currentSlide = (ref.type || "show") === "show" ? $showsCache[active || ""]?.slides?.[ref.id] : null // WIP get group slide
-    $: isLocked = (ref.type || "show") !== "show" ? false : $showsCache[active || ""]?.locked || currentSlide?.locked || profile.global === "read" || profile[$showsCache[active || ""]?.category || ""] === "read"
+    $: isGroupLocked = (ref.type || "show") === "show" ? isSlideLocked(active || "", ref.id, $showsCache) : false
+    $: isLocked = (ref.type || "show") !== "show" ? false : $showsCache[active || ""]?.locked || isGroupLocked || profile.global === "read" || profile[$showsCache[active || ""]?.category || ""] === "read"
 
     // give CSS access to certain dynamic values
     $: cssVariables = createCSSVariables($variables)
@@ -236,7 +248,7 @@
     class:isOptimized
     class:showOverflow={item?.type === "table" || cropActive}
     class:isShiftPressed
-    style="{plain ? 'width: 100%;' : `${getCustomStyle(item?.style || '', customOutputId)}; outline: ${3 / ratio}px solid rgb(255 255 255 / 0.2);z-index: ${index + 1 + ($activeEdit.items.includes(index) ? 100 : 0)};${filter ? 'filter: ' + filter + ';' : ''}${backdropFilter ? 'backdrop-filter: ' + backdropFilter + ';' : ''}`}{cssVariables}{fixedWidth}"
+    style="{plain ? 'width: 100%;' : `${getCustomStyle(getItemStyle(item?.style, isCroppedItem(item)), customOutputId)}; outline: ${3 / ratio}px solid rgb(255 255 255 / 0.2);z-index: ${index + 1 + ($activeEdit.items.includes(index) ? 100 : 0)};${filter ? 'filter: ' + filter + ';' : ''}${backdropFilter ? 'backdrop-filter: ' + backdropFilter + ';' : ''}`}{cssVariables}{fixedWidth}"
     data-index={index}
     on:mousedown={mousedown}
     on:dblclick={dblclick}

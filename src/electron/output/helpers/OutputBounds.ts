@@ -24,23 +24,44 @@ export class OutputBounds {
         const output = OutputHelper.getOutput(data.id)
         if (!output || !output.window || output.window.isDestroyed()) return
 
+        // keep the configured (logical) resolution as the intent
         output.intendedBounds = data.bounds
 
+        // actual window size to render at (DPI-corrected for invisible/capture outputs)
+        const bounds = this.getRenderBounds(output, data.bounds)
+
         this.disableWindowMoveListener()
-        output.window.setBounds(data.bounds)
+        output.window.setBounds(bounds)
 
         // has to be set twice to work first time
         setTimeout(() => {
             if (!output.window || output.window.isDestroyed()) return
-            output.window.setBounds(data.bounds)
+            output.window.setBounds(bounds)
         }, 10)
 
         // ensure bounds are set properly
         setTimeout(() => {
             if (!output.window || output.window.isDestroyed()) return
-            output.window.setBounds(data.bounds)
+            output.window.setBounds(bounds)
             OutputHelper.Lifecycle.updateWindowConstraints(data.id)
         }, 80)
+    }
+
+    // HiDPI capture fix:
+    // Invisible/Capturing: Scale bounds by 1/scaleFactor to match config resolution.
+    // Physical Screen Output: Keep raw bounds to fill the display and avoid double-scaling.
+    static getRenderBounds(output: { invisible?: boolean; window?: BrowserWindow }, bounds: Rectangle): Rectangle {
+        if (!output?.invisible) return bounds
+
+        const scaleFactor = screen.getDisplayMatching(bounds).scaleFactor || 1
+        if (scaleFactor === 1) return bounds
+
+        return {
+            x: bounds.x,
+            y: bounds.y,
+            width: Math.round(bounds.width / scaleFactor),
+            height: Math.round(bounds.height / scaleFactor)
+        }
     }
 
     static moveToFront(id: string) {
@@ -53,20 +74,31 @@ export class OutputBounds {
     static alignWithScreens() {
         OutputHelper.getKeys().forEach((outputId) => {
             const output = OutputHelper.getOutput(outputId)
-            if (output.boundsLocked) return
+            if (output.invisible) return // capture-only outputs have no physical screen to align to (and are DPI-corrected)
             if (!output.window || output.window.isDestroyed()) return
+
+            const displays = screen.getAllDisplays()
+            if (displays.length === 0) return
 
             const wBounds = output.window.getBounds()
             const centerLeft = wBounds.x + wBounds.width / 2
             const centerTop = wBounds.y + wBounds.height / 2
 
             const point = { x: centerLeft, y: centerTop }
-            const closestScreen = screen.getDisplayNearestPoint(point)
+            let targetDisplay = screen.getDisplayNearestPoint(point)
 
-            if (JSON.stringify(wBounds) === JSON.stringify(closestScreen.bounds)) return
+            // If output window is currently on primary screen (0,0) and secondary screen exists, align to secondary screen
+            if (displays.length >= 2 && targetDisplay.id === displays[0].id && output.screen) {
+                const savedDisplay = displays.find((d) => d.id.toString() === output.screen)
+                if (savedDisplay) targetDisplay = savedDisplay
+            }
 
-            output.window.setBounds(closestScreen.bounds)
-            toApp(OUTPUT, { channel: "MOVE", data: { id: outputId, bounds: closestScreen.bounds } })
+            output.screen = targetDisplay.id.toString()
+
+            if (JSON.stringify(wBounds) !== JSON.stringify(targetDisplay.bounds)) {
+                output.window.setBounds(targetDisplay.bounds)
+            }
+            toApp(OUTPUT, { channel: "MOVE", data: { id: outputId, bounds: targetDisplay.bounds, screen: targetDisplay.id.toString() } })
         })
     }
 }

@@ -40,18 +40,22 @@ export class OutputLifecycle {
         OutputHelper.getKeys().forEach((id) => {
             const output = OutputHelper.getOutput(id)
             if (!output || !output.window || output.window.isDestroyed()) return
-            if (output.invisible || !output.intendedBounds) return
+            if (!output.intendedBounds) return
 
-            // if a specific screen is selected, check if it's available
-            if (output.screen) {
-                const displays = screen.getAllDisplays()
-                const targetDisplay = displays.find((d) => d.id.toString() === output.screen)
-                if (!targetDisplay) return
+            // invisible/capture outputs: re-apply so the DPI-corrected render size follows scale changes
+            if (output.invisible) {
+                const expected = OutputHelper.Bounds.getRenderBounds(output, output.intendedBounds)
+                const currentBounds = output.window.getBounds()
+                if (currentBounds.width !== expected.width || currentBounds.height !== expected.height) {
+                    OutputHelper.Bounds.updateBounds({ id, bounds: output.intendedBounds })
+                }
+                return
             }
 
+            const targetBounds = OutputVisibility.resolveOutputBounds({ ...output, bounds: output.intendedBounds, id })
             const currentBounds = output.window.getBounds()
-            if (JSON.stringify(currentBounds) !== JSON.stringify(output.intendedBounds)) {
-                OutputHelper.Bounds.updateBounds({ id, bounds: output.intendedBounds })
+            if (JSON.stringify(currentBounds) !== JSON.stringify(targetBounds)) {
+                OutputHelper.Bounds.updateBounds({ id, bounds: targetBounds })
             }
         })
     }
@@ -71,12 +75,15 @@ export class OutputLifecycle {
         // disable move/resize listeners during initialization
         OutputHelper.Bounds.disableWindowMoveListener()
 
-        const outputWindow = this.createOutputWindow({ ...output.bounds, alwaysOnTop: output.alwaysOnTop !== false, backgroundColor: output.transparent ? "#00000000" : "#000000" }, id, output.name, output)
+        // invisible/capture outputs render DPI-corrected so capturePage() matches the configured resolution
+        const resolvedBounds = output.invisible ? output.bounds : OutputVisibility.resolveOutputBounds(output)
+        const renderBounds = OutputHelper.Bounds.getRenderBounds(output, resolvedBounds)
+        const outputWindow = this.createOutputWindow({ ...renderBounds, alwaysOnTop: output.alwaysOnTop !== false, backgroundColor: output.transparent ? "#00000000" : "#000000" }, id, output.name, output)
         // const previewWindow = this.createPreviewWindow({ ...output.bounds, backgroundColor: "#000000" })
 
-        OutputHelper.setOutput(id, { window: outputWindow, invisible: output.invisible, boundsLocked: output.boundsLocked, screen: output.screen, intendedBounds: output.bounds, transparent: output.transparent, webrtcData: output.webrtcData, rtmpData: output.rtmpData })
+        OutputHelper.setOutput(id, { window: outputWindow, invisible: output.invisible, boundsLocked: output.boundsLocked, screen: output.screen, intendedBounds: resolvedBounds, transparent: output.transparent, webrtcData: output.webrtcData, rtmpData: output.rtmpData })
         // OutputHelper.setOutput(id, { window: outputWindow, previewWindow: previewWindow })
-        OutputHelper.Bounds.updateBounds({ id: output.id!, bounds: output.bounds })
+        OutputHelper.Bounds.updateBounds({ id: output.id!, bounds: resolvedBounds })
         this.updateWindowConstraints(id)
 
         // OutputHelper.Bounds.updatePreviewBounds()

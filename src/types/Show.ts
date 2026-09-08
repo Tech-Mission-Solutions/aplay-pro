@@ -233,9 +233,13 @@ export interface Timer {
 
 export interface Clock {
     type: "digital" | "analog" | "custom"
-    dateFormat: "none"
+    dateFormat: string
     showTime?: boolean
     seconds?: boolean
+
+    // custom:
+    customFormat?: string
+    offsetDays?: number
 }
 
 export interface DynamicEvent {
@@ -332,6 +336,7 @@ export interface TimelineAction {
         id?: string // slide/action/show
         path?: string // audio
         index?: number // slide
+        line?: number // slide line
         layoutId?: string // show
         triggers?: string[] // action
         actionValues?: any // action

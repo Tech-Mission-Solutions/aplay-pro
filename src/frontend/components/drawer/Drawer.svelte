@@ -1,7 +1,9 @@
 <script lang="ts">
+    import { onDestroy } from "svelte"
     import type { DrawerTabIds } from "../../../types/Tabs"
     import { activeDrawerTab, activeEdit, activePage, activePopup, activeProject, activeShow, activeTriggerFunction, dictionary, drawer, drawerOpenedInEdit, drawerTabsData, focusMode, labelsDisabled, mediaOptions, os, previousShow, projects, quickTextCache, scriptureSettings, selected, showsCache } from "../../stores"
     import { DEFAULT_DRAWER_HEIGHT, DEFAULT_WIDTH, MENU_BAR_HEIGHT } from "../../utils/common"
+    import { startResizing, stopResizing } from "../../utils/cursor"
     import { translateText } from "../../utils/language"
     import { getAccess } from "../../utils/profile"
     import { shouldOpenReplace } from "../../utils/shortcuts"
@@ -32,6 +34,8 @@
     function mousedown(e: any) {
         if (e.target.closest(".search")) return
 
+        startResizing("ns-resize")
+
         maxHeight = window.innerHeight - topHeight - ($os.platform === "win32" ? MENU_BAR_HEIGHT - 0.3 : 0)
         mouse = {
             x: e.clientX,
@@ -43,16 +47,26 @@
     // open drawer if autoclosed
     $: if ($activePage === "show" && $drawer.autoclosed) setTimeout(() => drawer.set({ height: $drawer.stored ?? DEFAULT_DRAWER_HEIGHT, stored: null }), 100)
 
+    let animFrame: number | null = null
     function mousemove(e: any) {
         if (!mouse) return
 
-        drawer.set({ height: getHeight(window.innerHeight - e.clientY - mouse.offsetY), stored: null })
+        if ($selected?.id || $selected?.data?.length) selected.set({ id: null, data: [] })
 
-        selected.set({ id: null, data: [] })
+        if (animFrame) return
+        animFrame = requestAnimationFrame(() => {
+            animFrame = null
+            if (!mouse) return
 
-        const isClosed = $drawer.height <= minHeight
-        if (isClosed) drawerOpenedInEdit.set(false)
-        else if ($activePage === "edit") drawerOpenedInEdit.set(true)
+            const newHeight = getHeight(window.innerHeight - e.clientY - mouse.offsetY)
+            if (newHeight !== $drawer.height) {
+                drawer.set({ height: newHeight, stored: null })
+
+                const isClosed = newHeight <= minHeight
+                if (isClosed) drawerOpenedInEdit.set(false)
+                else if ($activePage === "edit") drawerOpenedInEdit.set(true)
+            }
+        })
     }
 
     function getHeight(height: number) {
@@ -98,9 +112,21 @@
     function mouseup(e: any) {
         if (!e.target.closest("input") && !e.target.closest(".contextMenu") && !searchValue.length) searchActive = false
 
-        mouse = null
+        if (animFrame) {
+            cancelAnimationFrame(animFrame)
+            animFrame = null
+        }
+        if (mouse) {
+            stopResizing()
+            mouse = null
+        }
         if (!e.target.closest(".top")) move = false
     }
+
+    onDestroy(() => {
+        if (animFrame) cancelAnimationFrame(animFrame)
+        if (mouse) stopResizing()
+    })
 
     $: activeTab = $activeDrawerTab
     function openDrawerTab(tab: { id: string; name: string; icon: string }) {
@@ -156,27 +182,32 @@
         } else if ((e.ctrlKey || e.metaKey) && e.key === "d") {
             if (!$selected?.id && !$activeEdit.items.length) click(null)
         } else if (e.key === "Enter") {
-            if (document.activeElement !== searchElem || !searchValue.length || !firstMatch || !$activeProject || $focusMode) return
+            if (document.activeElement !== searchElem || !searchValue.length || !firstMatch || $focusMode) return
             if ($activeDrawerTab !== "shows") return
 
             let match = $activeShow?.data?.searchInput === true ? { id: $activeShow.id } : firstMatch
-
-            // play
-            if (e.ctrlKey || e.metaKey) {
-                const showId = match.id
-                await loadShows([showId])
-                let layoutRef = getLayoutRef(showId)
-                let firstEnabledIndex = layoutRef.findIndex((a) => !a.data.disabled)
-                if (firstEnabledIndex === -1) return
-                updateOut("active", firstEnabledIndex, layoutRef)
-                setOutput("slide", { id: showId, layout: $showsCache[showId].settings.activeLayout, index: firstEnabledIndex })
-                return
-            }
 
             // create from search
             if (match === "SEARCH_CREATE") {
                 quickTextCache.set({ name: searchValue[0]?.toUpperCase() + searchValue.slice(1), text: "", fromSearch: true })
                 activePopup.set("show")
+                return
+            }
+
+            if (!$activeProject) return
+
+            // play
+            if (e.ctrlKey || e.metaKey) {
+                const showId = match.id
+                await loadShows([showId])
+                if (!$showsCache[showId]) return
+
+                let layoutRef = getLayoutRef(showId)
+                let firstEnabledIndex = layoutRef.findIndex((a) => !a.data.disabled)
+                if (firstEnabledIndex === -1) return
+
+                updateOut("active", firstEnabledIndex, layoutRef)
+                setOutput("slide", { id: showId, layout: $showsCache[showId].settings.activeLayout, index: firstEnabledIndex })
                 return
             }
 
