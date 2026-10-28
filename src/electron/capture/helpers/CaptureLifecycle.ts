@@ -27,27 +27,10 @@ export class CaptureLifecycle {
 
     static startCapture(id: string, toggle: { [key: string]: boolean } = {}) {
         const output = OutputHelper.getOutput(id)
-        if (!output) return
-
-        // already active - toggle values
-        if (this.activeCaptures.has(id)) {
-            if (Object.keys(toggle).length > 0 && output.captureOptions) {
-                this.updateCaptureToggles(id, output.captureOptions, toggle)
-                CaptureHelper.Transmitter.startTransmitting(id)
-                this.updateWebRtcHostState()
-                this.updateRtmpState()
-            }
+        if (!output || !output.window || output.window.isDestroyed()) {
+            this.stopCapture(id)
             return
         }
-
-        if (!output.window || output.window.isDestroyed()) {
-            this.activeCaptures.delete(id)
-            delete output.captureOptions
-            return
-        }
-
-        const toggleHasActive = Object.values(toggle).some(Boolean)
-        if (!toggleHasActive) return
 
         if (!output.captureOptions) output.captureOptions = CaptureHelper.getDefaultCapture(output.window, id)
         const captureOptions = output.captureOptions
@@ -55,27 +38,36 @@ export class CaptureLifecycle {
         // toggle values
         if (captureOptions && Object.keys(toggle).length > 0) this.updateCaptureToggles(id, captureOptions, toggle)
 
-        const hasEnabledCapture = captureOptions?.options && Object.values(captureOptions.options).some(Boolean)
-        if (!hasEnabledCapture || captureOptions?.window.isDestroyed()) {
+        const hasEnabledCapture = captureOptions.options && Object.values(captureOptions.options).some(Boolean)
+        if (!hasEnabledCapture) {
             this.stopCapture(id)
             return
         }
 
+        this.activeCaptures.add(id)
         CaptureHelper.updateFramerate(id)
         CaptureHelper.Transmitter.startTransmitting(id)
 
-        if (captureOptions.frameSubscription) {
-            clearTimeout(captureOptions.frameSubscription)
+        // OSR outputs are paint-driven: force a fresh paint so newly enabled consumers get a frame even on static content
+        if (output.osr) {
+            try {
+                const wc = output.window.webContents
+                if (!wc.isPainting()) wc.startPainting()
+                wc.invalidate()
+            } catch {
+                // window tearing down
+            }
         }
 
-        const token = (this.captureLoopToken[id] || 0) + 1
-        this.captureLoopToken[id] = token
-
-        this.activeCaptures.add(id)
         this.updateWebRtcHostState()
         this.updateRtmpState()
 
-        this.runCaptureLoop(id, token, output)
+        // OSR outputs are driven by paint events; non-OSR runs the capture loop if not already running
+        if (!output.osr && !captureOptions.frameSubscription) {
+            const token = (this.captureLoopToken[id] || 0) + 1
+            this.captureLoopToken[id] = token
+            this.runCaptureLoop(id, token, output)
+        }
     }
 
     private static updateCaptureToggles(id: string, captureOptions: any, toggle: { [key: string]: boolean }) {
@@ -199,12 +191,6 @@ export class CaptureLifecycle {
         return baseCaptureFrameRate
     }
 
-    static stopAllCaptures() {
-        OutputHelper.getAllOutputs().forEach((output) => {
-            if (output.captureOptions) this.stopCapture(output.id)
-        })
-    }
-
     static stopCapture(id: string) {
         this.captureLoopToken[id] = (this.captureLoopToken[id] || 0) + 1
         this.activeCaptures.delete(id)
@@ -218,24 +204,14 @@ export class CaptureLifecycle {
             capture.frameSubscription = null
         }
 
-        const channels = ["ndi", "blackmagic", "server", "stage", "webrtc", "rtmp"]
+        const channels = ["ndi", "omt", "blackmagic", "server", "stage", "webrtc", "rtmp", "recorder"]
         channels.forEach((channel) => CaptureHelper.Transmitter.stopChannel(id, channel))
 
         console.info("Capture - stopping: " + id)
 
-        this.cleanupListeners(capture.window)
         delete output.captureOptions
         this.updateWebRtcHostState()
         this.updateRtmpState()
-    }
-
-    private static cleanupListeners(window: any) {
-        if (!window || window.isDestroyed()) return
-
-        window.removeAllListeners()
-        if (window.webContents && !window.webContents.isDestroyed?.()) {
-            window.webContents.removeAllListeners()
-        }
     }
 
     private static updateWebRtcHostState() {
@@ -280,13 +256,13 @@ export class CaptureLifecycle {
             if (!o.id) return
 
             if (!o.rtmpData?.streaming) {
-                if (RtmpStreamer.isRunning(o.id)) RtmpStreamer.stop(o.id)
+                RtmpStreamer.stop(o.id)
                 return
             }
 
             const destinations = (o.rtmpData.destinations || []).filter((d) => d.enabled && d.url)
             if (!destinations.length) {
-                if (RtmpStreamer.isRunning(o.id)) RtmpStreamer.stop(o.id)
+                RtmpStreamer.stop(o.id)
                 return
             }
 
@@ -298,7 +274,7 @@ export class CaptureLifecycle {
             if (o.captureOptions?.framerates) o.captureOptions.framerates.rtmp = fps
 
             // destination changes only touch relays; the encode keeps running
-            RtmpStreamer.update(o.id, { width: bounds.width, height: bounds.height, fps, bitrate, enableAudio: isAudioEnabled(), encoder: getRtmpEncoderSetting() }, destinations)
+            RtmpStreamer.update(o.id, { width: bounds.width, height: bounds.height, fps, bitrate, rateControl: o.rtmpData.rateControl, enableAudio: isAudioEnabled(), encoder: getRtmpEncoderSetting(o.id) }, destinations)
         })
     }
 }

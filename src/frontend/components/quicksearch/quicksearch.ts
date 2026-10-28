@@ -14,7 +14,6 @@ import {
     audioFolders,
     audioPlaylists,
     categories,
-    companion,
     currentOutputSettings,
     disabledServers,
     drawerTabsData,
@@ -27,6 +26,7 @@ import {
     openToolsTab,
     outputs,
     overlays,
+    ports,
     profiles,
     projects,
     projectView,
@@ -34,6 +34,7 @@ import {
     refreshEditSlide,
     selected,
     selectedProfile,
+    serverData,
     settingsTab,
     showRecentlyUsedProjects,
     showsCache,
@@ -49,13 +50,13 @@ import { formatSearch, showSearch } from "../../utils/search"
 import { runAction } from "../actions/actions"
 import { sortByClosestMatch } from "../actions/apiHelper"
 import { menuClick } from "../context/menuClick"
-import { getLikelyPosition } from "../edit/scripts/autoPosition"
 import { openDrawer } from "../edit/scripts/edit"
-import { addItem, updateSortedStageItems } from "../edit/scripts/itemHelpers"
+import { addItem } from "../edit/scripts/itemHelpers"
 import { slideItems, stageItems } from "../edit/values/items"
 import { keysToID } from "../helpers/array"
 import { duplicate } from "../helpers/clipboard"
 import { history } from "../helpers/history"
+import { addStageItem } from "../stage/stage"
 import { Main } from "./../../../types/IPC/Main"
 import { getMediaResults, showResult } from "./quicksearchData"
 
@@ -219,7 +220,7 @@ export async function quicksearch(searchValue: string, categoryFilter: null | Se
     if (isVisible("shows")) {
         const allShows = get(sortedShowsList).filter((a) => !get(categories)[a.category || ""]?.isArchive)
         // const shows = fastSearch(searchValue, allShows)
-        const shows = showSearch(searchValue, allShows)
+        const shows = showSearch(rawSearchValue, allShows)
         const showsWithPreview = trimValues(shows, MAX_RESULTS_LARGE).map((show) => showResult(show, rawSearchValue))
         addValues(showsWithPreview, "show", "slide")
     }
@@ -417,7 +418,7 @@ const triggerActions = {
             activePage.set("settings")
         }
 
-        if (id === "overlay" || id === "template" || id === "effect") {
+        if (id === "overlay" || id === "template" || id === "effect" || id === "scene") {
             // make sure tab is opened before creating so rename input gets focused
             setTimeout(() => history({ id: "UPDATE", location: { page: "drawer", id } }))
             return
@@ -548,7 +549,9 @@ const connectionsList = [
 
 function enableConnection(id: string) {
     if (id === "companion") {
-        companion.set({ enabled: true })
+        serverData.update((c) => ({ ...c, companion: { ...(c.companion || {}), enabled: true } }))
+        sendMain(Main.SERVER_DATA, get(serverData))
+        sendMain(Main.WEBSOCKET_START, { port: get(ports).companion, password: get(serverData)?.companion?.password })
         return
     }
 
@@ -616,7 +619,8 @@ const drawerSubmenus = [
     // functions
     { id: "actions", name: "tabs.actions", icon: "actions", aliases: ["-Macros"] },
     { id: "timer", name: "tabs.timers", icon: "timer" },
-    { id: "variables", name: "tabs.variables", icon: "variable" }
+    { id: "variables", name: "tabs.variables", icon: "variable" },
+    { id: "scenes", name: "tabs.scenes", icon: "scene" }
 ]
 
 function getDrawerSubmenus() {
@@ -639,6 +643,7 @@ const popups = [
     { id: "action", name: "new.action", icon: "add", data: { drawerTab: "actions" }, aliases: ["-New macro"] },
     { id: "timer", name: "new.timer", icon: "add", data: { drawerTab: "timer" } },
     { id: "variable", name: "new.variable", icon: "add", data: { drawerTab: "variables" } },
+    { id: "scene", name: "new.scene", icon: "add", data: { drawerTab: "scenes" } },
     { id: "audio_stream", name: "new.audio_stream", icon: "add", data: { drawerTab: "audio_inputs" } },
     { id: "output", name: "settings.new_output", icon: "add", data: { settingsTab: "display_settings" } },
     { id: "style", name: "new.style", icon: "add", data: { settingsTab: "styles" } },
@@ -664,9 +669,9 @@ const settings = [
         id: "general",
         name: "settings.general",
         icon: "general",
-        aliases: ["settings.language", "settings.use24hClock", "settings.disable_labels", "settings.default_project_name", "settings.startup_projects_list", "settings.auto_output", "settings.hide_cursor_in_output", "settings.clear_media_when_finished", "settings.capitalize_words", "settings.transparent_slides", "settings.full_colors", "settings.slide_number_keys", "settings.auto_shortcut_first_letter"]
+        aliases: ["settings.language", "settings.use24hClock", "settings.disable_labels", "settings.full_colors", "settings.slide_number_keys", "settings.auto_shortcut_first_letter"]
     },
-    { id: "display_settings", name: "settings.display_settings", icon: "display_settings", aliases: ["settings.active_style", "settings.output_screen", "settings.always_on_top", "NDI®", "-Livestream", "-Stage", "-HDMI"] },
+    { id: "display_settings", name: "settings.display_settings", icon: "display_settings", aliases: ["settings.active_style", "settings.output_screen", "settings.always_on_top", "NDI®", "OMT", "WebRTC", "RTMP", "-Livestream", "-Stage", "-HDMI"] },
     {
         id: "styles",
         name: "settings.styles",
@@ -873,55 +878,4 @@ const editActions = [
 
 function getEditActions() {
     return translateNames(editActions)
-}
-
-function addStageItem(itemType: string, textValue = "") {
-    const stageId = get(activeStage).id || ""
-    if (!stageId) return
-
-    const resolution = { width: 1920, height: 1080 }
-    const halfWidth = resolution.width * 0.5
-    const halfHeight = resolution.height * 0.5
-    const DEFAULT_STYLE = `width: ${halfWidth}px;height: ${halfHeight}px;left: ${halfWidth * 0.5}px;top: ${halfHeight * 0.5}px;`
-    const smallItems = ["timer", "clock", "slide_tracker"]
-
-    let itemId = uid(5)
-    stageShows.update((a: any) => {
-        if (!a[stageId]?.items) return a
-
-        let style = DEFAULT_STYLE
-        if (smallItems.includes(itemType) || textValue) {
-            const width = resolution.width * 0.45
-            const left = halfWidth - width * 0.5
-            const height = 150
-            const top = halfHeight - height * 0.5
-            style = `width: ${width}px;height: ${height}px;left: ${left}px;top: ${top}px;`
-        }
-
-        if (Object.keys(a[stageId]?.items).length > 0) {
-            style = getLikelyPosition(Object.values(a[stageId].items), style)
-        }
-
-        let item: any = { type: itemType as any, style, align: "" }
-
-        if (itemType === "text") item.lines = [{ align: "", text: [{ style: "", value: textValue || "" }] }]
-        else if (itemType === "slide_text") {
-            const slideTextItems = Object.values(a[stageId].items || {}).filter((a: any) => a.type === "slide_text")
-            item.slideOffset = slideTextItems.length
-            item.style += "font-size: 800px;"
-        }
-
-        a[stageId].items[itemId] = item
-        a[stageId].modified = Date.now()
-        return a
-    })
-
-    updateSortedStageItems()
-
-    if (Object.keys(get(stageShows)[stageId]?.items || {}).length > 1) {
-        activeStage.update((a) => {
-            a.items = [itemId]
-            return a
-        })
-    }
 }

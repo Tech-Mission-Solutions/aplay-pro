@@ -5,7 +5,7 @@
     import { uid } from "uid"
     import type { OutData } from "../../../types/Output"
     import type { Styles } from "../../../types/Settings"
-    import type { AnimationData, Item, LayoutRef, OutBackground, OutSlide, Slide, SlideData, Template, Transition, Overlays as TOverlays } from "../../../types/Show"
+    import type { AnimationData, Item, LayoutRef, OutBackground, OutScene, OutSlide, Slide, SlideData, Template, Overlays as TOverlays, Transition } from "../../../types/Show"
     import { allOutputs, colorbars, currentWindow, drawSettings, drawTool, effects, media, outputs, overlays, showsCache, styles, templates, transitionData } from "../../stores"
     import { wait } from "../../utils/common"
     import { custom } from "../../utils/transitions"
@@ -21,6 +21,7 @@
     import Overlay from "./layers/Overlay.svelte"
     import Overlays from "./layers/Overlays.svelte"
     import PdfOutput from "./layers/PdfOutput.svelte"
+    import SceneMedia from "./layers/SceneMedia.svelte"
     import SlideContent from "./layers/SlideContent.svelte"
     import Window from "./Window.svelte"
 
@@ -34,8 +35,10 @@
 
     $: currentOutput = $outputs[outputId] || $allOutputs[outputId] || {}
 
+    $: styleId = styleIdOverride || sceneStyleId || currentOutput?.style
+
     // output styling
-    $: currentStyling = getCurrentStyle($styles, styleIdOverride || currentOutput.style)
+    $: currentStyling = getCurrentStyle($styles, styleId)
     let currentStyle: Styles = { name: "" }
     let cachedStyleStr = ""
     // don't refresh content unless it changes
@@ -55,11 +58,14 @@
     let slide: OutSlide | null = null
     let background: OutBackground | null = null
     let clonedOverlays: TOverlays | null = null
+    let scene: OutScene | null = null
 
     let effectsIds: string[] = []
     $: allEffects = $effects
-    $: effectsUnderSlide = effectsIds.filter((id) => allEffects[id]?.placeUnderSlide === true)
-    $: effectsOverSlide = effectsIds.filter((id) => !allEffects[id]?.placeUnderSlide)
+    $: outputtedEffectIds = sceneHideLayers ? [] : effectsIds || []
+    $: effectIds = [...new Set(outputtedEffectIds)]
+    $: effectsUnderSlide = effectIds.filter((id) => allEffects[id]?.placeUnderSlide === true)
+    $: effectsOverSlide = effectIds.filter((id) => !allEffects[id]?.placeUnderSlide)
 
     // don't update when layer content changes, only when refreshing or adding/removing layer
     // currentOutput is set to refresh state when changed in preview
@@ -106,9 +112,18 @@
         }
     }
 
-    $: refreshOutput = out.refresh
-    $: if (outputId || refreshOutput) updateOutData()
-    function updateOutData(type = "") {
+    let refreshVersion = 0
+    let handledRefreshVersion = -1
+    $: {
+        refreshVersion = typeof out.refresh === "number" ? out.refresh : out.refresh ? 1 : 0
+        if (refreshVersion !== handledRefreshVersion) {
+            handledRefreshVersion = refreshVersion
+            updateOutData("slide", true)
+            updateOutData("overlays", true)
+        }
+    }
+    $: if (outputId) updateOutData()
+    function updateOutData(type = "", forceUpdate = false) {
         if (!type || type === "slide") {
             let noLineCurrent = clone(slide)
             if (noLineCurrent) delete noLineCurrent.line
@@ -116,7 +131,7 @@
             if (noLineNew) delete noLineNew.line
 
             // don't refresh if changing lines on another slide & content is unchanged
-            if (!refreshOutput && !out?.slide?.type && lines[currentLineId || ""]?.start === null && JSON.stringify(noLineCurrent) === JSON.stringify(noLineNew)) return
+            if (!forceUpdate && !out?.slide?.type && lines[currentLineId || ""]?.start === null && JSON.stringify(noLineCurrent) === JSON.stringify(noLineNew)) return
 
             // WIP option to turn off "content refresh" if slide content is identical to previous content ?
 
@@ -129,32 +144,41 @@
         }
         if (!type || type === "background") background = clone(out.background || null)
         if (!type || type === "overlays") {
-            storedOverlayIds = JSON.stringify(out.overlays)
-            if (JSON.stringify($overlays) !== storedOverlays) {
+            storedOverlayIds = JSON.stringify(overlayIds)
+            if (forceUpdate || JSON.stringify($overlays) !== storedOverlays) {
                 clonedOverlays = clone($overlays)
                 storedOverlays = JSON.stringify($overlays)
             }
         }
     }
 
+    // scenes
+    $: scene = out.scene || null
+    $: sceneMedia = scene?.media || null
+    $: sceneStyleId = scene?.style || ""
+    $: sceneHiddenOverlays = scene?.hiddenOverlays || []
+    $: sceneOverlays = (scene?.overlays || []).filter((id) => !sceneHiddenOverlays.includes(id))
+    $: sceneHideLayers = styleIdOverride ? false : scene !== null && !sceneStyleId
+
     // overlays
-    $: overlayIds = out.overlays
+    $: outputtedOverlayIds = sceneHideLayers ? [] : out.overlays || []
+    $: overlayIds = [...new Set([...sceneOverlays, ...(layers.includes("overlays") ? outputtedOverlayIds : [])])]
     let storedOverlayIds = ""
     let storedOverlays = ""
     $: {
         const newOverlayIdsStr = JSON.stringify(overlayIds)
         if (newOverlayIdsStr !== storedOverlayIds) updateOutData("overlays")
     }
-    $: outOverlays = out.overlays?.filter((id) => !clonedOverlays?.[id]?.placeUnderSlide) || []
-    $: outUnderlays = out.overlays?.filter((id) => clonedOverlays?.[id]?.placeUnderSlide) || []
+    $: outOverlays = overlayIds.filter((id) => !clonedOverlays?.[id]?.placeUnderSlide)
+    $: outUnderlays = overlayIds.filter((id) => clonedOverlays?.[id]?.placeUnderSlide)
 
     // layout & slide data
     let currentLayout: LayoutRef[] = []
     let slideData: SlideData | null = null
     let currentSlide: Slide | null = null
 
-    $: updateSlideData(slide, outputId)
-    function updateSlideData(slide, _outputChanged) {
+    $: updateSlideData(slide, outputId, currentStyle)
+    function updateSlideData(slide, _outputChanged, _styleChanged) {
         if (!slide) {
             currentLayout = []
             slideData = null
@@ -191,16 +215,14 @@
 
     // slide styling
     // currentSlide?.settings?.resolution
-    $: resolution = getResolution(null, { currentOutput, currentStyle }, false, outputId, styleIdOverride)
+    $: resolution = getResolution(null, { currentOutput, currentStyle }, false, outputId, styleId)
     $: transitions = getOutputTransitions(slideData, currentStyle.transition, $transitionData, mirror && !preview)
     $: slideFilter = getSlideFilter(slideData)
 
     // custom template
-    // WIP revert to old style when output style is reverted to no style (REFRESH OUTPUT)
-    $: outputStyle = styleIdOverride || currentOutput?.style
     // currentSlide is so the background updates when scripture is removed (if template background on both) - not changed in preview
-    $: if (outputStyle && currentStyle && currentSlide !== undefined) {
-        if (currentSlide) setTemplateItems()
+    $: if (currentStyle && currentSlide !== undefined) {
+        if (styleId && currentSlide) setTemplateItems()
         getStyleTemplateData()
     }
     const setTemplateItems = () => (currentSlide!.items = setTemplateStyle(slide!, currentStyle, currentSlide!.items, outputId, currentSlide!.customDynamicValues))
@@ -212,9 +234,11 @@
     let lines: { [key: string]: { start: number | null; end: number | null; linesStart?: number | null; linesEnd?: number | null; clickRevealed?: boolean } } = {}
     $: currentLineId = slide?.id
     const updateLinesTime = $currentWindow === "output" ? 50 : 10
+    let linesTimeout: NodeJS.Timeout | null = null
     $: if (currentLineId) {
         // don't update until all outputs has updated their "line" value
-        setTimeout(() => {
+        if (linesTimeout) clearTimeout(linesTimeout)
+        linesTimeout = setTimeout(() => {
             lines[currentLineId] = getOutputLines(slide!, currentStyle.lines) // , currentSlide
         }, updateLinesTime)
     }
@@ -245,7 +269,11 @@
     $: slideAnimation = slideData?.actions?.animate || null
 
     $: if (slide) stopAnimation()
-    onDestroy(stopAnimation)
+    onDestroy(() => {
+        stopAnimation()
+        if (linesTimeout) clearTimeout(linesTimeout)
+        if (slideTimeout) clearTimeout(slideTimeout)
+    })
     function stopAnimation() {
         animationData = {}
         currentAnimationId = ""
@@ -295,10 +323,10 @@
         }
     }
 
-    $: cropping = currentOutput.cropping || currentStyle.cropping
+    $: cropping = currentOutput?.cropping || currentStyle?.cropping
 
     // values
-    $: backgroundColor = currentOutput.transparent ? "transparent" : styleTemplate?.settings?.backgroundColor || currentSlide?.settings?.color || currentStyle.background || slide?.settings?.backgroundColor || "black"
+    $: backgroundColor = currentOutput?.transparent ? "transparent" : styleTemplate?.settings?.backgroundColor || currentSlide?.settings?.color || currentStyle?.background || slide?.settings?.backgroundColor || "black"
     // background image
     $: styleBackground = currentStyle?.clearStyleBackgroundOnText && (slide || background) ? "" : currentStyle?.backgroundImage || ""
     $: styleBackgroundData = { path: styleBackground, ...($media[styleBackground] || {}), loop: true }
@@ -311,44 +339,66 @@
     // remove PDF/PPT transition when background is outputted
     $: slideMediaTransition = !slide && backgroundData ? noTransition : transitions.media
 
-    $: overlaysActive = !!(layers.includes("overlays") && clonedOverlays)
+    $: overlaysActive = !!((scene === null ? layers.includes("overlays") : true) && clonedOverlays)
+    // $: effectsActive = !!(layers.includes("overlays") && effectIds.length)
 
     // draw zoom
     $: zoomActive = currentOutput.active || (mirror && !preview)
     $: drawZoom = $drawTool === "zoom" && zoomActive ? ($drawSettings.zoom?.size || 200) / 100 : 1
 
     // CLEARING
-    $: if (slide !== undefined || layers) updateSlide()
+    $: if (slide !== undefined || currentStyle || layers || sceneHideLayers !== undefined) updateSlide()
     let actualSlide: OutSlide | null = null
     let actualSlideData: SlideData | null = null
     let actualCurrentSlide: Slide | null = null
     let actualCurrentLineId: string | undefined = undefined
+    let slideRemountCounter = 0
+    let previousRefreshVersion = -1
+    let pendingSlideRemounts = 0
     let isSlideClearing = false
+    let slideTimeout: NodeJS.Timeout | null = null
+    $: {
+        if (previousRefreshVersion >= 0 && refreshVersion !== previousRefreshVersion) {
+            pendingSlideRemounts++
+        }
+        previousRefreshVersion = refreshVersion
+    }
+
     function updateSlide() {
         // update clearing variable before setting slide value (used for conditions to not show up again while clearing)
-        const slideActive = layers.includes("slide")
+        const slideActive = layers.includes("slide") && !sceneHideLayers
         isSlideClearing = !slide || !slideActive
 
-        setTimeout(
+        if (slideTimeout) clearTimeout(slideTimeout)
+        slideTimeout = setTimeout(
             () => {
                 actualSlide = slideActive ? clone(slide) : null
                 actualSlideData = clone(slideData)
                 actualCurrentSlide = clone(currentSlide)
                 actualCurrentLineId = clone(currentLineId)
+                if (pendingSlideRemounts) {
+                    slideRemountCounter += pendingSlideRemounts
+                    pendingSlideRemounts = 0
+                }
             },
             slide ? updateLinesTime : 0
         )
     }
 </script>
 
-<Zoomed id={outputId} background={backgroundColor} checkered={(preview || mirror) && backgroundColor === "transparent"} backgroundDuration={transitions.media?.type === "none" ? 0 : (transitions.media?.duration ?? 800)} align={alignPosition} center {style} {resolution} {mirror} {drawZoom} {cropping} bind:ratio>
+<Zoomed id={outputId} background={backgroundColor} checkered={(preview || mirror) && backgroundColor === "transparent"} backgroundDuration={transitions.media?.type === "none" ? 0 : (transitions.media?.duration ?? 800)} align={alignPosition} center {style} {resolution} styleIdOverride={styleId} {mirror} {drawZoom} {cropping} bind:ratio>
     <!-- always show style background (behind other backgrounds) -->
     {#if styleBackground && actualSlide?.type !== "pdf"}
         <Background data={styleBackgroundData} {outputId} transition={transitions.media} {currentStyle} {slideFilter} {ratio} animationStyle={animationData.style?.background || ""} mirror />
     {/if}
 
+    <!-- scene media -->
+    {#if sceneMedia}
+        <SceneMedia media={sceneMedia} {mirror} />
+    {/if}
+
     <!-- background -->
-    {#if (backgroundData?.ignoreLayer ? layers.includes("slide") : layers.includes("background")) && backgroundData}
+    {#if (backgroundData?.ignoreLayer ? layers.includes("slide") : layers.includes("background")) && !sceneHideLayers && backgroundData}
         <Background data={backgroundData} {outputId} transition={transitions.media} {currentStyle} {slideFilter} {ratio} animationStyle={animationData.style?.background || ""} {mirror} />
     {/if}
 
@@ -358,14 +408,14 @@
     {/if}
 
     <!-- effects -->
-    {#if effectsUnderSlide}
+    {#if effectsUnderSlide && layers.includes("overlays")}
         <EffectOutput ids={effectsUnderSlide} transition={transitions.overlay} {mirror} />
     {/if}
 
     <!-- "underlays" -->
     {#if overlaysActive}
         <!-- && outUnderlays?.length -->
-        <Overlays {outputId} overlays={clonedOverlays} activeOverlays={outUnderlays} transition={transitions.overlay} {mirror} {preview} />
+        <Overlays {outputId} overlays={clonedOverlays} activeOverlays={outUnderlays} transition={transitions.overlay} {mirror} {preview} styleIdOverride={styleIdOverride || sceneStyleId} />
     {/if}
 
     <!-- slide -->
@@ -380,23 +430,21 @@
             {/if}
         </span>
     {:else if actualSlide && actualSlide?.type !== "pdf"}
-        <SlideContent {outputId} outSlide={actualSlide} isClearing={isSlideClearing} slideData={actualSlideData} currentSlide={actualCurrentSlide} {currentStyle} {animationData} currentLineId={actualCurrentLineId} {lines} {ratio} {mirror} {preview} transition={textTransition} transitionEnabled={!mirror || preview} {styleIdOverride} />
+        <SlideContent {outputId} outSlide={actualSlide} isClearing={isSlideClearing} slideData={actualSlideData} currentSlide={actualCurrentSlide} {currentStyle} {animationData} currentLineId={actualCurrentLineId} {lines} {ratio} {mirror} {preview} transition={textTransition} transitionEnabled={!mirror || preview} styleIdOverride={styleIdOverride || sceneStyleId} refreshCounter={slideRemountCounter} />
 
         <!-- metadata -->
-        <Overlay overlay={{ items: currentMetadataItems }} isClearing={isMetadataClearing || isSlideClearing} {outputId} transition={textTransition} />
+        <Overlay overlay={{ items: currentMetadataItems }} isClearing={isMetadataClearing || isSlideClearing} {outputId} transition={textTransition} styleIdOverride={styleIdOverride || sceneStyleId} />
     {/if}
 
-    {#if layers.includes("overlays")}
-        <!-- effects -->
-        {#if effectsOverSlide}
-            <EffectOutput ids={effectsOverSlide} transition={transitions.overlay} {mirror} />
-        {/if}
+    <!-- effects -->
+    {#if effectsOverSlide && layers.includes("overlays")}
+        <EffectOutput ids={effectsOverSlide} transition={transitions.overlay} {mirror} />
+    {/if}
 
-        <!-- overlays -->
-        <!-- outOverlays?.length -->
-        {#if overlaysActive}
-            <Overlays {outputId} overlays={clonedOverlays} activeOverlays={outOverlays} transition={transitions.overlay} {mirror} {preview} />
-        {/if}
+    <!-- overlays -->
+    <!-- outOverlays?.length -->
+    {#if overlaysActive}
+        <Overlays {outputId} overlays={clonedOverlays} activeOverlays={outOverlays} transition={transitions.overlay} {mirror} {preview} styleIdOverride={styleIdOverride || sceneStyleId} />
     {/if}
 
     {#if actualSlide?.attributionString && layers.includes("slide")}

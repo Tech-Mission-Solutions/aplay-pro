@@ -158,7 +158,7 @@ describe("buildRelayCommand", () => {
     })
 
     it("targets the destination as an flv output", () => {
-        expect(buildRelayCommand("rtmp://x/y").slice(-3)).toEqual(["-f", "flv", "rtmp://x/y"])
+        expect(buildRelayCommand("rtmp://x/y").slice(-5)).toEqual(["-f", "flv", "-flvflags", "no_sequence_end", "rtmp://x/y"])
     })
 })
 
@@ -172,6 +172,30 @@ describe("buildTestEncodeCommand", () => {
 
     it("exercises the same hw device setup the real encode uses", () => {
         expect(buildTestEncodeCommand("vaapi")).toContain("-init_hw_device")
+    })
+})
+
+describe("explicit RTMP rate control", () => {
+    it.each([
+        ["nvenc", "-rc", "cbr"],
+        ["amf", "-rc", "cbr"],
+        ["vaapi", "-rc_mode", "CBR"]
+    ] as const)("requests CBR on %s", (encoderId, flag, value) => {
+        const args = buildEncoderCommand({ ...baseOptions, encoderId, rateControl: "cbr" })
+        expect(arg(args, flag)).toBe(value)
+        expect(arg(args, "-maxrate")).toBe("4000k")
+    })
+
+    it.each([
+        ["nvenc", "-rc", "vbr"],
+        ["amf", "-rc", "vbr_peak"],
+        ["vaapi", "-rc_mode", "VBR"]
+    ] as const)("requests VBR on %s with auto-calculated peak", (encoderId, flag, value) => {
+        const args = buildEncoderCommand({ ...baseOptions, encoderId, rateControl: "vbr" })
+        expect(arg(args, flag)).toBe(value)
+        expect(arg(args, "-b:v")).toBe("4000k")
+        expect(arg(args, "-maxrate")).toBe("6000k")
+        expect(arg(args, "-bufsize")).toBe("6000k")
     })
 })
 

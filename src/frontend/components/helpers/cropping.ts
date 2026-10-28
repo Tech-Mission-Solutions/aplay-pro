@@ -77,12 +77,12 @@ export function getCropCenter(crop: CropValues) {
 export function isCroppedItem(item?: { type?: string; cropping?: Partial<Cropping> | null } | null): boolean {
     if (!item || (item.type !== "media" && item.type !== "camera")) return false
     const cropping = item.cropping
-    if (!cropping) return false
+    if (!cropping || cropping.type === "ppt") return false
     return !!(Number(cropping.top) || Number(cropping.right) || Number(cropping.bottom) || Number(cropping.left))
 }
 
 export function getMediaContainerStyle(crop: CropState["crop"], cropHasValues: boolean, itemStyle?: string): string {
-    if (!cropHasValues) return "position: absolute;left: 0;top: 0;width: 100%;height: 100%;overflow: hidden;"
+    if (!cropHasValues || crop.type === "ppt") return "position: absolute;left: 0;top: 0;width: 100%;height: 100%;overflow: hidden;"
 
     const visibleWidth = Math.max(0.0001, 100 - crop.left - crop.right)
     const visibleHeight = Math.max(0.0001, 100 - crop.top - crop.bottom)

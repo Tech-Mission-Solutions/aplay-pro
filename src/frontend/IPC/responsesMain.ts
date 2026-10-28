@@ -4,6 +4,7 @@ import type { ToMainSendPayloads } from "../../types/IPC/ToMain"
 import { ToMain } from "../../types/IPC/ToMain"
 import type { Project } from "../../types/Projects"
 import type { Show, Slide } from "../../types/Show"
+import { Transcript } from "../ai/stt/transcript"
 import { API_ACTIONS, triggerAction } from "../components/actions/api"
 import { receivedMidi } from "../components/actions/midi"
 import { menuClick } from "../components/context/menuClick"
@@ -27,7 +28,7 @@ import { convertCSV } from "../converters/csv"
 import { convertEasyslides } from "../converters/easyslides"
 import { convertEasyWorship } from "../converters/easyworship"
 import { createImageShow } from "../converters/imageShow"
-import { createCategory, importAction, importShow, importSpecific, importStage, importTemplate, setTempShows } from "../converters/importHelpers"
+import { createCategory, importAction, importOverlay, importShow, importSpecific, importStage, importTemplate, setTempShows } from "../converters/importHelpers"
 import { convertLessonsPresentation } from "../converters/lessonsChurch"
 import { convertMediaShout } from "../converters/mediashout"
 import { convertOpenLP } from "../converters/openlp"
@@ -48,6 +49,7 @@ import {
     activeProject,
     activeShow,
     activeTimers,
+    aiSttStatus,
     alertMessage,
     audioData,
     contentProviderData,
@@ -56,6 +58,7 @@ import {
     driveKeys,
     events,
     folders,
+    icecastStatus,
     lessonsLoaded,
     media,
     mediaDownloads,
@@ -88,6 +91,7 @@ import {
 } from "../stores"
 import { setupCloudSync } from "../utils/cloudSync"
 import { newToast } from "../utils/common"
+import { translateText } from "../utils/language"
 import { confirmCustom } from "../utils/popup"
 import { initializeClosing, saveComplete } from "../utils/save"
 import { invalidateSearchIndex } from "../utils/searchFast"
@@ -171,6 +175,21 @@ export const mainResponses: MainResponses = {
         activePopup.set("alert")
     },
     [ToMain.TOAST]: (a) => newToast(a),
+    // GPU health degradation notice (electron utils/gpu.ts, ~20s after start): verbose alert with what
+    // happened, the implications, and concrete remediation. Composed here so every string is i18n'd.
+    [ToMain.GPU_HEALTH]: (a) => {
+        const compositing = a.issue === "compositing"
+        let html = `<h3>${translateText(compositing ? "gpu.no_acceleration" : "gpu.no_video_decode")}</h3><p>${translateText(compositing ? "gpu.no_acceleration_info" : "gpu.no_video_decode_info")}</p>`
+        if (a.vaDriverMissing && a.packages?.length) {
+            // Linux with no VA-API driver installed at all: name the exact package(s) for the GPU vendor
+            html += `<p>${translateText("gpu.va_driver_missing")}</p><pre style="user-select: text;">sudo apt install ${a.packages.join(" ")}</pre>`
+        } else {
+            html += `<p>${translateText("gpu.update_drivers")}${a.vendorName ? ` (${a.vendorName})` : ""}</p>`
+        }
+        html += `<p style="opacity: 0.7;">${translateText("gpu.disable_hint")}</p>`
+        alertMessage.set(html)
+        activePopup.set("alert")
+    },
     [ToMain.SPELL_CHECK]: (a) => spellcheck.set(a),
     [Main.CLOSE]: (a) => initializeClosing(a ?? false),
     [ToMain.RECEIVE_MIDI2]: (a) => receivedMidi(a),
@@ -225,6 +244,7 @@ export const mainResponses: MainResponses = {
     [ToMain.LESSONS_DONE]: (data) => lessonsLoaded.set({ ...get(lessonsLoaded), [data.showId]: data.status }),
     [ToMain.IMAGES_TO_SHOW]: (data) => createImageShow(data),
     [ToMain.RTMP_STATUS]: (data) => rtmpStatus.update((a) => ({ ...a, [data.outputId]: data.destinations })),
+    [ToMain.ICECAST_STATUS]: (data) => icecastStatus.set(data),
     [ToMain.MEDIA_DOWNLOAD_PROGRESS]: (data) => {
         mediaDownloads.update((downloads) => {
             const newDownloads = new Map(downloads)
@@ -327,15 +347,21 @@ export const mainResponses: MainResponses = {
             return c
         })
 
-        if (data.isFirstConnection) newToast("main.finished")
+        if (data.isFirstConnection) {
+            newToast("main.finished")
 
-        if (data.providerId !== "churchApps") return
-        setTimeout(() => {
-            setupCloudSync(!data.isFirstConnection)
-        }, 1000)
+            if (data.providerId === "churchApps") {
+                setTimeout(() => setupCloudSync(false), 1000)
+            }
+        }
     },
     [ToMain.PROVIDER_PROJECTS]: async (data) => {
         if (!data.projects) return
+
+        // Planning Center items are seperated into multiple categories based on the type: Songs (default) & Regular items (generic)
+        if (data.providerId === "planningcenter" && data.shows.some((a) => a.category === "planning_center_generic")) {
+            createCategory("Planning Center (Generic)", "presentation")
+        }
 
         // CREATE CATEGORY
         createCategory(data.categoryName)
@@ -343,7 +369,7 @@ export const mainResponses: MainResponses = {
         const replaceIds: { [key: string]: string } = {}
         const allShows = keysToID(get(shows))
         const songOrigin = get(contentProviderData)[data.providerId]?.songOrigin
-        const linkKey = data.providerId === "planningcenter" ? "pcoLink" : data.providerId === "churchApps" ? "chumsLink" : data.providerId === "amazinglife" ? "alLink" : ""
+        const linkKey = data.providerId === "planningcenter" ? "pcoLink" : data.providerId === "churchApps" ? "chumsLink" : data.providerId === "amazinglife" ? "alLink" : data.providerId === "onstage" ? "onstageLink" : ""
         const origin = data.providerId === "planningcenter" ? "pco" : data.providerId
 
         function updateExistingShow(showId: string) {
@@ -374,9 +400,11 @@ export const mainResponses: MainResponses = {
 
             // if empty content and name is a scripture reference, generate slides from the active scripture
             const isEmptyContent = Object.keys(show.slides || {}).length === 0
+            let isScriptureShow = false
             if (isEmptyContent) {
                 const scriptureShow = await generateScriptureShowFromReference(show.name)
                 if (scriptureShow) {
+                    isScriptureShow = true
                     const originalId = show.id
                     const originalQuickAccess = show.quickAccess
                     Object.assign(show, scriptureShow)
@@ -385,29 +413,25 @@ export const mainResponses: MainResponses = {
                 }
             }
 
-            const providerName = data.providerId === "planningcenter" ? "Planning Center" : data.providerId === "churchApps" ? "ChurchApps" : "the cloud"
+            const providerName = data.providerId === "planningcenter" ? "Planning Center" : data.providerId === "churchApps" ? "ChurchApps" : data.providerId === "onstage" ? "OnStage" : "the cloud"
 
             // first find any shows linked to the id
-            const linkedShow = linkKey && allShows.find(({ quickAccess, id: showId }) => quickAccess?.[linkKey] === id || showId === id)
-            if (linkedShow) {
+            const linkedShow = linkKey ? allShows.find(({ quickAccess, id: showId }) => quickAccess?.[linkKey] === id || showId === id) : null
+            // if provider item name is a scripture reference, and the name has changed, we should always use the provider version
+            const changedName = isScriptureShow && linkedShow?.name !== show.name
+            if (linkedShow && !changedName) {
                 replaceIds[id] = linkedShow.id
 
-                const useLocal = songOrigin === "online" ? false : songOrigin === "local" || (await confirmCustom(`This show already exists: ${linkedShow.name}.<br><br>Would you like to use the local version instead of the one from ${providerName}?`))
+                // no need to use local show if it doesn't have any slide content
+                // so if the name in provider changes, it will update (mostly for updating scripture references)
+                await loadShows([linkedShow.id])
+                const showData = get(showsCache)[linkedShow.id]
+                const hasSlides = Object.keys(showData.slides || {}).length > 0
+
+                const useLocal = !hasSlides || songOrigin === "online" ? false : songOrigin === "local" || (await confirmCustom(`This show already exists: ${linkedShow.name}.<br><br>Would you like to use the local version instead of the one from ${providerName}?`))
                 if (useLocal) continue
 
-                // replace local show with provider song
-                Object.values<Slide>(show.slides).forEach((slide) => {
-                    if (slide.globalGroup || !slide.group) return
-
-                    const globalGroup = getGlobalGroup(slide.group)
-                    if (globalGroup) slide.globalGroup = globalGroup
-                })
-
-                // set modified to now, so it will update properly in history
-                if (show.timestamps) show.timestamps.modified = Date.now()
-
-                delete show.id
-                tempShows.push({ id: linkedShow.id, show: { ...show, origin, name: checkName(show.name, linkedShow.id) } })
+                downloadShow(linkedShow.id)
                 continue
             }
 
@@ -433,20 +457,24 @@ export const mainResponses: MainResponses = {
                 show.quickAccess[linkKey] = id
             }
 
-            // download:
+            downloadShow(targetId)
 
-            // replace group names with existing global groups
-            Object.values<Slide>(show.slides).forEach((slide) => {
-                if (slide.globalGroup || !slide.group) return
+            // replace local show with provider song
+            function downloadShow(showId: string) {
+                // replace group names with existing global groups
+                Object.values<Slide>(show.slides).forEach((slide) => {
+                    if (slide.globalGroup || !slide.group) return
 
-                const globalGroup = getGlobalGroup(slide.group)
-                if (globalGroup) slide.globalGroup = globalGroup
-            })
+                    const globalGroup = getGlobalGroup(slide.group)
+                    if (globalGroup) slide.globalGroup = globalGroup
+                })
 
-            if (show.timestamps) show.timestamps.modified = Date.now()
+                // set modified to now, so it will update properly in history
+                if (show.timestamps) show.timestamps.modified = Date.now()
 
-            delete show.id
-            tempShows.push({ id: targetId, show: { ...show, origin, name: checkName(show.name, targetId) } })
+                delete show.id
+                tempShows.push({ id: showId, show: { ...show, origin, name: checkName(show.name, showId) } })
+            }
         }
         setTempShows(tempShows)
 
@@ -484,7 +512,8 @@ export const mainResponses: MainResponses = {
                 created: currentProject.created,
                 used: Date.now(), // show on top in last used list
                 parent: folderId || "/",
-                shows: currentProject.items || []
+                shows: currentProject.items || [],
+                origin
             }
             const project = createProviderProject(data.providerId, projectBase)
 
@@ -554,6 +583,7 @@ export const mainResponses: MainResponses = {
             freeshow: () => importShow(data),
             freeshow_project: () => importProject(data),
             freeshow_template: () => importTemplate(data),
+            freeshow_overlay: () => importOverlay(data),
             freeshow_theme: () => importSpecific(data, themes),
             freeshow_action: () => importAction(data),
             freeshow_stage: () => importStage(data),
@@ -572,7 +602,7 @@ export const mainResponses: MainResponses = {
             mediashout: () => convertMediaShout(data),
             quelea: () => convertQuelea(data),
             softprojector: () => convertSoftProjector(data),
-            songbeamer: () => convertSongbeamerFiles(a.custom),
+            songbeamer: () => convertSongbeamerFiles(data),
             easyslides: () => convertEasyslides(data),
             verseview: () => convertVerseVIEW(data),
             // Media
@@ -589,5 +619,9 @@ export const mainResponses: MainResponses = {
     // Timecode
     [Main.TIMECODE_VALUE]: (data) => updateTimelineTime(data!),
     [Main.TIMECODE_STATUS]: (data) => updateTimelineStatus(data!),
-    [Main.TIMECODE_AUDIO_DATA]: (data) => processTimecodeFrame(data!)
+    [Main.TIMECODE_AUDIO_DATA]: (data) => processTimecodeFrame(data!),
+
+    // AI
+    [ToMain.AI_STATUS]: (data) => aiSttStatus.set(data),
+    [ToMain.AI_TRANSCRIPT]: (data) => Transcript.push(data)
 }

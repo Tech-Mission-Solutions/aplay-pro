@@ -13,6 +13,12 @@
     import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
     import Center from "../../system/Center.svelte"
     import Icon from "../../helpers/Icon.svelte"
+    import { registerPopupSubmit } from "../../../utils/popup"
+
+    registerPopupSubmit(() => {
+        if (!searchValue.length || !searchedTemplates.length) return
+        selectTemplate(searchedTemplates[0], true)
+    })
 
     let revert = $popupData.revert
     let allowEmpty = !!$popupData.allowEmpty
@@ -85,11 +91,6 @@
 
     let resolution = getResolution(null, { $outputs, $styles })
 
-    function chooseTemplate(e: any) {
-        if (e.key !== "Enter" || !searchValue.length || !searchedTemplates.length) return
-        selectTemplate(searchedTemplates[0], true)
-    }
-
     $: normalTemplates = searchedTemplates.filter((a) => a.category !== "scripture")
     $: scriptureTemplates = searchedTemplates.filter((a) => a.category === "scripture")
     $: templatesList = id.includes("scripture") ? [...trimScriptureTemplates(scriptureTemplates, selectedType), ...normalTemplates] : [...normalTemplates, ...scriptureTemplates]
@@ -145,8 +146,6 @@
     }
 </script>
 
-<svelte:window on:keydown={chooseTemplate} />
-
 {#if revert}
     <MaterialButton class="popup-back" icon="back" iconSize={1.3} title="actions.back" on:click={() => activePopup.set(revert)} />
 {/if}
@@ -154,7 +153,7 @@
 <MaterialTextInput label="main.search" value="" on:input={(e) => search(e.detail)} autofocus />
 
 {#if customTypes}
-    <MaterialDropdown label="songbeamer_import.translations" options={types} value={selectedType} on:change={(e) => (selectedType = e.detail)} />
+    <MaterialDropdown label="scripture.translations" options={types} value={selectedType} on:change={(e) => (selectedType = e.detail)} />
 {/if}
 
 <div style="position: relative;height: 100%;width: calc(100vw - (var(--navigation-width) + 20px) * 2);margin-top: 10px;overflow-y: auto;">

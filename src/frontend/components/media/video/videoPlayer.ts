@@ -4,15 +4,14 @@ import { get } from "svelte/store"
 import { Main } from "../../../../types/IPC/Main"
 import { AudioAnalyser } from "../../../audio/audioAnalyser"
 import { fadeinAllPlayingAudio, fadeoutAllPlayingAudio } from "../../../audio/audioFading"
-import { AudioInputCapture } from "../../../audio/routing/audioInputCapture"
 import { requestMain } from "../../../IPC/main"
-import { media, outputs, playerVideos, playingVideos, playingVideoState, special, transitionData } from "../../../stores"
+import { media, outputs, playerVideos, playingVideos, playingVideoState, special, styles, transitionData } from "../../../stores"
 import { playFolder } from "../../../utils/shortcuts"
 import { customActionActivation } from "../../actions/actions"
 import { getVimeoData, getYouTubeData } from "../../drawer/player/playerHelper"
 import { clone } from "../../helpers/array"
 import { downloadOnlineMedia, encodeFilePath, getExtension, getMediaType, locateMediaFile } from "../../helpers/media"
-import { getAllOutputs } from "../../helpers/output"
+import { defaultLayers, getAllOutputs } from "../../helpers/output"
 import { checkNextAfterMedia } from "../../helpers/showActions"
 import { clearBackground } from "../../output/clear"
 import { TimeInterpolator } from "./videoTime"
@@ -20,10 +19,14 @@ import { TimeInterpolator } from "./videoTime"
 type VideoOptions = {
     isOnline?: boolean // youtube / vimeo
     paused?: boolean
-    loop?: boolean
     muted?: boolean
+    loop?: boolean
+    volume?: number
     startAt?: number
+    fromTime?: number
+    toTime?: number
     type?: "background" | "item"
+    hasActiveBg?: boolean
 }
 // online videos
 type VirtualAudioElement = {
@@ -39,11 +42,13 @@ export type VideoAudioData = {
     audio: HTMLAudioElement | VirtualAudioElement
     linkedOutputIds: string[]
     type?: "background" | "item"
+    isOnline?: boolean
     replayGainMultiplier?: number
     softLoop?: number
     loop?: boolean
     fromTime?: number
     toTime?: number
+    volume?: number
 }
 
 export type PlayingVideoState = {
@@ -121,18 +126,20 @@ export class VideoPlayer {
 
         const startTime = this.getStartTime(id, options.startAt)
         if (startTime) {
-            audio.currentTime = startTime
-            if ("timeTick" in audio) audio.timeTick.update(startTime)
+            const initialTime = audio.duration > 0 && startTime > audio.duration ? 0 : startTime
+            audio.currentTime = initialTime
+            if ("timeTick" in audio) audio.timeTick.update(initialTime)
         }
 
-        const globalOpts = this.getGlobalOptions(id)
+        const globalOpts = { ...this.getOptions(id), ...options }
         const softLoop = globalOpts.softLoop || 0
-        const loop = globalOpts.loop !== undefined ? globalOpts.loop : options.loop
+        const loop = globalOpts.loop ?? false
         const fromTime = globalOpts.fromTime || 0
-        const toTime = this.getEndTime(id, audio.duration)
+        const toTime = globalOpts.toTime || audio.duration
+        const volume = options.volume !== undefined ? options.volume : globalOpts.volume
 
         playingVideos.update((a) => {
-            a.push({ path: id, audio, linkedOutputIds: linkedOutputIds || [], type: options.type || "background", softLoop, loop, fromTime, toTime })
+            a.push({ path: id, audio, linkedOutputIds: linkedOutputIds || [], type: options.type || "background", isOnline: options.isOnline, softLoop, loop, fromTime, toTime, volume })
             return a
         })
 
@@ -160,12 +167,18 @@ export class VideoPlayer {
 
         const mediaTransition = get(transitionData)?.media
         const durationMs = mediaTransition?.duration ?? 800
-        const delayMs = durationMs > 0 ? durationMs / 4 + 20 : 0
+        const hasDelay = options.hasActiveBg && options.type !== "item"
+        const delayMs = hasDelay && durationMs > 0 ? durationMs / 4 + 20 : 0
+
+        if (globalOpts.speed && audio instanceof HTMLAudioElement) {
+            const speedVal = parseFloat(globalOpts.speed)
+            if (!isNaN(speedVal) && speedVal > 0) this.setTempo(id, speedVal)
+        }
 
         const startPlayback = () => {
-            if (!options.paused) this.play(id, linkedOutputIds?.[0])
-
             if (audio instanceof HTMLAudioElement) this.attachToAnalyser(id, audio, linkedOutputIds || [])
+
+            if (!options.paused) this.play(id, linkedOutputIds?.[0])
 
             if (!audio.muted && audio instanceof HTMLAudioElement && durationMs > 0) {
                 this.fadeIn(id, audio, durationMs)
@@ -190,7 +203,7 @@ export class VideoPlayer {
         const audio = this.getAudio(path)
         if (!audio) return
 
-        const data = this.getGlobalOptions(path)
+        const data = this.getOptions(path)
 
         playingVideos.update((a) => {
             const item = a.find((v) => v.path === path)
@@ -216,18 +229,34 @@ export class VideoPlayer {
         if (data.pitch !== undefined) this.setPitch(path, data.pitch)
     }
 
-    static updateVolume(specificVideoPath: string | null = null) {
-        const videos = specificVideoPath ? get(playingVideos).filter((v) => v.path === specificVideoPath) : get(playingVideos)
+    static updateVolume(specificVideoPath: string | null = null, fadeDuration = 0) {
+        const videos = (specificVideoPath ? get(playingVideos).filter((v) => v.path === specificVideoPath) : get(playingVideos)).filter((v) => !this.isFadingOut.includes(v.path))
         videos.forEach((v) => {
-            let newVolume = this.getVolume(v.path) * (v.replayGainMultiplier || 1)
+            const vol = this.getVolume(v.path) * (v.replayGainMultiplier || 1)
+            const audio = this.getAudio(v.path)
+            if (audio && "volume" in audio) audio.volume = Math.min(1, Math.max(0, vol))
+
             v.linkedOutputIds.forEach((outputId) => {
-                const audio = this.getAudio(v.path, outputId)
-                if (audio && "volume" in audio) {
-                    audio.volume = Math.min(1, Math.max(0, newVolume))
-                    AudioAnalyser.setSourceVolume(v.path, Math.max(0, newVolume), outputId)
+                const outputVol = this.isOutputMuted(outputId) ? 0 : vol
+                if (fadeDuration > 0) {
+                    AudioAnalyser.rampSourceVolume(v.path, Math.max(0, outputVol), fadeDuration, outputId)
+                } else {
+                    AudioAnalyser.setSourceVolume(v.path, Math.max(0, outputVol), outputId)
                 }
             })
         })
+    }
+
+    static isOutputMuted(outputId: string): boolean {
+        const output = get(outputs)[outputId]
+        const scene = output?.out?.scene
+        const styleId = scene ? scene.style : output?.style
+
+        if (scene && !styleId) return true
+
+        const rawLayers = get(styles)[styleId || ""]?.layers
+        const layers = Array.isArray(rawLayers) ? rawLayers : defaultLayers
+        return !layers.includes("background")
     }
 
     private static async createAudio(audioPath: string, originalId: string, outputIds?: string[], isOnline?: boolean): Promise<HTMLAudioElement | VirtualAudioElement | null> {
@@ -247,19 +276,48 @@ export class VideoPlayer {
         }
 
         const audio = new Audio(encodeFilePath(audioPath))
-        audio.addEventListener("ended", () => {
-            const playing = this.getPlaying(originalId, outputIds || [])
-            if (playing?.loop || this.getGlobalOptions(originalId)?.loop) {
-                const startTime = this.getStartTime(originalId)
+
+        audio.addEventListener("ended", async () => {
+            if (this.getOptions(originalId, outputIds)?.loop) {
+                if (await checkNextAfterMedia(originalId, "media", outputIds)) return
+
+                const startTime = this.getStartTime(originalId, undefined, outputIds)
                 audio.currentTime = startTime
                 if ("timeTick" in audio) (audio as any).timeTick.update(startTime)
-                if (audio.paused) audio.play().catch(() => {})
+                if (audio.paused && audio instanceof HTMLAudioElement) audio.play().catch(() => {})
                 return
             }
+
+            // If ended fired prematurely (e.g. video-only file with no audio track free-running to EOF),
+            // switch to a virtual time ticker instead of clearing the background early.
+            if (audio.duration > 1 && audio.currentTime < audio.duration - 1) {
+                const duration = audio.duration
+                const currentTime = Math.min(audio.currentTime, duration)
+                const timeTick = new TimeInterpolator()
+                timeTick.update(currentTime)
+                if (!audio.paused) timeTick.play()
+
+                playingVideos.update((list) => {
+                    const item = list.find((v) => v.path === originalId)
+                    if (item) {
+                        item.audio = { currentTime, timeTick, duration, paused: audio.paused, loop: !!item.loop, muted: true }
+                    }
+                    return list
+                })
+                try {
+                    audio.removeAttribute("src")
+                    audio.load()
+                } catch {}
+                return
+            }
+
             // absolute end
             this.checkIfEnding(originalId, outputIds, true)
         })
-        return await this.waitForAudio(originalId, audio)
+        const loaded = await this.waitForAudio(originalId, audio)
+        if (!loaded) return null
+
+        return loaded
     }
 
     private static waitForAudio(pathOrId: string, audio: HTMLAudioElement): Promise<HTMLAudioElement | null> {
@@ -292,19 +350,47 @@ export class VideoPlayer {
         const audio = this.getAudio(path, outputIds ? outputIds[0] : undefined)
         if (!audio) return finish()
 
-        const endingTime = this.getEndTime(path, audio.duration)
+        const endingTime = this.getEndTime(path, audio.duration, outputIds)
+
+        // unknown length (e.g. live streams), does not have a defined ending
+        if (endingTime <= 0 && !force) return finish()
+
         const offset = ((get(transitionData)?.media?.duration ?? 800) / 1000) * 0.5
         if (audio.currentTime < endingTime - offset && !force) return finish()
 
+        // check and execute next after media regardless of loop
+        if (await checkNextAfterMedia(path, "media", outputIds)) return finish()
+
         // should loop
-        if (playing.loop || this.getGlobalOptions(path)?.loop) {
+        if (this.getOptions(path, outputIds)?.loop) {
             if (audio.currentTime >= endingTime || force) {
-                const startTime = this.getStartTime(path)
+                const startTime = this.getStartTime(path, undefined, outputIds)
                 audio.currentTime = startTime
                 if ("timeTick" in audio) (audio as any).timeTick.update(startTime)
                 if (audio.paused && audio instanceof HTMLAudioElement) audio.play().catch(() => {})
             }
             return finish()
+        }
+
+        // if video has a custom end time less than duration, fade out and pause on the new end time
+        if (endingTime < audio.duration) {
+            const durationMs = get(transitionData)?.media?.duration ?? 800
+            if (durationMs > 0 && audio instanceof HTMLAudioElement && !this.isFadingOut.includes(path) && !audio.paused) {
+                this.fadeOut(path, audio, durationMs).then(() => {
+                    this.pause(path, outputIds?.[0])
+                    audio.currentTime = endingTime
+                    if ("timeTick" in audio) (audio as any).timeTick.update(endingTime)
+                    const fadeIndex = this.isFadingOut.indexOf(path)
+                    if (fadeIndex !== -1) this.isFadingOut.splice(fadeIndex, 1)
+                })
+                return finish()
+            }
+            if (audio.currentTime >= endingTime || force) {
+                this.pause(path, outputIds?.[0])
+                audio.currentTime = endingTime
+                if ("timeTick" in audio) (audio as any).timeTick.update(endingTime)
+                return finish()
+            }
         }
 
         const background = get(outputs)[outputIds?.[0] || ""]?.out?.background
@@ -354,8 +440,16 @@ export class VideoPlayer {
         const audio = this.getAudio(path, outputId)
         if (!audio) return
 
+        // go back to start if played after paused when reached end time
+        const endingTime = this.getEndTime(path, audio.duration, outputId ? [outputId] : undefined)
+        if (endingTime > 0 && audio.currentTime >= endingTime - 0.1) {
+            const startTime = this.getStartTime(path, undefined, outputId ? [outputId] : undefined)
+            audio.currentTime = startTime
+            if ("timeTick" in audio) (audio as any).timeTick.update(startTime)
+        }
+
         if (audio instanceof HTMLAudioElement) {
-            audio.play()
+            audio.play().catch((err) => console.warn("[VideoPlayer] play failed:", err?.name))
         } else if ("timeTick" in audio) {
             audio.paused = false
             audio.timeTick.play()
@@ -413,11 +507,22 @@ export class VideoPlayer {
         const stopInOutputIds = linkedOutputIds.filter((id) => !nonActiveOutputs.includes(id))
         const shouldStop = linkedOutputIds.length === stopInOutputIds.length
 
-        if (shouldStop && audio instanceof HTMLAudioElement && !reachedEnd && audio && !audio.paused && audio.volume > 0) {
+        if (shouldStop && audio && !reachedEnd && !audio.paused) {
             const durationMs = get(transitionData)?.media?.duration ?? 800
             if (durationMs > 0) {
-                const faded = await this.fadeOut(path, audio, durationMs)
-                if (!faded) return
+                if (audio instanceof HTMLAudioElement) {
+                    const faded = await this.fadeOut(path, audio, durationMs)
+                    if (!faded) return
+                } else if ("timeTick" in audio) {
+                    // silent / video-only files use a virtual clock — no audio to fade, but we still
+                    // need to hold off pausing the video element until the visual transition finishes
+                    this.isFadingOut.push(path)
+                    await new Promise<void>((resolve) => setTimeout(resolve, durationMs))
+                    const fadeIndex = this.isFadingOut.indexOf(path)
+                    if (fadeIndex === -1) return
+
+                    this.isFadingOut.splice(fadeIndex, 1)
+                }
             }
         }
 
@@ -457,84 +562,58 @@ export class VideoPlayer {
         })
 
         videoEnding()
-
-        if (!get(playingVideos).length) {
-            AudioInputCapture.getInstance().clearMergedDbs()
-        }
     }
 
     private static async fadeOut(path: string, audio: HTMLAudioElement, durationMs: number): Promise<boolean> {
-        if (!audio || audio.volume <= 0) return true
-        this.isFadingOut.push(path)
+        if (!audio) return true
+        if (!this.isFadingOut.includes(path)) this.isFadingOut.push(path)
 
         // WIP account for transition offset
         // if (!clearOutput) duration /= 2.4 // a little less than half the time
 
-        const startVolume = audio.volume
-        const steps = 30
-        const intervalMs = Math.max(10, durationMs / steps)
-        const volumeStep = startVolume / steps
-        let currentStep = 0
+        if (audio.volume > 0 && !audio.muted) {
+            AudioAnalyser.rampSourceVolume(path, 0, durationMs)
+        }
 
-        const finished = await new Promise<boolean>((resolve) => {
-            const timer = setInterval(() => {
-                currentStep++
+        await new Promise<void>((resolve) => setTimeout(resolve, durationMs))
 
-                if (!this.isFadingOut.includes(path)) {
-                    clearInterval(timer)
-                    resolve(false)
-                    return
-                }
+        if (!this.isFadingOut.includes(path)) return false
 
-                if (currentStep >= steps || audio.volume <= volumeStep) {
-                    audio.volume = 0
-                    AudioAnalyser.setSourceVolume(path, 0)
-                    const fadeIndex = this.isFadingOut.indexOf(path)
-                    if (fadeIndex !== -1) this.isFadingOut.splice(fadeIndex, 1)
-                    clearInterval(timer)
-                    resolve(true)
-                    return
-                }
-
-                audio.volume = Math.max(0, audio.volume - volumeStep)
-                AudioAnalyser.setSourceVolume(path, audio.volume)
-            }, intervalMs)
-        })
-
-        return finished
+        try {
+            audio.volume = 0
+        } catch {}
+        AudioAnalyser.setSourceVolume(path, 0)
+        return true
     }
 
     static isFadingIn: string[] = []
     private static async fadeIn(path: string, audio: HTMLAudioElement, durationMs: number): Promise<void> {
-        this.isFadingIn.push(path)
+        if (!this.isFadingIn.includes(path)) this.isFadingIn.push(path)
         const targetVolume = this.getVolume(path) * (this.getPlaying(path)?.replayGainMultiplier ?? 1)
-        audio.volume = 0
+        const playing = this.getPlaying(path)
+        const linkedOutputIds = playing?.linkedOutputIds || []
+
         AudioAnalyser.setSourceVolume(path, 0)
+        try {
+            audio.volume = Math.min(1, Math.max(0, targetVolume))
+        } catch {}
 
-        const steps = 30
-        const intervalMs = Math.max(10, durationMs / steps)
-        const volumeStep = targetVolume / steps
-        let currentStep = 0
+        if (linkedOutputIds.length) {
+            linkedOutputIds.forEach((outputId) => {
+                const vol = this.isOutputMuted(outputId) ? 0 : targetVolume
+                if (vol > 0) AudioAnalyser.rampSourceVolume(path, vol, durationMs, outputId)
+                else AudioAnalyser.setSourceVolume(path, 0, outputId)
+            })
+        } else {
+            AudioAnalyser.rampSourceVolume(path, targetVolume, durationMs)
+        }
 
-        await new Promise<void>((resolve) => {
-            const timer = setInterval(() => {
-                currentStep++
+        await new Promise<void>((resolve) => setTimeout(resolve, durationMs))
 
-                if (this.isFadingOut.includes(path) || !this.isFadingIn.includes(path) || audio.paused || currentStep >= steps || audio.volume >= targetVolume - volumeStep) {
-                    audio.volume = Math.min(1, Math.max(0, targetVolume))
-                    AudioAnalyser.setSourceVolume(path, Math.max(0, targetVolume))
-                    const fadeIndex = this.isFadingIn.indexOf(path)
-                    if (fadeIndex !== -1) this.isFadingIn.splice(fadeIndex, 1)
-                    clearInterval(timer)
-                    resolve()
-                    return
-                }
+        const fadeIndex = this.isFadingIn.indexOf(path)
+        if (fadeIndex !== -1) this.isFadingIn.splice(fadeIndex, 1)
 
-                const nextVol = Math.min(targetVolume, audio.volume + volumeStep)
-                audio.volume = Math.min(1, Math.max(0, nextVol))
-                AudioAnalyser.setSourceVolume(path, Math.max(0, nextVol))
-            }, intervalMs)
-        })
+        this.updateVolume(path)
     }
 
     static stopByOutputIds(outputIds: string[]) {
@@ -579,6 +658,7 @@ export class VideoPlayer {
         if (video.audio.paused || video.audio.muted) return false
         if (this.isFadingOut.includes(video.path) || this.isStopping.has(video.path)) return false
         if (this.getVolume(video.path) <= 0) return false
+        if (video.linkedOutputIds?.length && video.linkedOutputIds.every((outId) => this.isOutputMuted(outId))) return false
         return true
     }
 
@@ -589,6 +669,8 @@ export class VideoPlayer {
     private static setAudioValue(path: string, outputId: string, key: string, value: any) {
         const audio = this.getAudio(path, outputId)
         if (!audio) return
+
+        if (key === "currentTime" && audio.duration > 0 && value > audio.duration + 3) value = 0
 
         audio[key] = value
 
@@ -608,36 +690,66 @@ export class VideoPlayer {
         return video?.audio || null
     }
 
-    static getGlobalOptions(path: string) {
-        return get(media)[path] || {}
+    static getOptions(path: string, outputIds?: string[]) {
+        const globalOpts = get(media)[path] || {}
+        const playing = this.getPlaying(path, outputIds)
+        if (!playing) return globalOpts
+
+        return {
+            ...globalOpts,
+            ...(playing.volume !== undefined ? { volume: playing.volume } : {}),
+            ...(playing.fromTime !== undefined ? { fromTime: playing.fromTime } : {}),
+            ...(playing.toTime !== undefined ? { toTime: playing.toTime } : {}),
+            ...(playing.loop !== undefined ? { loop: playing.loop } : {}),
+            ...(playing.softLoop !== undefined ? { softLoop: playing.softLoop } : {})
+        }
     }
 
-    static getVolume(path: string) {
-        return this.getGlobalOptions(path)?.volume ?? 1
+    static getVolume(path: string, outputIds?: string[]) {
+        return this.getOptions(path, outputIds)?.volume ?? 1
     }
 
-    static getStartTime(path: string, startAt?: number | undefined) {
-        const data = this.getGlobalOptions(path)
+    static getStartTime(path: string, startAt?: number | undefined, outputIds?: string[]) {
+        const data = this.getOptions(path, outputIds)
         const startTime = Math.max(startAt || 0, data.fromTime || 0)
         return startTime
     }
-    static getEndTime(path: string, duration: number) {
-        const data = this.getGlobalOptions(path)
+    static getEndTime(path: string, duration: number, outputIds?: string[]) {
+        const data = this.getOptions(path, outputIds)
         const endTime = data.toTime || duration
         return endTime
     }
 
+    private static storedDurations: Map<string, number> = new Map()
     static async getDuration(path: string): Promise<number> {
+        if (!path) return 0
+        if (this.storedDurations.has(path)) return this.storedDurations.get(path)!
+
         const audio = this.getAudio(path)
-        if (audio) return audio.duration
+        if (audio && audio.duration > 0 && audio.duration !== Infinity) {
+            this.storedDurations.set(path, audio.duration)
+            return audio.duration
+        }
 
         return new Promise((resolve) => {
-            let video = document.createElement("audio")
-            video.setAttribute("src", encodeFilePath(path))
-            video.addEventListener("loadedmetadata", () => {
-                resolve(video.duration)
-                video.remove()
-            })
+            const el = document.createElement("audio")
+            el.setAttribute("src", encodeFilePath(path))
+            el.preload = "metadata"
+
+            const cleanup = (duration: number) => {
+                try {
+                    el.pause()
+                    el.src = ""
+                    el.removeAttribute("src")
+                    el.load()
+                } catch {}
+                el.remove()
+                this.storedDurations.set(path, duration)
+                resolve(duration)
+            }
+
+            el.addEventListener("loadedmetadata", () => cleanup(el.duration || 0), { once: true })
+            el.addEventListener("error", () => cleanup(0), { once: true })
         })
     }
 
@@ -690,12 +802,13 @@ export class VideoPlayer {
     private static async attachToAnalyser(path: string, audio: HTMLAudioElement, outputIds: string[]) {
         if (!outputIds.length) return
 
-        const data = this.getGlobalOptions(path)
+        const data = this.getOptions(path)
 
         for (const outputId of outputIds) {
             if (AudioAnalyser.hasSource(path, outputId)) continue
             await AudioAnalyser.attach(path, audio, outputId)
-            AudioAnalyser.setSourceVolume(path, audio.volume, outputId)
+            const vol = this.isOutputMuted(outputId) ? 0 : audio.volume
+            AudioAnalyser.setSourceVolume(path, vol, outputId)
             AudioAnalyser.setTempo(path, 1, outputId)
             if (data.pitch !== undefined) AudioAnalyser.setPitch(path, data.pitch, outputId)
             AudioAnalyser.recorderActivate()
@@ -719,24 +832,38 @@ export class VideoPlayer {
 
                 if ("timeTick" in audio) audio.currentTime = audio.timeTick.value
 
+                if (audio.duration > 0 && audio.currentTime > audio.duration + 3) {
+                    audio.currentTime = 0
+                    if ("timeTick" in audio) audio.timeTick.update(0)
+                }
+
                 const outputIds = video.linkedOutputIds || []
 
                 // check if ended before it actually ends, so we can fade out while next starts
                 // this also accounts for clearing player videos
                 this.checkIfEnding(video.path, outputIds)
 
+                let audibleOnlineOutputId: string | null = null
+                if (video.isOnline) {
+                    const unmutedOutputIds = outputIds.filter((outId) => !this.isOutputMuted(outId))
+                    // prioritize not invisible outputs
+                    audibleOnlineOutputId = unmutedOutputIds.find((outId) => !get(outputs)[outId]?.invisible) || unmutedOutputIds[0] || null
+                }
+
                 outputIds.forEach((outputId) => {
                     const id = `${video.path}_${outputId}`
                     const softLoop = video.softLoop || 0
                     const softLoopOpacity = this.handleSoftLoop(video, video.audio, softLoop, video.loop || false)
                     const activeAudio = video.audio
+                    const outputMuted = this.isOutputMuted(outputId)
+                    const isMuted = video.isOnline ? activeAudio.muted || outputId !== audibleOnlineOutputId : activeAudio.muted || outputMuted
 
                     a[id] = {
-                        currentTime: activeAudio.currentTime,
-                        duration: activeAudio.duration,
+                        currentTime: Number.isFinite(activeAudio.currentTime) ? activeAudio.currentTime : 0,
+                        duration: Number.isFinite(activeAudio.duration) && activeAudio.duration > 0 ? activeAudio.duration : 0,
                         paused: activeAudio.paused,
                         loop: video.loop || false,
-                        muted: activeAudio.muted,
+                        muted: isMuted,
                         softLoop,
                         softLoopOpacity,
                         type: video.type || "background",
@@ -774,9 +901,7 @@ export class VideoPlayer {
                 delete (video as any).crossfadeAudio
             }
             if (audio instanceof HTMLAudioElement && !this.isFadingOut.includes(video.path) && !this.isFadingIn.includes(video.path)) {
-                const vol = this.getVolume(video.path) * (video.replayGainMultiplier ?? 1)
-                audio.volume = Math.min(1, Math.max(0, vol))
-                AudioAnalyser.setSourceVolume(video.path, Math.max(0, vol))
+                this.updateVolume(video.path)
             }
             return 0
         }
@@ -794,9 +919,7 @@ export class VideoPlayer {
                 delete (video as any).crossfadeAudio
             }
             if (audio instanceof HTMLAudioElement && !this.isFadingOut.includes(video.path) && !this.isFadingIn.includes(video.path)) {
-                const vol = this.getVolume(video.path) * (video.replayGainMultiplier ?? 1)
-                audio.volume = Math.min(1, Math.max(0, vol))
-                AudioAnalyser.setSourceVolume(video.path, Math.max(0, vol))
+                this.updateVolume(video.path)
             }
             return 0
         }
@@ -829,7 +952,9 @@ export class VideoPlayer {
             // Scale GainNode via AudioAnalyser to support volumes above 1.0 (e.g. 1.25 / 125%)
             const currentVol = Math.max(0, baseVol * (1 - fadeProgress))
             audio.volume = Math.min(1, Math.max(0, currentVol))
-            AudioAnalyser.setSourceVolume(video.path, currentVol)
+            ;(video.linkedOutputIds || []).forEach((outId) => {
+                AudioAnalyser.setSourceVolume(video.path, this.isOutputMuted(outId) ? 0 : currentVol, outId)
+            })
 
             const nextVol = Math.max(0, baseVol * fadeProgress)
             nextAudio.volume = Math.min(1, Math.max(0, nextVol))
@@ -850,7 +975,7 @@ export class VideoPlayer {
                 linkedOutputIds.forEach((outId) => {
                     AudioAnalyser.updateSource(video.path, nextAudio, outId)
                 })
-                AudioAnalyser.setSourceVolume(video.path, baseVol)
+                this.updateVolume(video.path)
 
                 setTimeout(() => delete (video as any).isSwapping, 300)
                 return 0
@@ -860,6 +985,15 @@ export class VideoPlayer {
         return Math.max(0, Math.min(1, (softLoop - remaining) / softLoop))
     }
 }
+
+const SCENE_FADE_DURATION = 500
+// Scene/Style layer updater listeners
+outputs.subscribe(() => {
+    VideoPlayer.updateVolume(null, SCENE_FADE_DURATION)
+})
+styles.subscribe(() => {
+    VideoPlayer.updateVolume(null, SCENE_FADE_DURATION)
+})
 
 function videoEnding() {
     setTimeout(() => {

@@ -266,6 +266,26 @@ export function getFileStatsAsync(filePath: string): Promise<null | Stats> {
     })
 }
 
+export function getFolderSize(dir: string): number {
+    try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true })
+
+        const sizes = entries.map((entry) => {
+            const fullPath = join(dir, entry.name)
+
+            try {
+                return entry.isDirectory() ? getFolderSize(fullPath) : fs.statSync(fullPath).size
+            } catch {
+                return 0
+            }
+        })
+
+        return sizes.reduce((a, b) => a + b, 0)
+    } catch {
+        return 0
+    }
+}
+
 export function makeDir(folderPath: string) {
     try {
         fs.mkdirSync(folderPath, { recursive: true })
@@ -284,26 +304,26 @@ export function getValidFileName(filePath: string) {
 
 // SELECT DIALOGS
 
-export function selectFilesDialog(title = "", filters: Electron.FileFilter, multiple = true, initialPath = ""): string[] {
+export async function selectFilesDialog(title = "", filters: Electron.FileFilter, multiple = true, initialPath = ""): Promise<string[]> {
     // crashes if empty in electron v37
     if (!filters.extensions?.length) filters.extensions = ["*"]
 
-    const options: Electron.OpenDialogSyncOptions = { properties: ["openFile"], filters: [{ name: filters.name, extensions: filters.extensions }] }
+    const options: Electron.OpenDialogOptions = { properties: ["openFile"], filters: [{ name: filters.name, extensions: filters.extensions }] }
     if (title) options.title = title
     if (multiple) options.properties!.push("multiSelections")
     if (initialPath) options.defaultPath = initialPath
 
-    const files: string[] = dialog.showOpenDialogSync(mainWindow!, options) || []
-    return files
+    const result = await dialog.showOpenDialog(mainWindow!, options)
+    return result.canceled ? [] : result.filePaths || []
 }
 
-export function selectFolderDialog(title = "", defaultPath = ""): string {
-    const options: Electron.OpenDialogSyncOptions = { properties: ["openDirectory"] }
+export async function selectFolderDialog(title = "", defaultPath = ""): Promise<string> {
+    const options: Electron.OpenDialogOptions = { properties: ["openDirectory"] }
     if (title) options.title = title
     if (defaultPath) options.defaultPath = defaultPath
 
-    const folderPaths: string[] = dialog.showOpenDialogSync(mainWindow!, options) || [""]
-    return folderPaths[0]
+    const result = await dialog.showOpenDialog(mainWindow!, options)
+    return result.canceled || !result.filePaths.length ? "" : result.filePaths[0]
 }
 
 // DATA FOLDERS
@@ -430,7 +450,7 @@ export function getPaths() {
 
     return paths
 }
-function getMediaFolderPath(name: Parameters<typeof app.getPath>[0]): string {
+export function getMediaFolderPath(name: Parameters<typeof app.getPath>[0]): string {
     try {
         return app.getPath(name)
     } catch (err) {
@@ -576,8 +596,8 @@ function similarity(str1: string, str2: string) {
 }
 
 // OPEN_FOLDER
-export function selectFolder(msg: { channel: string; title?: string; path?: string }) {
-    const folder = selectFolderDialog(msg.title, msg.path)
+export async function selectFolder(msg: { channel: string; title?: string; path?: string }) {
+    const folder = await selectFolderDialog(msg.title, msg.path)
     if (!folder) return
 
     if (msg.channel === "SHOWS") {
@@ -590,9 +610,9 @@ export function selectFolder(msg: { channel: string; title?: string; path?: stri
 }
 
 // OPEN_FILE
-export function selectFiles(msg: { id: string; channel: string; title?: string; filter: Electron.FileFilter; multiple: boolean; read?: boolean }) {
-    const files = selectFilesDialog(msg.title, msg.filter, msg.multiple === undefined ? true : msg.multiple)
-    if (!files) return
+export async function selectFiles(msg: { id: string; channel: string; title?: string; filter: Electron.FileFilter; multiple: boolean; read?: boolean }) {
+    const files = await selectFilesDialog(msg.title, msg.filter, msg.multiple === undefined ? true : msg.multiple)
+    if (!files || !files.length) return
 
     const content: { [key: string]: string } = {}
     if (msg.read) files.forEach(getContent)
@@ -713,8 +733,6 @@ function parseMp4File<T>(filePath: string, fallback: T, setupListeners: (mp4boxf
     return new Promise((resolve) => {
         if (!fs.existsSync(filePath)) return resolve(fallback)
 
-        const MP4Box = require("mp4box")
-
         let fd: number | null = null
         let settled = false
 
@@ -733,6 +751,13 @@ function parseMp4File<T>(filePath: string, fallback: T, setupListeners: (mp4boxf
             const stats = fs.statSync(filePath)
             fd = fs.openSync(filePath, "r")
 
+            // Fast check: ISO-BMFF / MP4 containers must contain an "ftyp" box near the beginning
+            const headerBytes = Math.min(stats.size, 256 * 1024)
+            const header = Buffer.allocUnsafe(headerBytes)
+            fs.readSync(fd, header, 0, headerBytes, 0)
+            if (!header.includes("ftyp")) return cleanupAndResolve(fallback)
+
+            const MP4Box = require("mp4box")
             const mp4boxfile = MP4Box.createFile()
             mp4boxfile.onError = () => cleanupAndResolve(fallback)
 
@@ -972,7 +997,7 @@ export async function detectNewFiles() {
 
     // watch for file changes
     try {
-        fs.watch(downloadsFolder, { persistent: false }, async (eventType, filename) => {
+        const watcher = fs.watch(downloadsFolder, { persistent: false }, async (eventType, filename) => {
             if (eventType !== "rename" || !filename) return
 
             const ext = path.extname(filename).toLowerCase()
@@ -1006,6 +1031,10 @@ export async function detectNewFiles() {
                 if (!allRecentFiles.includes(filePath)) allRecentFiles.push(filePath)
                 sendToMain(ToMain.RECENTLY_ADDED_FILES, { paths: allRecentFiles })
             }, WRITE_WAIT_MS)
+        })
+
+        watcher.on("error", (err) => {
+            console.warn("Watcher error in downloads folder:", err)
         })
     } catch (err) {
         console.warn("No permission to watch folder:", err)
@@ -1189,8 +1218,11 @@ export function loadShows(returnShows = false, reCacheNames: string[] = []) {
         if (!show || !show[1]) return
 
         let id = show[0]
-        // some old duplicated shows might have the same id
-        if (newCachedShows[id]) id = uid()
+        // handle duplicate IDs across different show files
+        if (!id || newCachedShows[id] || (cachedShows[id] && cachedShows[id].name !== name)) {
+            id = uid()
+            writeFile(showPath, JSON.stringify([id, show[1]]), id)
+        }
 
         const trimmedShow = trimShow({ ...show[1], name })
         if (trimmedShow) newCachedShows[id] = trimmedShow
@@ -1268,8 +1300,11 @@ export async function loadShowsAsync(returnShows = false, reCacheNames: string[]
             if (!show || !show[1]) return
 
             let id = show[0]
-            // some old duplicated shows might have the same id
-            if (newCachedShows[id]) id = uid()
+            // handle duplicate IDs across different show files
+            if (!id || newCachedShows[id] || (cachedShows[id] && cachedShows[id].name !== name)) {
+                id = uid()
+                await writeFileAsync(showPath, JSON.stringify([id, show[1]]), id)
+            }
 
             const trimmedShow = trimShow({ ...show[1], name })
             if (trimmedShow) newCachedShows[id] = trimmedShow
@@ -1303,8 +1338,7 @@ function getTextCacheString(show: Show) {
     return Object.values(show.slides)
         .flatMap((slide) => slide?.items)
         .flatMap((item) => item?.lines || [])
-        .flatMap((line) => line?.text || [])
-        .map((text) => text?.value || "")
+        .map((line) => (line?.text || []).map((text) => text?.value || "").join(""))
         .join(" ")
         .toLowerCase()
 }

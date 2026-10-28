@@ -3,7 +3,7 @@
     import type { MediaStyle } from "../../../types/Main"
     import type { Item, Media, Show, Slide, SlideData } from "../../../types/Show"
     import { removeTagsAndContent } from "../../show/slides"
-    import { activeEdit, activePage, activeTimers, editMode, effects, focusMode, fullColors, groups, media, outputs, overlays, playerVideos, refreshListBoxes, refreshSlideThumbnails, slideNotesActive, slidesOptions, slideTimers, special, styles } from "../../stores"
+    import { activeEdit, activePage, activeShow, activeTimers, editMode, effects, focusMode, fullColors, groups, media, outputs, overlays, playerVideos, refreshListBoxes, refreshSlideThumbnails, slideDeleteHighlight, slideNotesActive, slidesOptions, slideTimers, special, styles } from "../../stores"
     import { wait } from "../../utils/common"
     import { translateText } from "../../utils/language"
     import { getAccess } from "../../utils/profile"
@@ -186,10 +186,10 @@
         if (viewMode !== "grid" && viewMode !== "simple" && viewMode !== "groups" && !noQuickEdit && viewMode !== "lyrics") style += `width: calc(${100 / columns}% - 6px)`
     }
 
-    function fadeColor(hexColor: string | null) {
-        if (typeof hexColor !== "string" || !hexColor.startsWith("#")) return ""
+    function fadeColor(hexColor: string | null, alpha = 0.7) {
+        if (typeof hexColor !== "string" || !hexColor.startsWith("#")) return hexColor || ""
         const rgb = hexToRgb(hexColor)
-        return `rgba(${rgb.r} ${rgb.g} ${rgb.b} / 0.7)`
+        return `rgba(${rgb.r} ${rgb.g} ${rgb.b} / ${alpha})`
     }
 
     $: slideFilter = getSlideFilter(layoutSlide)
@@ -218,19 +218,20 @@
     }
 
     let profile = getAccess("shows")
+    $: isFake = layoutSlide?.id === "fake_empty"
     $: isGroupLocked = isSlideLocked(showId, layoutSlide.id, show)
-    $: isLocked = show?.locked || isGroupLocked || profile.global === "read" || profile[show?.category || ""] === "read"
+    $: isLocked = isFake || show?.locked || isGroupLocked || profile.global === "read" || profile[show?.category || ""] === "read"
 
     // correct view order based on arranged order in Items.svelte (?.reverse())
     $: itemsList = clone(slide.items) || []
 
     // style template preview
-    $: if ($special.styleTemplatePreview !== false) updateItemsList(slide)
+    $: styleTemplateActive = $special.styleTemplatePreview !== false && allOutputsHasStyleTemplate(show?.reference?.type === "scripture", { $outputs, $styles })
+    $: if (styleTemplateActive) updateItemsList(slide, currentStyle)
     else itemsList = clone(slide.items) || []
-    function updateItemsList(_updater: any = null) {
+    function updateItemsList(_updater: any = null, _style: any = null) {
         // WIP show scripture style preview as well
-        if (!allOutputsHasStyleTemplate(show?.reference?.type === "scripture")) return
-        itemsList = setTemplateStyle({ id: showId, index }, currentStyle, itemsList, outputId, slide?.customDynamicValues)
+        itemsList = setTemplateStyle({ id: showId, index }, currentStyle, clone(slide.items) || [], outputId, slide?.customDynamicValues)
     }
 
     // $: styleTemplate = getStyleTemplate(null, currentStyle)
@@ -268,6 +269,9 @@
             clearInterval(interval)
         }
     })
+
+    $: isDeleteHighlighted = !!$slideDeleteHighlight?.indexes?.includes(index) && (showId === $activeShow?.id || showId === $activeEdit?.showId)
+    $: highlightColor = $slideDeleteHighlight?.color || "#ff5454"
 </script>
 
 <div class="main" class:active class:focused style="{output?.color ? 'outline: 2px solid ' + getOutputColor(output.color) + ';' : ''}width: {viewMode === 'grid' || viewMode === 'simple' || viewMode === 'groups' || noQuickEdit ? 100 / columns : 100}%;">
@@ -281,8 +285,15 @@
         <Actions {slide} {columns} {index} actions={layoutSlide.actions || {}} />
     {/if}
     <!-- content -->
-    <div class="slide context #{isLocked ? 'default' : $focusMode ? 'slideFocus' : name === null ? 'slideChild' : 'slide'}" class:disabled={layoutSlide.disabled} class:afterEnd={endIndex !== null && index > endIndex} {style} role="none" on:click>
+    <div class="slide context #{isFake ? 'slideFake' : isLocked ? 'default' : $focusMode ? 'slideFocus' : name === null ? 'slideChild' : 'slide'}" class:disabled={layoutSlide.disabled} class:afterEnd={endIndex !== null && index > endIndex} class:isDeleteHighlighted style="{style};{isDeleteHighlighted ? `--highlight-color: ${highlightColor};--highlight-bg: ${fadeColor(highlightColor, 0.35)};` : ''}" role="none" on:click>
         <div class="hover overlay" />
+
+        {#if isDeleteHighlighted}
+            <div class="deleteOverlay">
+                <Icon id={$slideDeleteHighlight?.icon || "delete"} size={8 * (1 / columns)} style="color: {highlightColor};" white />
+            </div>
+        {/if}
+
         <!-- <DropArea id="slide" hoverTimeout={0} file> -->
         <div style="width: 100%;height: 100%;">
             <SelectElem style={colorStyle} id="slide" data={{ index, showId }} draggable={!$focusMode && !isLocked} shiftRange={layoutSlides.map((_, index) => ({ index, showId }))} onlyRightClickSelect={$focusMode} selectable={!isLocked} trigger={list ? "column" : "row"}>
@@ -328,7 +339,7 @@
                         {#each layoutSlide.overlays as id}
                             {#if $overlays[id]?.placeUnderSlide === true}
                                 {#each $overlays[id]?.items || [] as item}
-                                    <Textbox {item} ref={{ type: "overlay", id }} preview />
+                                    <Textbox {item} ref={{ type: "overlay", id }} preview miniPreview />
                                 {/each}
                             {/if}
                         {/each}
@@ -361,6 +372,8 @@
                                     clickRevealed={!!output?.clickRevealed}
                                     {centerPreview}
                                     preview
+                                    outputStyle={styleTemplateActive ? currentStyle : null}
+                                    styleTemplateUsed={styleTemplateActive}
                                     chords={item.chords?.enabled}
                                 />
                             {/if}
@@ -381,7 +394,7 @@
                         {#each layoutSlide.overlays as id}
                             {#if $overlays[id] && !$overlays[id]?.placeUnderSlide}
                                 {#each $overlays[id]?.items || [] as item}
-                                    <Textbox {item} ref={{ type: "overlay", id }} preview />
+                                    <Textbox {item} ref={{ type: "overlay", id }} preview miniPreview />
                                 {/each}
                             {/if}
                         {/each}
@@ -502,6 +515,27 @@
     .slide :global(.isSelected) {
         outline: 5px solid var(--text) !important;
         border-radius: 0 !important;
+    }
+
+    /* hover highlight */
+    .slide.isDeleteHighlighted {
+        outline: 3px solid var(--highlight-color, #ff4444) !important;
+        outline-offset: -2px;
+        z-index: 3;
+    }
+    .deleteOverlay {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        position: absolute;
+        width: 100%;
+        height: 100%;
+
+        background-color: var(--highlight-bg, rgba(239, 68, 68, 0.35));
+
+        pointer-events: none;
+        z-index: 4;
     }
 
     .main.focused {

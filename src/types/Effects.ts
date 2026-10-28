@@ -6,6 +6,7 @@ export interface Effect {
     name: string
     isDefault?: boolean
     displayDuration?: number
+    bindings?: string[] // only show on specific outputs
     placeUnderSlide?: boolean
     color: string | null
     // options
@@ -17,7 +18,7 @@ export interface Effect {
 }
 
 // | "rain_screen"
-export type EffectType = "circle" | "rectangle" | "triangle" | "wave" | "bubbles" | "stars" | "galaxy" | "rain" | "snow" | "sun" | "lens_flare" | "spotlight" | "aurora" | "bloom" | "fog" | "city" | "rays" | "fireworks" | "cycle" | "grass" | "mountains" | "lightning" | "rainbow" | "mesh_gradient" | "asset"
+export type EffectType = "circle" | "rectangle" | "triangle" | "wave" | "bubbles" | "stars" | "galaxy" | "rain" | "snow" | "sun" | "lens_flare" | "spotlight" | "aurora" | "bloom" | "fog" | "city" | "rays" | "fireworks" | "confetti" | "candle" | "cycle" | "grass" | "mountains" | "lightning" | "rainbow" | "mesh_gradient" | "asset"
 export interface EffectItem<T extends EffectType = EffectType> {
     type: T
     hidden?: boolean
@@ -219,6 +220,22 @@ export interface FireworkItem extends EffectItem<"fireworks"> {
     size: number
     count: number
     speed: number
+}
+
+export interface ConfettiItem extends EffectItem<"confetti"> {
+    size: number
+    count: number
+    speed: number
+    loop?: boolean
+    color?: string
+}
+
+export interface CandleItem extends EffectItem<"candle"> {
+    width?: number
+    height?: number
+    color?: string
+    lit?: boolean
+    speed?: number
 }
 
 export interface CycleItem extends EffectItem<"cycle"> {

@@ -81,7 +81,8 @@
     const waitDuration = 200 // approximate auto size time
     let timeout: NodeJS.Timeout | null = null
     let prevItemsKey = ""
-    $: itemsKey = `${slideId || currentSlide?.id || ""}_${slideOffset}_${itemNumber}_${stageItem?.invertItems ? 1 : 0}_${style ? 1 : 0}_${(slide?.items || []).length}`
+    $: tempContentKey = currentSlide?.id === "temp" ? JSON.stringify(slide?.items || []) : ""
+    $: itemsKey = `${slideId || currentSlide?.id || ""}_${slideOffset}_${itemNumber}_${stageItem?.invertItems ? 1 : 0}_${style ? 1 : 0}_${(slide?.items || []).length}_${tempContentKey}`
     $: if (items && itemsKey !== prevItemsKey) {
         prevItemsKey = itemsKey
         preloadItems()
@@ -94,7 +95,7 @@
 
         if (timeout) clearTimeout(timeout)
 
-        timeout = setTimeout(() => timeoutFinished(currentlyLoading), items?.length && stageItem?.auto !== false ? waitDuration : 0)
+        timeout = setTimeout(() => timeoutFinished(currentlyLoading), items?.length && stageItem?.textFit !== "none" ? waitDuration : 0)
     }
 
     function timeoutFinished(newActive: boolean) {
@@ -121,18 +122,16 @@
                 <div class:loading={items1 && !firstActive}>
                     {#each items1 as item, i}
                         {#if !itemNumber || slide?.items?.length === 1 || itemNumber - 1 === i}
-                            <Textbox {item} customStyle={textStyle} {stageItem} {chords} {ref} maxLines={Number(slideOffset !== 0 && stageItem.lineCount)} maxLinesInvert={slideOffset < 0} stageAutoSize={(item.textFit !== "none" || item.auto) && autoSize} {fontSize} {clickRevealed} {revealed} isStage originalStyle />
+                            <Textbox {item} customStyle={textStyle} {stageItem} {chords} {ref} maxLines={Number(slideOffset !== 0 && stageItem.lineCount)} maxLinesInvert={slideOffset < 0} stageAutoSize={item.textFit !== "none" && autoSize} {fontSize} {clickRevealed} {revealed} isStage originalStyle />
                         {/if}
-                        <!-- (style ? item.auto && item.textFit === "growToFit" : item.auto) -->
                     {/each}
                 </div>
                 <div class:loading={items2 && firstActive}>
                     {#each items2 as item, i}
                         {#if !itemNumber || slide?.items?.length === 1 || itemNumber - 1 === i}
-                            <Textbox {item} customStyle={textStyle} {stageItem} {chords} {ref} maxLines={Number(slideOffset !== 0 && stageItem.lineCount)} maxLinesInvert={slideOffset < 0} stageAutoSize={(item.textFit !== "none" || item.auto) && autoSize} {fontSize} {clickRevealed} {revealed} isStage originalStyle />
+                            <Textbox {item} customStyle={textStyle} {stageItem} {chords} {ref} maxLines={Number(slideOffset !== 0 && stageItem.lineCount)} maxLinesInvert={slideOffset < 0} stageAutoSize={item.textFit !== "none" && autoSize} {fontSize} {clickRevealed} {revealed} isStage originalStyle />
                         {/if}
                     {/each}
-                    <!-- (style ? item.auto && (item.textFit || "shrinkToFit") === "growToFit" : item.auto) -->
                 </div>
             </Zoomed>
         </Main>

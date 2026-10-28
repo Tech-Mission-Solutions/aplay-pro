@@ -1,9 +1,14 @@
 <script lang="ts">
     import { onMount } from "svelte"
     import { actionHistory, activeTimers, drawerTabsData } from "../../../stores"
+    import { actionTimeouts, stopAllActionTimeouts } from "../../actions/actions"
+    import Icon from "../../helpers/Icon.svelte"
+    import T from "../../helpers/T.svelte"
+    import Button from "../../inputs/Button.svelte"
+    import InteractionsInfo from "../pages/InteractionsInfo.svelte"
     import TimerInfo from "../timers/TimerInfo.svelte"
     import OBSInfo from "./OBSInfo.svelte"
-    import InteractionsInfo from "../pages/InteractionsInfo.svelte"
+    import ScenesInfo from "./ScenesInfo.svelte"
 
     $: type = $drawerTabsData.functions?.activeSubTab || ""
 
@@ -30,12 +35,24 @@
             </p>
         {/if}
     </div>
+
+    {#if $actionTimeouts > 0}
+        <Button on:click={stopAllActionTimeouts} center dark>
+            <Icon id="stop" size={1.2} right />
+            <T id="media.stop" />
+            {#if $actionTimeouts > 1}
+                <span style="opacity: 0.5;margin-left: 5px;">({$actionTimeouts})</span>
+            {/if}
+        </Button>
+    {/if}
 {:else if type === "timer"}
     {#if $activeTimers.length}
         <TimerInfo />
     {/if}
 {:else if type === "variables"}
     <!-- VARIABLE -->
+{:else if type === "scenes"}
+    <ScenesInfo />
 {:else if type === "interactions"}
     <InteractionsInfo />
 {:else if type === "obs"}

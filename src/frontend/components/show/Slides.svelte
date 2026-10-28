@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount } from "svelte"
-    import { activeEdit, activeFocus, activePage, activePopup, alertMessage, cachedShowsData, categories, focusMode, lessonsLoaded, notFound, outLocked, outputs, outputSlideCache, showsCache, slidesOptions, special, templates } from "../../stores"
+    import { activeEdit, activeFocus, activePage, activePopup, alertMessage, cachedShowsData, categories, focusMode, groups, lessonsLoaded, notFound, outLocked, outputs, outputSlideCache, showsCache, slidesOptions, special, templates } from "../../stores"
     import { hasNewerUpdate, wait } from "../../utils/common"
     import { getAccess } from "../../utils/profile"
     import { videoExtensions } from "../../values/extensions"
@@ -37,7 +37,7 @@
         setTimeout(() => (hasMounted = true), 80)
 
         // custom fonts
-        if (currentShow?.settings?.customFonts) loadCustomFonts(currentShow.settings.customFonts)
+        loadCustomFonts(currentShow?.settings?.customFonts || [])
     })
 
     onDestroy(() => {
@@ -121,7 +121,7 @@
             }
 
             // get item click reveal
-            const clickRevealItems = (showSlide?.items || []).filter((a) => a?.clickReveal)
+            const clickRevealItems = Array.isArray(showSlide?.items) ? showSlide.items.filter((a) => a?.clickReveal) : []
             const isRevealed = clickRevealItems.length ? !!outSlide?.itemClickReveal : true
             let itemClickReveal = false
             if (outSlide && outSlide.id === showId && outSlide.layout === activeLayout && outSlide.index === index && clickRevealItems.length) {
@@ -130,7 +130,7 @@
             }
 
             // get lines reveal
-            const linesRevealItems = (showSlide?.items || []).filter((a) => a?.lineReveal)
+            const linesRevealItems = Array.isArray(showSlide?.items) ? showSlide.items.filter((a) => a?.lineReveal) : []
             let revealCount = outSlide?.revealCount ?? 0
             if (outSlide && outSlide.id === showId && outSlide.layout === activeLayout && outSlide.index === index && linesRevealItems.length && isRevealed) {
                 revealCount++
@@ -142,9 +142,6 @@
 
             setOutput("slide", { id: showId, layout: activeLayout, index, line, revealCount, itemClickReveal })
             updateOut(showId, index, slideRef, !e.altKey)
-
-            // force update output if index is the same as previous
-            if (activeSlides[index]) refreshOut()
         })
 
         // set to active in focus mode
@@ -174,6 +171,22 @@
 
     $: gridMode = mode === "grid" || mode === "simple" || mode === "groups"
 
+    // apply any group templates whenever a new slide group is added/updated
+    let previousTemplateSignature = ""
+    $: if (showId && loaded) {
+        const templateSignature = layoutSlides
+            .map((layoutSlide) => {
+                const slide = currentShow?.slides?.[layoutSlide.id]
+                const slideTemplate = slide?.settings?.template
+                const groupTemplate = slide?.globalGroup && $groups[slide.globalGroup]?.template
+                return slideTemplate || groupTemplate || ""
+            })
+            .join("|")
+
+        if (templateSignature && templateSignature !== previousTemplateSignature) setTimeout(updateTemplate, 100)
+        previousTemplateSignature = templateSignature
+    }
+
     // update show by its template
     $: if (showId && loaded) setTimeout(updateTemplate, 100)
     function updateTemplate() {
@@ -202,9 +215,10 @@
         let slides = _show(showId).get("slides") || {}
         Object.keys(slides).forEach((slideId) => {
             let slide = slides[slideId]
+            if (!Array.isArray(slide?.items)) return
 
-            slide?.items?.forEach((item) => {
-                if (!item?.lines) return
+            slide.items.forEach((item) => {
+                if (!Array.isArray(item?.lines)) return
 
                 item.lines.forEach((line) => {
                     if (!Array.isArray(line?.text)) return
@@ -503,7 +517,8 @@
                     <div class="grid" style={$focusMode ? "" : "padding-bottom: 60px;"}>
                         {#if layoutSlides.length}
                             {#each layoutSlides as slide, i}
-                                {@const currentSlide = currentShow?.slides?.[slide.id]}
+                                {@const currentSlide = currentShow?.slides?.[slide.id] || (slide.id === "fake_empty" ? { group: null, color: null, settings: {}, notes: "", items: [] } : undefined)}
+
                                 {#if hasMounted && (loaded || i < lazyLoader)}
                                     {#if currentSlide && (mode === "grid" || mode === "groups" || !slide.disabled) && (mode !== "groups" || currentSlide.group !== null || activeSlides[i] !== undefined)}
                                         <Slide {showId} slide={currentSlide} show={currentShow} {layoutSlides} layoutSlide={slide} index={i} color={slide.color} output={activeSlides[i]} active={activeSlides[i] !== undefined} {endIndex} list={!gridMode} columns={$slidesOptions.columns} icons {altKeyPressed} disableThumbnails={isLessons && !loaded} centerPreview on:click={(e) => slideClick(e, i)} />

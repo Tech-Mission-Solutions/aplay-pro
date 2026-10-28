@@ -21,6 +21,8 @@
     })
 
     function keydown(e: KeyboardEvent) {
+        if (e.ctrlKey || e.metaKey) return
+
         if (e.altKey) {
             e.preventDefault()
             altKeyPressed = true
@@ -136,7 +138,7 @@
                         {@const currentSlide = currentShow?.slides?.[slide.id]}
                         {#if hasMounted && (loaded || i < lazyLoader)}
                             {#if currentSlide}
-                                <Slide {showId} slide={currentSlide} show={currentShow} layoutSlide={slide} {layoutSlides} index={i} color={slide.color} active={findMatchingOut(slide.id) !== null} focused={$activeEdit.slide === i} noQuickEdit {altKeyPressed} columns={$editColumns} on:click={(e) => slideClick(e, i)} />
+                                <Slide {showId} slide={currentSlide} show={currentShow} layoutSlide={slide} {layoutSlides} index={i} color={slide.color} active={findMatchingOut(slide.id) !== null} focused={$activeEdit.slide === i} noQuickEdit {altKeyPressed} columns={$editColumns} centerPreview on:click={(e) => slideClick(e, i)} />
                             {/if}
                         {:else}
                             <SkeletonSlide slide={currentSlide} index={i} color={slide.color} columns={$editColumns} active={$activeEdit.slide === i} on:click={(e) => slideClick(e, i)} />

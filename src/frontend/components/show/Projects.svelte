@@ -10,6 +10,7 @@
     import { exportProject } from "../export/project"
     import { shareProjectLink } from "../export/projectLink"
     import { clone, keysToID, removeDuplicateValues, sortByName } from "../helpers/array"
+    import { duplicateShow } from "../helpers/clipboard"
     import { history } from "../helpers/history"
     import { getDefaultProjectName, getProjectName, projectReplacers } from "../helpers/historyHelpers"
     import Icon from "../helpers/Icon.svelte"
@@ -22,7 +23,7 @@
     import MaterialToggleSwitch from "../inputs/MaterialToggleSwitch.svelte"
     import Autoscroll from "../system/Autoscroll.svelte"
     import DropArea from "../system/DropArea.svelte"
-    import { getRecentlyUsedProjects, openProject } from "./project"
+    import { getRecentlyUsedProjects, isProjectLinked, openProject } from "./project"
     import ProjectContentList from "./ProjectContentList.svelte"
     import ProjectList from "./ProjectList.svelte"
 
@@ -92,6 +93,7 @@
     $: projectActive = !$projectView && $activeProject !== null
     $: currentProject = $activeProject ? $projects[$activeProject] : null
     $: currentProjectPcoFolderId = $activeProject ? ($contentProviderData?.planningcenter?.availablePlans as { planId: string; serviceTypeId: string }[] | undefined)?.find((p) => p.planId === $activeProject)?.serviceTypeId : undefined
+    $: currentProjectIsOnStage = !!$providerConnections.onstage && (currentProject?.origin === "onstage" || $activeProject?.startsWith("onstage_"))
 
     function createProject(folder = false) {
         let parent = interactedFolder || ($folders[currentProject?.parent || ""] ? currentProject?.parent || "/" : "/")
@@ -159,7 +161,7 @@
 
     // TEMPLATE
 
-    function createFromTemplate(e: any, id: string) {
+    async function createFromTemplate(e: any, id: string) {
         // prevent extra single click on (template) double click
         let { ctrl, doubleClick, target } = e.detail
 
@@ -171,10 +173,25 @@
         project.parent = interactedFolder || ($folders[currentProject?.parent || ""] ? currentProject?.parent || "/" : "/")
 
         if (project.name.includes("{") ? !ctrl : ctrl)
-            project.name = getProjectName({ default_project_name: project.name }) // replace actual name values
-        else project.name = getProjectName() // use default (auto) project name
+            project.name = getProjectName(project.parent, { default_project_name: project.name }) // replace actual name values
+        else project.name = getProjectName(project.parent) // use default (auto) project name
 
         let projectId = uid()
+
+        // duplicate any placeholder shows
+        if (project.shows?.length) {
+            project.shows = await Promise.all(
+                project.shows.map(async (item) => {
+                    if (item.type === "show_placeholder" && item.data?.showId) {
+                        // const customName = getProjectName(item.name) - allow {} values...?
+                        const newShowId = await duplicateShow(item.data.showId)
+                        return { id: newShowId, type: "show" }
+                    }
+                    return item
+                })
+            )
+        }
+
         history({ id: "UPDATE", newData: { data: project }, oldData: { id: projectId }, location: { page: "show", id: "project" } })
         setTimeout(() => activeRename.set("project_" + projectId))
     }
@@ -308,12 +325,19 @@
         return titles.join("<br>")
     }
 
+    function toggleSectionsCollapsed() {
+        updateProject("sectionsCollapsed", !currentProject?.sectionsCollapsed)
+    }
     function lockSections() {
+        updateProject("sectionsLocked", !currentProject?.sectionsLocked)
+    }
+
+    function updateProject(key: string, value: any) {
         const projectId = $activeProject || ""
         projects.update((a) => {
             if (!a[projectId]) return a
 
-            a[projectId].sectionsLocked = !a[projectId].sectionsLocked
+            a[projectId][key] = value
             return a
         })
     }
@@ -327,6 +351,11 @@
 
     function refreshPcoProject(serviceTypeId: string, planId: string) {
         sendMain(Main.PCO_LOAD_PLAN, { serviceTypeId, planId })
+    }
+
+    function refreshOnStageProject(projectId: string) {
+        const serviceId = projectId.replace("onstage_", "")
+        sendMain(Main.ONSTAGE_LOAD_SERVICE, { serviceId, data: $contentProviderData.onstage })
     }
 
     function handleKeydown(e: KeyboardEvent) {
@@ -371,6 +400,14 @@
                             {#if showProjectDropdown && currentProject}
                                 <!-- WIP use context menu style -->
                                 <div class="projectDropdown" transition:fade={{ duration: 100 }} role="none" on:click={() => (showProjectDropdown = false)}>
+                                    {#if currentProjectIsOnStage && $activeProject}
+                                        <MaterialButton title="Sync with OnStage" icon="refresh" on:click={() => refreshOnStageProject($activeProject)} white>
+                                            <T id="cloud.sync" />
+                                        </MaterialButton>
+
+                                        <div class="DIVIDER"></div>
+                                    {/if}
+
                                     {#if currentProjectPcoFolderId && $activeProject}
                                         <MaterialButton title="Sync with Planning Center" icon="refresh" on:click={() => refreshPcoProject(currentProjectPcoFolderId, $activeProject)} white>
                                             <T id="cloud.sync" />
@@ -400,9 +437,7 @@
                                     <MaterialButton title="timeline.toggle_timeline" on:click={() => special.update((a) => ({ ...a, projectTimelineActive: !a.projectTimelineActive }))}>
                                         <Icon id="timeline" white={!$special.projectTimelineActive} />
 
-                                        {#if $special.projectTimelineActive}
-                                            <Icon id="check" size={0.7} white />
-                                        {/if}
+                                        {#if $special.projectTimelineActive}<Icon id="check" size={0.7} white />{/if}
 
                                         <p><T id="timeline.toggle_timeline" /></p>
                                     </MaterialButton>
@@ -410,10 +445,14 @@
                                     {#if currentProject.shows?.some((a) => a.type === "section")}
                                         <div class="DIVIDER"></div>
 
+                                        <MaterialButton title="actions.collapsed" icon="collapse" on:click={() => toggleSectionsCollapsed()} white={!currentProject.sectionsCollapsed}>
+                                            {#if currentProject.sectionsCollapsed}<Icon id="check" size={0.7} white />{/if}
+
+                                            <T id="actions.collapsed" />
+                                        </MaterialButton>
+
                                         <MaterialButton title="actions.lock_sections" icon="lock" on:click={() => lockSections()} white={!currentProject.sectionsLocked}>
-                                            {#if currentProject.sectionsLocked}
-                                                <Icon id="check" size={0.7} white />
-                                            {/if}
+                                            {#if currentProject.sectionsLocked}<Icon id="check" size={0.7} white />{/if}
 
                                             <T id="actions.lock_sections" />
                                         </MaterialButton>
@@ -474,7 +513,7 @@
 
                 {#if isVisible}
                     <MaterialButton style="width: 100%;padding: 0.08rem 0.65rem;font-weight: normal;" title="actions.id_select_project: <b>{project.name}</b>" on:click={(e) => openRecentlyUsed(e, project.id)} isActive={$activeProject === project.id} tab>
-                        <Icon id="project" />
+                        <Icon id={isProjectLinked($projects[project.id], project.id, $contentProviderData) ? "cloud" : "project"} white={$projects[project.id]?.archived} />
                         <HiddenInput value={project.name} id={"project_" + project.id} allowEdit={false} />
                     </MaterialButton>
                 {/if}
@@ -484,7 +523,7 @@
         <ProjectContentList tree={[]} on:scrollElem={(e) => (contentScrollElem = e.detail)} isTemplate />
     {:else if !projectActive && showProjectsOptions}
         <div class="options">
-            <MaterialTextInput label="settings.default_project_name<span style='opacity: 0.5;padding-left: 8px;font-size: 0.8em;color: var(--text);'>{getProjectName($special)}</span>" title={projectReplacerTitle} value={projectName} defaultValue={getDefaultProjectName()} on:change={(e) => updateSpecial(e.detail, "default_project_name", true)} />
+            <MaterialTextInput label="settings.default_project_name<span style='opacity: 0.5;padding-left: 8px;font-size: 0.8em;color: var(--text);'>{getProjectName('', $special)}</span>" title={projectReplacerTitle} value={projectName} defaultValue={getDefaultProjectName()} on:change={(e) => updateSpecial(e.detail, "default_project_name", true)} />
             <MaterialToggleSwitch label="settings.startup_projects_list" checked={$special.startupProjectsList} defaultValue={false} on:change={(e) => updateSpecial(e.detail, "startupProjectsList")} />
         </div>
     {:else if !projectActive}

@@ -4,6 +4,7 @@ import type { CaptureOptions } from "../capture/CaptureOptions"
 
 export class Output {
     window!: BrowserWindow
+    osr?: boolean // captured via offscreen paint events instead of the capturePage poll
     invisible?: boolean
     boundsLocked?: boolean
     screen?: string | null

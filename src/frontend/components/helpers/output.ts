@@ -3,12 +3,51 @@ import { uid } from "uid"
 import { OUTPUT } from "../../../types/Channels"
 import { Main } from "../../../types/IPC/Main"
 import type { Output, Outputs, RtmpDestination } from "../../../types/Output"
-import { createDestination, hasStreamableDestination } from "./rtmpDestinations"
 import type { Resolution, Styles } from "../../../types/Settings"
 import type { Item, Layout, LayoutRef, Media, OutSlide, Show, Slide, SlideData, Template, TemplateSettings, Transition } from "../../../types/Show"
 import { AudioAnalyser } from "../../audio/audioAnalyser"
 import { requestMain, sendMain } from "../../IPC/main"
-import { actions, activeFocus, activeProject, activeRename, activeShow, activeTimers, allOutputs, categories, connections, currentOutputSettings, customMessageCredits, disabledServers, effects, focusMode, lockedOverlays, media, outputDisplay, outputs, outputSlideCache, outputState, overlays, overlayTimers, projects, scriptures, scriptureSettings, serverData, showsCache, special, stageShows, styles, templates, theme, themes, transitionData, usageLog } from "../../stores"
+import {
+    actions,
+    activeFocus,
+    activeProject,
+    activeRename,
+    activeScenes,
+    activeShow,
+    activeTimers,
+    allOutputs,
+    categories,
+    connections,
+    currentOutputSettings,
+    customMessageCredits,
+    disabledServers,
+    effects,
+    focusMode,
+    lockedOverlays,
+    media,
+    outLocked,
+    outputDisplay,
+    outputs,
+    outputSlideCache,
+    outputState,
+    overlays,
+    overlayTimers,
+    projects,
+    scenes,
+    scriptures,
+    scriptureSettings,
+    serverData,
+    showsCache,
+    special,
+    stageShows,
+    styles,
+    syncedOutputs,
+    templates,
+    theme,
+    themes,
+    transitionData,
+    usageLog
+} from "../../stores"
 import { trackScriptureUsage } from "../../utils/analytics"
 import { isMainWindow, isOutputWindow, newToast } from "../../utils/common"
 import { translateText } from "../../utils/language"
@@ -24,13 +63,57 @@ import { VideoPlayer } from "../media/video/videoPlayer"
 import { clearBackground, clearSlide } from "../output/clear"
 import { areObjectsEqual, clone, keysToID, removeDuplicates, sortByName, sortObject } from "./array"
 import { getExtension, getFileName, getMediaLayerType, getMediaType, removeExtension } from "./media"
+import { createDestination, hasStreamableDestination } from "./rtmpDestinations"
 import { getLayoutRef } from "./show"
 import { getFewestOutputLines, getItemWithMostLines } from "./showActions"
 import { _show } from "./shows"
 import { getStyles } from "./style"
 
+// Resolve output ID or name to matching local output ID
+export function resolveOutputId(targetId: string, currentOutputs: Outputs = get(outputs)): string | null {
+    if (!targetId || currentOutputs[targetId]) return targetId || null
+
+    const registry = get(syncedOutputs) || {}
+    const targetName = registry[targetId] || targetId
+    const normalized = targetName.trim().toLowerCase()
+
+    const match = Object.entries(currentOutputs).find(([_, out]) => out?.name?.trim().toLowerCase() === normalized)
+    return match ? match[0] : null
+}
+
+export function resolveOutputIds(outputIds: string[], currentOutputs: Outputs = get(outputs)): string[] {
+    if (!outputIds || !outputIds.length) return []
+    return removeDuplicates(outputIds.map((id) => resolveOutputId(id, currentOutputs)).filter(Boolean) as string[])
+}
+
+// Check if output ID is included in bindings (supports ID and name resolution)
+export function isOutputBound(bindings: string[] | undefined, currentOutputId: string, currentOutputs: Outputs = get(outputs)): boolean {
+    if (!bindings || !bindings.length) return true
+    if (!currentOutputId) return false
+    return bindings.includes(currentOutputId) || bindings.some((bId) => resolveOutputId(bId, currentOutputs) === currentOutputId)
+}
+
+export function updateSyncedOutputs() {
+    const outs = get(outputs)
+    if (!outs) return
+    syncedOutputs.update((synced = {}) => {
+        let changed = false
+        const updated = { ...synced }
+        for (const [id, out] of Object.entries(outs)) {
+            if (out?.name && updated[id] !== out.name) {
+                updated[id] = out.name
+                changed = true
+            }
+        }
+        return changed ? updated : synced
+    })
+}
+
+///
+
 export function toggleOutputs(outputIds: string[] | null = null, options: { force?: boolean; autoStartup?: boolean; state?: boolean } = {}) {
     if (outputIds === null) outputIds = getActiveOutputs(get(outputs), false)
+    else outputIds = resolveOutputIds(outputIds)
     // if (outputIds === null) outputIds = Object.keys(get(outputs))
 
     const outputsList = outputIds.map((id) => ({ ...get(outputs)[id], id })).filter((a) => a.enabled)
@@ -39,12 +122,14 @@ export function toggleOutputs(outputIds: string[] | null = null, options: { forc
     // sort so display order can be changed! (needs app restart)
     const sortedOutputList = sortObject(sortByName(outputsList), "stageOutput")
 
-    const currentOutputState = !!get(outputState).find((a) => a.id === outputIds[0])?.active
-    const state = typeof options.state === "boolean" ? options.state : options.force || !(outputIds.length === 1 ? currentOutputState : get(outputDisplay))
+    const visibleOutputs = sortedOutputList.filter((a) => !a.invisible)
+    const primaryVisibleId = visibleOutputs[0]?.id || outputIds[0]
+    const currentOutputState = !!get(outputState).find((a) => a.id === primaryVisibleId)?.active
+    const state = typeof options.state === "boolean" ? options.state : options.force || !(visibleOutputs.length === 1 ? currentOutputState : get(outputDisplay))
 
-    const autoPosition = sortedOutputList.length === 1 && !sortedOutputList[0].forcedResolution?.width
+    const autoPosition = options.force ? false : sortedOutputList.length === 1 && !sortedOutputList[0].forcedResolution?.width
 
-    send(OUTPUT, ["TOGGLE_OUTPUTS"], { outputs: sortedOutputList, state, force: options.force, autoStartup: options.autoStartup, autoPosition })
+    send(OUTPUT, ["TOGGLE_OUTPUTS"], { outputs: sortedOutputList, state, autoStartup: options.autoStartup, autoPosition })
 }
 
 export function toggleOutput(id: string) {
@@ -62,11 +147,11 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
     // stop any active break slide recording when the slide changes
     if (type === "slide") _stopBreakRecording()
 
-    customActionActivation("output_changed")
-
     const bindings = data?.bindings || (data?.layout ? ref[data.index]?.data?.bindings || [] : [])
-    const allOutputIds = bindings.length ? bindings : getActiveOutputs(get(outputs), true, false, true)
-    const outs = outputId ? [outputId] : allOutputIds
+    const resolvedBindings = bindings.length ? resolveOutputIds(bindings) : []
+    const allOutputIds = resolvedBindings.length ? resolvedBindings : getActiveOutputs(get(outputs), true, false, true)
+    const resolvedOutputId = outputId ? resolveOutputId(outputId) || outputId : ""
+    const outs = resolvedOutputId ? [resolvedOutputId] : allOutputIds
 
     // track usage (& set attributionString)
     if (type === "slide" && data?.id) {
@@ -90,10 +175,12 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
 
         if (data.type === "pdf") {
             const out = get(outputs)[outs[0]]?.out?.slide
-            if (out?.type !== "pdf") customActionActivation("pdf_start")
+            // timeout to activate after output has updated
+            if (out?.type !== "pdf") setTimeout(() => customActionActivation("pdf_start"))
         } else {
             const groupId = slide.globalGroup
-            if (groupId) customActionActivation("group_start", groupId)
+            // timeout to activate after output has updated
+            if (groupId) setTimeout(() => customActionActivation("group_start", groupId))
 
             // start recording time on break slides (no items, globalGroup === "break")
             const layoutSlideIndex = ref[data.index]?.type === "parent" ? (ref[data.index]?.index ?? -1) : -1
@@ -146,13 +233,26 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
         }
 
         let toggleState = false
-        outs.forEach((id: string, i: number) => {
+        let toggleStateSet = false
+        outs.forEach((id: string) => {
             const output = a[id]
             if (!output) return
 
             if (!output.out) a[id].out = {}
             if (!output.out?.[type]) a[id].out![type] = type === "overlays" || type === "effects" ? [] : null
             data = clone(inputData)
+
+            // effects bound to specific outputs
+            if (type === "effects" && data) {
+                const wasArray = Array.isArray(data)
+                const effectIds: string[] = wasArray ? data : [data]
+                const allowedIds = effectIds.filter((effectId) => {
+                    const effectBindings = get(effects)[effectId]?.bindings || []
+                    return !effectBindings.length || isOutputBound(effectBindings, id)
+                })
+                if (effectIds.length && !allowedIds.length) return
+                data = wasArray ? allowedIds : allowedIds[0]
+            }
 
             if (type === "slide" && data === null && output.out?.slide?.type === "ppt") {
                 sendMain(Main.PRESENTATION_CONTROL, { action: "stop" })
@@ -169,7 +269,10 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
             let outData = a[id].out?.[type] || null
             if ((type === "overlays" || type === "effects") && data?.length) {
                 if (!Array.isArray(data)) data = [data]
-                if (toggle && i === 0) toggleState = outData?.includes(data[0])
+                if (toggle && !toggleStateSet) {
+                    toggleState = outData?.includes(data[0])
+                    toggleStateSet = true
+                }
                 if (toggle && toggleState) outData.splice(outData.indexOf(data[0]), 1)
                 else if (toggle || add) outData = removeDuplicates([...(a[id].out?.[type] || []), ...data])
                 else outData = data
@@ -192,14 +295,51 @@ export function setOutput(type: string, data: any, toggle = false, outputId = ""
                 }
             }
 
+            if (type === "slide") {
+                const previousSlide = a[id].out?.slide || null
+                const isTempSlide = outData?.id === "temp" || outData?.id === "tempText"
+                const sameSlideOutput = !!previousSlide && !!outData && !isTempSlide && previousSlide.id === outData.id && previousSlide.layout === outData.layout && previousSlide.index === outData.index && previousSlide.page === outData.page && previousSlide.type === outData.type
+
+                if (sameSlideOutput) {
+                    a[id].out!.refresh = Number(a[id].out!.refresh || 0) + 1
+                }
+            }
+
             a[id].out![type] = clone(outData)
 
-            // save locked overlays
-            if (type === "overlays") lockedOverlays.set(outData)
+            // save locked overlays / outputted scenes for relaunch
+            if (type === "overlays") saveLockedOverlays(a)
+            if (type === "scene") saveActiveScenes(a)
         })
 
         return a
     })
+
+    customActionActivation("output_changed")
+}
+
+function saveLockedOverlays(a: any) {
+    const overlaysMap: { [overlayId: string]: string[] } = {}
+    Object.keys(a).forEach((outputId) => {
+        a[outputId].out?.overlays?.forEach((overlayId) => {
+            if (!get(overlays)[overlayId]?.locked) return
+
+            if (!overlaysMap[overlayId]) overlaysMap[overlayId] = []
+            overlaysMap[overlayId].push(outputId)
+        })
+    })
+    lockedOverlays.set(overlaysMap)
+}
+function saveActiveScenes(a: any) {
+    const scenesMap: { [sceneId: string]: string[] } = {}
+    Object.keys(a).forEach((outputId) => {
+        const sceneId = a[outputId].out?.scene?.id
+        if (!sceneId) return
+
+        if (!scenesMap[sceneId]) scenesMap[sceneId] = []
+        scenesMap[sceneId].push(outputId)
+    })
+    activeScenes.set(scenesMap)
 }
 
 // setup video manager (and audio analyser)
@@ -209,15 +349,17 @@ function checkAudio(type: string, data: any, allOutputIds: string[], outs: strin
             const newPath = data.path || data.id || ""
 
             // stop any playing backgrounds (if different than new path)
+            let hasActiveBg = false
             allOutputIds.forEach((outputId) => {
                 const currentBg = get(outputs)[outputId]?.out?.background
                 const bgPath = currentBg?.path || currentBg?.id || ""
+                if (bgPath) hasActiveBg = true
 
                 // this will "break" any playing video items if it's the same
                 if (bgPath && bgPath !== newPath) VideoPlayer.stop(bgPath, outputId)
             })
 
-            VideoPlayer.start(newPath, { loop: data.loop, muted: data.muted, startAt: data.startAt || 0, isOnline: data.type === "player" }, allOutputIds)
+            VideoPlayer.start(newPath, { loop: data.loop, muted: data.muted, startAt: data.startAt || 0, isOnline: data.type === "player", hasActiveBg }, allOutputIds)
         } else {
             VideoPlayer.stopByOutputIds(allOutputIds)
         }
@@ -241,7 +383,7 @@ function checkAudio(type: string, data: any, allOutputIds: string[], outs: strin
 
         // start new video items
         newItems.forEach((item: any) => {
-            VideoPlayer.start(item.src, { loop: item.loop !== false, muted: item.muted, startAt: item.startAt || 0, type: "item" }, allOutputIds)
+            VideoPlayer.start(item.src, { loop: item.loop !== false, muted: item.muted, startAt: item.startAt || item.fromTime || 0, fromTime: item.fromTime, toTime: item.toTime, volume: item.volume, type: "item" }, allOutputIds)
         })
     }
 }
@@ -358,6 +500,50 @@ export function startScreen(screen: API_screen) {
     setOutput("background", { name: screen.name || "", id: screen.id, type: "screen" })
 }
 
+export function startScene(id: string, specificOutputIds: string[] | null = null) {
+    if (get(outLocked)) return
+
+    const scene = get(scenes)[id]
+    if (!scene) return
+
+    const bindings = specificOutputIds?.length ? specificOutputIds : scene.bindings || []
+    const activeOutputIds = getAllActiveOutputIds()
+    const targetOutputIds = bindings.length ? activeOutputIds.filter((outputId) => isOutputBound(bindings, outputId)) : activeOutputIds
+    if (!targetOutputIds.length) return
+
+    const currentOutputs = get(outputs)
+    const isAlreadyOutputted = targetOutputIds.every((outputId) => currentOutputs[outputId]?.out?.scene?.id === id)
+    if (isAlreadyOutputted) return
+
+    outputScene(id, targetOutputIds)
+
+    // run action
+    const actionId = scene.action
+    if (actionId && get(actions)[actionId]) {
+        runAction({ ...get(actions)[actionId], id: actionId }, { source: "scene" })
+    }
+}
+
+export function updateActiveSceneOutputs(sceneId: string) {
+    const currentOutputs = get(outputs)
+    const matchingOutputIds = Object.keys(currentOutputs).filter((outputId) => currentOutputs[outputId]?.out?.scene?.id === sceneId)
+    if (!matchingOutputIds.length) return
+
+    outputScene(sceneId, matchingOutputIds)
+}
+
+function outputScene(sceneId: string, targetOutputIds: string[] = []) {
+    const scene = get(scenes)[sceneId]
+    if (!scene) return
+
+    const content = scene.content || {}
+
+    // output scene to target outputs
+    targetOutputIds.forEach((outputId) => {
+        setOutput("scene", { ...content, id: sceneId, name: scene.name }, false, outputId)
+    })
+}
+
 /// EFFECTS
 
 const FULLSCREEN_EFFECT_TYPES = ["mesh_gradient", "rays"]
@@ -435,13 +621,17 @@ export function getAllOutputs() {
 export function getAllEnabledOutputs() {
     const outputsList = getAllOutputs()
     const enabled = outputsList.filter((a) => a.enabled)
-    if (!enabled.length && isMainWindow()) {
+
+    // enable first if no outputs are currently enabled
+    if (!enabled.length && isMainWindow() && outputsList.length > 0) {
         outputs.update((a) => {
-            a[Object.keys(a)[0]].enabled = true
+            const firstId = outputsList[0].id
+            if (a[firstId]) a[firstId].enabled = true
             return a
         })
         return [outputsList[0]]
     }
+
     return enabled
 }
 
@@ -466,13 +656,17 @@ export function getWindowOutputId() {
 export function getAllActiveOutputs() {
     const outputsList = getAllNormalOutputs()
     const active = outputsList.filter((a) => a.active)
-    if (!active.length && isMainWindow()) {
+
+    // set first to active if no outputs are currently active
+    if (!active.length && isMainWindow() && outputsList.length > 0) {
         outputs.update((a) => {
-            a[Object.keys(a)[0]].active = true
+            const firstNormalId = outputsList[0].id
+            if (a[firstNormalId]) a[firstNormalId].active = true
             return a
         })
         return [outputsList[0]]
     }
+
     return active
 }
 export function getAllActiveOutputIds() {
@@ -519,15 +713,34 @@ export function findMatchingOut(id: string, updater: Outputs = get(outputs)): st
             else if ((output.out?.background?.path || output.out?.background?.id) === id) match = output.color
             else if (output.out?.overlays?.includes(id)) match = output.color
             else if (output.out?.effects?.includes(id)) match = output.color
+            else if (output.out?.scene?.id === id) match = output.color
         }
     })
 
     return match
 }
 
+export function getFirstOutputIdWithBackground(outputIds: string[] = [], _updater: any = null) {
+    if (!outputIds.length) outputIds = getAllNormalOutputs().map((a) => a.id)
+
+    return (
+        outputIds.find((id) => {
+            const output = get(outputs)[id]
+            if (!output || output.stageOutput) return false
+
+            const style = get(styles)[output.style || ""]
+            let layers = style?.layers
+            if (!Array.isArray(layers)) layers = ["background"]
+
+            return layers.includes("background")
+        }) || null
+    )
+}
+
 // used for checking if style template should be used as slide preview - only if all outputs have it
-export function allOutputsHasStyleTemplate(isScripture: boolean = false) {
+export function allOutputsHasStyleTemplate(isScripture: boolean = false, _updater: any = null) {
     const outputs = getAllNormalOutputs()
+    if (!outputs.length) return false
     return outputs.every((output) => {
         const style = output.style ? get(styles)[output.style] || null : null
         const template = style?.[isScripture ? "templateScripture" : "template"]
@@ -535,19 +748,14 @@ export function allOutputsHasStyleTemplate(isScripture: boolean = false) {
     })
 }
 
-export function refreshOut(refresh = true) {
+export function refreshOut() {
     outputs.update((a) => {
         getAllActiveOutputs().forEach(({ id }) => {
-            a[id].out = { ...a[id].out, refresh }
+            if (!a[id]) return
+            a[id].out = { ...a[id].out, refresh: Number(a[id].out?.refresh || 0) + 1 }
         })
         return a
     })
-
-    if (refresh) {
-        setTimeout(() => {
-            refreshOut(false)
-        }, 100)
-    }
 }
 
 // outputs is just for updates
@@ -562,6 +770,7 @@ export function isOutCleared(key: string | null = null, updater: Outputs = get(o
         const keys: string[] = key ? [key] : Object.keys(output.out || {})
         cleared = !keys.some((type: string) => {
             if (!output.out?.[type]) return
+            if (key === null && (type === "scene" || type === "refresh")) return false
 
             if (type === "overlays") {
                 if (!Array.isArray(output.out.overlays)) return false
@@ -616,17 +825,28 @@ export function getResolution(initial: Resolution | undefined | null = null, _up
 
     if (currentOutput?.stageOutput) return currentOutput.bounds ?? DEFAULT_BOUNDS
 
-    const style = styleIdOverride || currentOutput?.style ? get(styles)[(styleIdOverride || currentOutput?.style)!] || null : null
+    const styleId = styleIdOverride || currentOutput?.style || ""
+    const style = styleId ? get(styles)[styleId] || null : null
     const styleRatio: any = style?.aspectRatio || style?.resolution
 
-    const ratio = styleRatio?.outputResolutionAsRatio ? currentOutput?.bounds : styleRatio
+    // cropping affects aspect ratio if "outputResolutionAsRatio"
+    if (styleRatio?.outputResolutionAsRatio) {
+        const bounds = currentOutput?.bounds ?? DEFAULT_BOUNDS
+        const cropping = currentOutput?.cropping || style?.cropping
+        const cropWidth = (Number(cropping?.left) || 0) + (Number(cropping?.right) || 0)
+        const cropHeight = (Number(cropping?.top) || 0) + (Number(cropping?.bottom) || 0)
+        return {
+            width: Math.max(1, bounds.width - cropWidth),
+            height: Math.max(1, bounds.height - cropHeight)
+        }
+    }
 
-    return ratio || { width: 16, height: 9 }
+    return styleRatio || { width: 16, height: 9 }
 }
 
 // this will get the first available stage output
 export function getStageOutputId(_updater = get(outputs)) {
-    return Object.values(_updater).find((a) => a.stageOutput && a.enabled)?.id || ""
+    return keysToID(_updater).find((a) => a.stageOutput && a.enabled)?.id || ""
 }
 
 export function getStageResolution(outputId = "", _updater = get(outputs)): Resolution {
@@ -638,9 +858,15 @@ export function getStageResolution(outputId = "", _updater = get(outputs)): Reso
 export const DEFAULT_BOUNDS = { width: 1920, height: 1080 }
 const outputResolutionCache = new Map<string, Resolution>()
 
-export function getOutputResolution(outputId: string, _updater = get(outputs), scaled = false, styleIdOverride = "") {
+export function getOutputResolution(outputId: string, _updater = get(outputs), scaled = false, styleIdOverride = "", _stylesUpdater = get(styles)) {
     const currentOutput = _updater[outputId]
-    const cacheKey = `${outputId}_${scaled}_${styleIdOverride}_${currentOutput?.style || ""}_${currentOutput?.bounds?.width || 0}_${currentOutput?.bounds?.height || 0}`
+    const effectiveStyleId = styleIdOverride || currentOutput?.style || ""
+    const currentStyle = effectiveStyleId ? _stylesUpdater[effectiveStyleId] : null
+    const styleRatioVal: any = currentStyle?.aspectRatio || currentStyle?.resolution
+    const cropping = currentOutput?.cropping || currentStyle?.cropping
+    const cropKey = cropping ? `${cropping.top || 0}_${cropping.right || 0}_${cropping.bottom || 0}_${cropping.left || 0}` : ""
+    const styleRatioKey = styleRatioVal ? `${styleRatioVal.width}x${styleRatioVal.height}_${styleRatioVal.outputResolutionAsRatio ? 1 : 0}_${cropKey}` : ""
+    const cacheKey = `${outputId}_${scaled}_${effectiveStyleId}_${styleRatioKey}_${currentOutput?.bounds?.width || 0}_${currentOutput?.bounds?.height || 0}`
     const cached = outputResolutionCache.get(cacheKey)
     if (cached) return { ...cached }
 
@@ -764,7 +990,9 @@ function stageHasOutput(outputId: string) {
             if (!outputItem) return false
         }
 
-        return (outputItem?.currentOutput?.source || stageLayout.settings?.output || outputId) === outputId
+        const targetOutput = outputItem?.currentOutput?.source || stageLayout.settings?.output
+        const resolvedTarget = targetOutput ? resolveOutputId(targetOutput) : outputId
+        return (resolvedTarget || outputId) === outputId
 
         // WIP check that this stage layout is not disabled & used in a output or (web enabled (disabledServers) + has connection)!
     })
@@ -773,9 +1001,10 @@ function stageHasOutput(outputId: string) {
 // Streaming
 
 export function startStreaming(outputId: string = "") {
-    const outputIds = outputId ? [outputId] : getAllActiveOutputIds()
+    const resolvedId = outputId ? resolveOutputId(outputId) || outputId : ""
+    const outputIds = resolvedId ? [resolvedId] : getAllActiveOutputIds()
 
-    outputIds.forEach((outputId) => updateOutputWebrtcData(outputId, "streaming", true))
+    outputIds.forEach((id) => updateOutputWebrtcData(id, "streaming", true))
 }
 
 export async function stopStreaming(outputId: string = "", confirmStop: boolean = false) {
@@ -784,22 +1013,25 @@ export async function stopStreaming(outputId: string = "", confirmStop: boolean 
         if (!confirmed) return
     }
 
-    const outputIds = outputId ? [outputId] : getAllActiveOutputIds()
+    const resolvedId = outputId ? resolveOutputId(outputId) || outputId : ""
+    const outputIds = resolvedId ? [resolvedId] : getAllActiveOutputIds()
 
-    outputIds.forEach((outputId) => updateOutputWebrtcData(outputId, "streaming", false))
+    outputIds.forEach((id) => updateOutputWebrtcData(id, "streaming", false))
 }
 
 export function updateOutputWebrtcData(outputId: string, key: string, value: any) {
-    const output = get(outputs)[outputId]
+    const resolvedId = resolveOutputId(outputId) || outputId
+    const output = get(outputs)[resolvedId]
     if (!output) return null
 
     const newData = { ...(output.webrtcData || {}), [key]: value }
+    if (key === "streaming") newData.startedAt = value ? Date.now() : undefined
 
     if (key === "streaming" && (!output.webrtc || !output.webrtcData?.url)) return null
 
     outputs.update((a: any) => {
-        if (!a[outputId]) return a
-        a[outputId].webrtcData = newData
+        if (!a[resolvedId]) return a
+        a[resolvedId].webrtcData = newData
         return a
     })
 
@@ -808,13 +1040,14 @@ export function updateOutputWebrtcData(outputId: string, key: string, value: any
         else AudioAnalyser.recorderDeactivate()
     }
 
-    send(OUTPUT, ["SET_VALUE"], { id: outputId, key: "webrtcData", value: newData })
+    send(OUTPUT, ["SET_VALUE"], { id: resolvedId, key: "webrtcData", value: newData })
     return newData
 }
 
 export function startRtmpStreaming(outputId: string = "") {
-    const outputIds = outputId ? [outputId] : getAllActiveOutputIds()
-    outputIds.forEach((outputId) => updateOutputRtmpData(outputId, "streaming", true))
+    const resolvedId = outputId ? resolveOutputId(outputId) || outputId : ""
+    const outputIds = resolvedId ? [resolvedId] : getAllActiveOutputIds()
+    outputIds.forEach((id) => updateOutputRtmpData(id, "streaming", true))
 }
 
 export async function stopRtmpStreaming(outputId: string = "", confirmStop: boolean = false) {
@@ -823,8 +1056,9 @@ export async function stopRtmpStreaming(outputId: string = "", confirmStop: bool
         if (!confirmed) return
     }
 
-    const outputIds = outputId ? [outputId] : getAllActiveOutputIds()
-    outputIds.forEach((outputId) => updateOutputRtmpData(outputId, "streaming", false))
+    const resolvedId = outputId ? resolveOutputId(outputId) || outputId : ""
+    const outputIds = resolvedId ? [resolvedId] : getAllActiveOutputIds()
+    outputIds.forEach((id) => updateOutputRtmpData(id, "streaming", false))
 }
 
 export function updateOutputRtmpData(outputId: string, key: string, value: any) {
@@ -832,6 +1066,9 @@ export function updateOutputRtmpData(outputId: string, key: string, value: any) 
     if (!output) return null
 
     const newData = { ...(output.rtmpData || {}), [key]: value }
+    if (key === "streaming") {
+        newData.startedAt = value ? Date.now() : undefined
+    }
 
     if (key === "streaming" && (!output.rtmp || !hasStreamableDestination(newData))) return null
 
@@ -844,6 +1081,10 @@ export function updateOutputRtmpData(outputId: string, key: string, value: any) 
     if (key === "streaming") {
         if (value) AudioAnalyser.recorderActivate()
         else AudioAnalyser.recorderDeactivate()
+    }
+
+    if (key === "encoder") {
+        sendMain(Main.SET_RTMP_ENCODER, { outputId, encoder: value })
     }
 
     send(OUTPUT, ["SET_VALUE"], { id: outputId, key: "rtmpData", value: newData })
@@ -907,8 +1148,11 @@ export function addOutput(onlyFirst = false, styleId = "", enabled = true, name 
         if (enabled && !onlyFirst) send(OUTPUT, ["CREATE"], { id, ...output[id] })
         if (enabled && !onlyFirst && get(outputDisplay)) toggleOutput(id)
 
+        // set as active
         if (get(currentOutputSettings) !== id) currentOutputSettings.set(id)
+        // start rename
         activeRename.set("output_" + id)
+
         return output
     })
 
@@ -953,6 +1197,10 @@ export function enableStageOutput(options: any = {}) {
         }
 
         send(OUTPUT, ["CREATE"], { ...a[id], id })
+
+        // set as active
+        if (get(currentOutputSettings) !== id) currentOutputSettings.set(id)
+        // start rename
         activeRename.set("output_" + id)
 
         return a
@@ -964,7 +1212,8 @@ export function enableStageOutput(options: any = {}) {
 export function changeStageOutputLayout(data: API_stage_output_layout) {
     if (!data.stageLayoutId) return
 
-    const outputIds = data.outputId ? [data.outputId] : Object.keys(get(outputs))
+    const targetId = data.outputId ? resolveOutputId(data.outputId) : null
+    const outputIds = targetId ? [targetId] : Object.keys(get(outputs))
 
     outputs.update((a) => {
         outputIds.forEach((id) => {
@@ -1007,7 +1256,7 @@ export function changeStageOutputLayout(data: API_stage_output_layout) {
 
 //             // if (!AudioAnalyser.shouldAnalyse()) {
 //             //     // wait for video to clear in output
-//             //     setTimeout(() => AudioAnalyserMerger.stop(), 5000)
+//             //     setTimeout(() => AudioPlayer.stopCheckLoop(), 5000)
 //             // }
 
 //             // send(OUTPUT, ["UPDATE_VIDEO"], { id: clearOutput, data: videoData, time: 0 })
@@ -1159,13 +1408,15 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         })
     }
 
-    const sorted = sortItemsByType(templateItems)
+    const sorted = sortItemsByType(templateItems, true)
     const sortedTemplateItems = clone(sorted)
 
     const hasScriptureDynamicValue = Object.keys(customDynamicValues).length && templateItems?.some((item) => item?.lines?.some((line) => line?.text?.some((text) => text.value?.includes("{scripture"))))
 
     // reduce template textboxes to slide items
     const slideTextboxes = hasScriptureDynamicValue ? 0 : slideItems.reduce((count, a) => (count += (a?.type || "text") === "text" ? 1 : 0), 0)
+    // if template textboxes (without dynamic values) count matches all slide textboxes (with or without dynamic values), merge as normal textboxes
+    const mergeDynamicAsText = !hasScriptureDynamicValue && slideTextboxes > 0 && (sorted.text?.length || 0) === slideTextboxes
     if (!templateClicked && slideTextboxes < (sortedTemplateItems.text?.length || 0)) {
         sortedTemplateItems.text = sortedTemplateItems.text.slice(0, slideTextboxes)
     }
@@ -1179,8 +1430,10 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
     slideItems.forEach((item: Item) => {
         if (!item) return
 
-        const type = item.type || "text"
+        let type: string = item.type || "text"
         if (type === "text" && hasScriptureDynamicValue) return
+
+        if (hasDynamicValue(item) && !mergeDynamicAsText) type = "text_dynamic"
 
         const templateItem = clone(sortedTemplateItems[type]?.shift())
         if (!templateItem) return finish()
@@ -1195,23 +1448,9 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         if (mode === "item") return finish()
 
         if (resetAutoSize) delete item.autoFontSize
-
-        // Handle auto and textFit properties
-        if (templateItem.auto !== undefined) {
-            // Template explicitly defines auto
-            item.auto = templateItem.auto
-        } else if (templateItem.textFit) {
-            // Template has textFit but not auto - enable auto (textFit implies auto-sizing)
-            if (templateItem.textFit !== "none") item.auto = true
-        } else if (templateItem.auto === undefined && templateItem.textFit === undefined) {
-            // Template defines neither - disable auto-sizing (simple static template)
-            item.auto = false
-            delete item.textFit
-        }
-
-        // Apply textFit if template defines it
         if (templateItem.textFit) item.textFit = templateItem.textFit
-        else if (!templateItem.auto) delete item.textFit
+        else delete item.textFit
+
         if (templateItem.list) item.list = templateItem.list
         else delete item.list
 
@@ -1234,7 +1473,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
 
         const textFormatSets = getTextFormatSets(item)
 
-        const hasDynamicValue = templateItem?.lines?.some((line) => line?.text?.some((text) => text.value?.includes("{")))
+        const templateItemHasDynamicValue = hasDynamicValue(templateItem)
 
         item.lines?.forEach((line, j) => {
             let templateLine = templateItem?.lines?.[j] || templateItem?.lines?.[0]
@@ -1257,7 +1496,7 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
                 const firstChar = templateText?.value?.[0] || ""
 
                 // add dynamic values
-                if ((!text.value?.length || text.value?.includes("{")) && hasDynamicValue && templateItem?.lines?.[j]) {
+                if ((!text.value?.length || text.value?.includes("{")) && templateItemHasDynamicValue && templateItem?.lines?.[j]) {
                     text.value = templateText!.value
                 }
 
@@ -1314,15 +1553,14 @@ export function mergeWithTemplate(slideItems: Item[], templateItems: Item[], add
         // })
     }
 
-    // remove textbox items
-    templateItems = templateItems.filter((a) => (a.type || "text") !== "text")
+    // remove (non dynamic value) textbox items
+    templateItems = templateItems.filter((a) => (a.type || "text") !== "text" || hasDynamicValue(a))
     // remove any duplicate values
     templateItems = templateItems.filter(
         (item) =>
             !newSlideItems.find((a) => {
                 const currentItem = clone(a)
                 delete currentItem.align
-                delete currentItem.auto
                 delete currentItem.autoFontSize
                 delete currentItem.fromTemplate
 
@@ -1555,19 +1793,30 @@ export function isEmpty(item: Item) {
     return !getItemText(item).length
 }
 
-export function sortItemsByType(items: Item[]) {
+export function sortItemsByType(items: Item[], dynamicValueType: boolean = false) {
     const sortedItems: { [key: string]: Item[] } = {}
 
     items.forEach((item) => {
         if (!item) return
 
-        const type = item.type || "text"
+        let type: string = item.type || "text"
+        if (dynamicValueType && hasDynamicValue(item)) type = "text_dynamic"
         if (!sortedItems[type]) sortedItems[type] = []
 
         sortedItems[type].push(item)
     })
 
     return sortedItems
+}
+
+function hasDynamicValue(item: Item) {
+    if (!item.lines) return false
+
+    // scripture dynamic values does not count as normal dynamic values
+    const hasScriptureDynamicValue = item?.lines?.some((line) => line?.text?.some((text) => text.value?.includes("{scripture")))
+    if (hasScriptureDynamicValue) return false
+
+    return item.lines.some((line) => line.text?.some((text) => text.value?.includes("{")))
 }
 
 export function getItemsCountByType(items: Item[]) {
@@ -1642,8 +1891,19 @@ export function getStyleTemplate(outSlide: OutSlide | null, currentStyle: Styles
     return template
 }
 
+function itemHasAutoSize(item: Item) {
+    const hasAutoSize = (item.textFit || "none") !== "none"
+    if (hasAutoSize && (item.type || "text") === "text" && !getItemText(item).length) return false
+    return hasAutoSize
+}
+
 export function slideHasAutoSizeItem(slide: Slide | Template) {
-    return slide?.items?.some((a) => (a.textFit || "none") !== "none" || a.auto)
+    return slide?.items?.some(itemHasAutoSize)
+}
+
+// the auto size text size has to be calculated if it is not stored yet
+export function itemNeedsAutoSize(item: Item) {
+    return itemHasAutoSize(item) && !item.autoFontSize
 }
 
 export function setTemplateStyle(outSlide: OutSlide | null, currentStyle: Styles, items: Item[] | undefined, outputId: string, slideDynamicValues?: { [key: string]: any }) {
@@ -1681,7 +1941,7 @@ export function setTemplateStyle(outSlide: OutSlide | null, currentStyle: Styles
     function checkSpecificOutput(item: Item) {
         if (!item) return false
         if (outSlide === null) return true // always show in slides preview
-        return !item.bindings?.length || item.bindings.includes(outputId)
+        return isOutputBound(item.bindings, outputId)
     }
 }
 
@@ -1696,7 +1956,7 @@ export function getOutputLines(outSlide: OutSlide, styleLines = 0) {
             .get()[0] || null
     const maxLines = showSlide ? getItemWithMostLines(showSlide) : 0
 
-    const clickRevealItems = (showSlide?.items || []).filter((a) => a?.clickReveal)
+    const clickRevealItems = Array.isArray(showSlide?.items) ? showSlide.items.filter((a) => a?.clickReveal) : []
     const clickRevealed = clickRevealItems.length ? !!outSlide.itemClickReveal : true
 
     if (!maxLines) return { start: null, end: null, clickRevealed } // , index: 0, max: 0
@@ -1767,10 +2027,20 @@ export function getMetadata(show: Show | undefined, currentStyle: Styles, outSli
     const display = metadataValues.display || "never"
     if (typeof display !== "string" || display === "never") return null
 
+    const shouldDisplay = (slideRef: any) => {
+        // ignore disabled slides
+        if (!slideRef || slideRef.data?.disabled) return false
+        if (!metadataValues.ignoreEmpty) return true
+
+        // needs to have text content
+        const slide = show.slides?.[slideRef.id]
+        return !!slide?.items?.some((item) => item.lines?.some((line) => line.text?.some((text) => text.value?.length)))
+    }
+
     const ref = clone(_show(outSlide.id).layouts([outSlide.layout]).ref()[0] || [])
-    const firstActiveSlideIndex = ref.findIndex((a) => !a.data.disabled)
-    const lastActiveSlideIndex = ref.length - 1 - [...ref].reverse().findIndex((a) => !a.data.disabled)
-    const displayMetadata = display === "always" || (display.includes("first") && outSlide?.index === firstActiveSlideIndex) || (display.includes("last") && outSlide?.index === lastActiveSlideIndex)
+    const firstActiveSlideIndex = ref.findIndex(shouldDisplay)
+    const lastActiveSlideIndex = ref.length - 1 - [...ref].reverse().findIndex(shouldDisplay)
+    const displayMetadata = (display === "always" && shouldDisplay(ref[outSlide.index ?? -1])) || (display.includes("first") && outSlide?.index === firstActiveSlideIndex) || (display.includes("last") && outSlide?.index === lastActiveSlideIndex)
     if (!displayMetadata) return null
 
     // template

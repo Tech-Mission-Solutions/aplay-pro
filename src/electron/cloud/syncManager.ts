@@ -39,13 +39,6 @@ export async function hasTeamData({ id, churchId, teamId }: { id: SyncProviderId
     return await provider.existingData(churchId, teamId)
 }
 
-export async function hasDataChanged({ id, churchId, teamId }: { id: SyncProviderId; churchId: string; teamId: string }) {
-    const provider = getManager[id]()
-    if (!provider) return false
-
-    return await provider.hasChanged(churchId, teamId)
-}
-
 async function deleteLocalFiles() {
     // reset syncable (portable) Config files
     // no need, these will get auto replaced by the downloaded files
@@ -66,7 +59,7 @@ const MERGE_INDIVIDUAL = ["OVERLAYS", "PROJECTS", "STAGE", "TEMPLATES", "SYNCED_
 
 // SYNCED_SETTINGS item-collections merged per-item via ledger.
 // Atomic settings (e.g. drawSettings) keep newest-file-wins behavior.
-const SYNCED_SETTINGS_COLLECTIONS = ["categories", "overlayCategories", "templateCategories", "styles", "profiles", "timers", "variables", "audioStreams", "audioPlaylists", "scriptures", "groups", "midiIn", "emitters", "playerVideos", "videoMarkers", "mediaTags", "playerTags", "actionTags", "variableTags", "timerTags", "customizedIcons", "globalTags", "globalRegexes", "customMetadata", "effects"]
+const SYNCED_SETTINGS_COLLECTIONS = ["categories", "overlayCategories", "templateCategories", "styles", "profiles", "timers", "variables", "audioStreams", "audioPlaylists", "scriptures", "groups", "midiIn", "emitters", "playerVideos", "videoMarkers", "mediaTags", "playerTags", "actionTags", "variableTags", "timerTags", "customizedIcons", "globalTags", "globalRegexes", "customMetadata", "effects", "syncedOutputs"]
 
 const STALE_MERGE_GUARD_MS = 1000 * 60 * 60 * 24 * 30 // 30 days
 function getMergeGuardKey(data: { id: SyncProviderId; churchId: string; teamId: string }) {
@@ -75,7 +68,10 @@ function getMergeGuardKey(data: { id: SyncProviderId; churchId: string; teamId: 
 
 export async function syncData(data: { id: SyncProviderId; churchId: string; teamId: string; method: "merge" | "read_only" | "upload" | "replace" }) {
     let readOnly = data.method === "read_only" || data.method === "replace" // never write to cloud
+    let localMergedIn = false
     const changedFiles: string[] = [] // WIP write changes
+    const replacedShows: string[] = []
+    const downloadedShowIds: string[] = []
     let guardCloudModifiedAt = 0
 
     const provider = getManager[data.id]()
@@ -174,7 +170,6 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
     // MERGE
     const cloudBibleNames: string[] = []
     const cloudShowNames: string[] = []
-    const replacedShows: string[] = []
 
     await asyncPool(50, extractedFiles, async (file) => {
         if (!file) return
@@ -239,6 +234,7 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
 
                 async function download(isNew: boolean) {
                     if (!isNew) replacedShows.push(show.name)
+                    if (_id) downloadedShowIds.push(_id)
                     await writeFileAsync(localShowPath, cloudFile)
                 }
             } catch (err) {
@@ -281,6 +277,7 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
 
                     async function download(isNew: boolean) {
                         if (!isNew) replacedShows.push(show.name)
+                        if (id) downloadedShowIds.push(id)
                         await writeFileAsync(localShowPath, JSON.stringify([id, show]))
                     }
                 } catch (err) {
@@ -326,6 +323,7 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
                 sendMain(Main[id], localData)
             } else if (localFileModified) {
                 // Local wins: carry real edit time into ledger for other devices.
+                localMergedIn = true
                 if (!CHANGES.fileModified) CHANGES.fileModified = {}
                 CHANGES.fileModified[id] = Math.max(CHANGES.fileModified[id] || 0, localFileModified)
             }
@@ -370,7 +368,9 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
                 })
             )
         } else if (id === "SYNCED_SETTINGS") {
-            // Merge item-collections per-item via ledger. See #3335.
+            // Merge item-collections per-item via ledger: additions/deletions never overwrite the other
+            // device's items (see #3335). Items present on both sides have no per-item "modified" to compare,
+            // so conflicts fall back to whichever whole settings file is newer (see #3772).
             const cloudFileIsNewer = isNewDevice || (await isCloudNewerThanFile(localStore.path, modifiedDates[file.name]))
             for (const [type, object] of Object.entries<{ [key: string]: any }>(cloudFileData)) {
                 const isCollection = SYNCED_SETTINGS_COLLECTIONS.includes(type) && !!object && typeof object === "object" && !Array.isArray(object)
@@ -381,7 +381,7 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
                 }
 
                 if (!localData[type] || typeof localData[type] !== "object") localData[type] = {}
-                localData[type] = ledger.mergeCollection(id, type, object, localData[type])
+                localData[type] = ledger.mergeCollection(id, type, object, localData[type], cloudFileIsNewer)
             }
         } else {
             // merge individual objects
@@ -438,7 +438,7 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
         if (result.action === "delete") deleteFile(localBiblePath)
     }
 
-    if (readOnly) {
+    if (readOnly || (!localMergedIn && !ledger.localMergedIn)) {
         // store the last modified cloud time, to prevent overwriting cloud data with old local data
         if (guardCloudModifiedAt > 0) {
             const syncCache = getStore("CACHE_SYNC") || {}
@@ -453,7 +453,8 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
 
     const uploadResult = await uploadLocalData()
 
-    if (!DEBUG_MODE && !process.env.VITEST) {
+    const willRunBackup = !DEBUG_MODE && !process.env.VITEST
+    if (willRunBackup) {
         // silently backup in the background, this is skipped when the program is being closed
         setTimeout(async () => {
             try {
@@ -467,7 +468,7 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
         }, 1000)
     }
 
-    return await finish(uploadResult.success, uploadResult.error)
+    return await finish(uploadResult.success, uploadResult.error, willRunBackup)
 
     async function uploadLocalData(): Promise<{ success: boolean; error?: string }> {
         let success = false
@@ -486,17 +487,14 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
     async function uploadBackupData() {
         try {
             console.log("Syncing backup data")
-            const backupPath = await provider!.getBackup(data.churchId, data.teamId, EXTRACT_LOCATION)
-
-            // if no cloud backup exists, upload the newest local zip
-            if (!backupPath) return await upload()
+            // only check the date (0 if no cloud backup exists), no need to download it
+            const backupModified = await provider!.getBackupModified(data.churchId, data.teamId)
 
             const oneWeek = ONE_HOUR * 24 * 7
             const now = Date.now()
 
-            // return if no cloud backup is older than a week
-            const stats = await getFileStatsAsync(backupPath)
-            if (stats && now - stats.mtime.getTime() < oneWeek) return false
+            // return if cloud backup is less than a week old
+            if (now - backupModified < oneWeek) return false
 
             return await upload()
 
@@ -519,11 +517,11 @@ export async function syncData(data: { id: SyncProviderId; churchId: string; tea
         }
     }
 
-    async function finish(success = true, error?: string) {
-        if (!DEBUG_MODE) await deleteFolderAsync(EXTRACT_LOCATION)
+    async function finish(success = true, error?: string, skipCleanup = false) {
+        if (!DEBUG_MODE && !skipCleanup) await deleteFolderAsync(EXTRACT_LOCATION)
         console.log("Sync completed!")
         isNewDevice = false
-        return { success, error, changedFiles }
+        return { success, error, changedFiles, downloadedShowIds, replacedShows }
     }
 }
 

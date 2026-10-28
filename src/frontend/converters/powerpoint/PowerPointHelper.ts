@@ -400,16 +400,21 @@ export class PowerPointPackage {
         const masterShapes = master?.shapes || []
         const layoutShapes = layout?.shapes || []
         const slideShapes = slide?.shapes || []
-        const slideTree = buildRenderList(masterShapes, layoutShapes, slideShapes, master)
+        const slideShowMaster = getAttribute(getValue(slide?.json, "p:sld"), "showMasterSp") !== "0"
+        const layoutShowMaster = getAttribute(getValue(layout?.json, "p:sldLayout"), "showMasterSp") !== "0"
+        const layoutShowMasterSp = slideShowMaster && layoutShowMaster
+        const slideTree = buildRenderList(masterShapes, layoutShapes, slideShapes, master, slide, layout, layoutShowMasterSp)
 
         const scale = this.getScale(presentation?.slideSize)
 
         let items = slideTree.map((n, i) => this.shapeToItem(n, { presentation, slide, layout, master, theme, colors, scale }, i)).filter(Boolean) as Item[]
 
         // add SVG textboxes
-        this.extraItems.forEach(({ index, item }) => {
-            if (item) items.splice(index, 0, item)
-        })
+        this.extraItems
+            .sort((a, b) => b.index - a.index)
+            .forEach(({ index, item }) => {
+                if (item) items.splice(index + 1, 0, item)
+            })
         this.extraItems = []
 
         // slide background color
@@ -427,30 +432,43 @@ export class PowerPointPackage {
         bgColor = resolveGradient(gradFill, colors) || bgColor
 
         // slide background image
-        const bgFill = getFirstAvailable([sldSlide, sldLayout, sldMaster], ["p:cSld", "p:bg", "p:bgPr", "a:blipFill"])
-        const bgImgId = getAttribute(bgFill, "r:embed", "a:blip")
-        const bgImage = this.getMediaPath(bgImgId, { slide, layout, master })
+        let bgPart: SlidePart | SlideLayoutPart | SlideMasterPart | null = null
+        let bgFill: any[] = []
+
+        for (const part of [slide, layout, master]) {
+            if (!part) continue
+            const sld = getValue(part.json, part === slide ? "p:sld" : part === layout ? "p:sldLayout" : "p:sldMaster")
+            const blip = getValue(sld, "p:cSld", "p:bg", "p:bgPr", "a:blipFill")
+            if (blip.length) {
+                bgFill = blip
+                bgPart = part
+                break
+            }
+        }
+
+        const bgImgId = getAttribute(bgFill, "r:embed", "a:blip") || getAttribute(bgFill, "r:link", "a:blip")
+        const bgImage = this.getMediaPath(bgImgId, bgPart || { slide, layout, master })
         if (bgImage) {
             let imageItem: Item = { type: "media", style: "width:1920px;height:1080px;top:0;left:0;", src: bgImage, fit: "fill" }
+
+            const filter = resolveImageEffects(bgFill, colors)
+            if (filter) imageItem.filter = filter
 
             const alpha = getAttribute(getValue(bgFill, "a:blip"), "amt", "a:alphaModFix")
             let a = parseInt(alpha || "100000") / 100000
             if (a < 1) imageItem.style += `opacity: ${a};`
 
-            const stretch = getValue(bgFill, "a:stretch")
-            const l = getAttribute(stretch, "l", "a:fillRect")
-            const t = getAttribute(stretch, "t", "a:fillRect")
-            const r = getAttribute(stretch, "r", "a:fillRect")
-            const b = getAttribute(stretch, "b", "a:fillRect")
+            const srcL = getAttribute(bgFill, "l", "a:srcRect")
+            const srcT = getAttribute(bgFill, "t", "a:srcRect")
+            const srcR = getAttribute(bgFill, "r", "a:srcRect")
+            const srcB = getAttribute(bgFill, "b", "a:srcRect")
 
-            // should be mainly for media item
-            if (l != null || t != null || r != null || b != null) {
+            if (srcL !== "" || srcT !== "" || srcR !== "" || srcB !== "") {
                 imageItem.cropping = {
-                    // fillRect is inverse of srcRect
-                    left: toFract(r),
-                    top: toFract(b),
-                    right: toFract(l),
-                    bottom: toFract(t),
+                    left: toFract(srcL),
+                    top: toFract(srcT),
+                    right: toFract(srcR),
+                    bottom: toFract(srcB),
                     type: "ppt"
                 }
                 if (imageItem.cropping.left + imageItem.cropping.right + imageItem.cropping.top + imageItem.cropping.bottom === 0) delete imageItem.cropping
@@ -531,7 +549,7 @@ export class PowerPointPackage {
     }
 
     private shapeToItem(
-        shape: { name: string; shape: Shape; pos: Position; layoutShape: Shape; masterShape: Shape; txStyles: any[]; isDecoration?: boolean },
+        shape: { name: string; shape: Shape; pos: Position; layoutShape: Shape; masterShape: Shape; txStyles: any[]; isDecoration?: boolean; part?: OpcPart },
         ctx: {
             presentation: PresentationPart
             slide: SlidePart
@@ -595,59 +613,63 @@ export class PowerPointPackage {
             return typeface
         }
 
-        function getRStyle(r: any[], pPrL: any, pPrM: any, tx: any) {
+        function getShadowStyle(rPr: any, pPrL: any, pPrM: any, tx: any) {
+            let shadowVal = "text-shadow: 0 0 0 rgb(0 0 0 / 0);"
+
+            let effects = getValue(rPr, "a:effectLst")
+            if (!effects.length) effects = getValue(pPrL, "a:defRPr", "a:effectLst")
+            if (!effects.length) effects = getValue(pPrM, "a:defRPr", "a:effectLst")
+            if (!effects.length) effects = getValue(tx, "a:defRPr", "a:effectLst")
+            const glow = getValue(effects, "a:glow")
+            const outerShadow = getValue(effects, "a:outerShdw")
+            if (outerShadow.length) {
+                const color = resolveColor(outerShadow, ctx.colors)
+                const rgb = hexToRgb(color || "#000000")
+                const shadowColor = color?.startsWith("rgba") ? color : `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`
+                const blur = round((emuToPixels(getAttribute(outerShadow, "blurRad")) || 0) * 1.5 * ctx.scale.factor)
+                const dist = (emuToPixels(getAttribute(outerShadow, "dist")) || 0) * ctx.scale.factor
+                const angle = ((Number(getAttribute(outerShadow, "dir") || "0") / 60000) * Math.PI) / 180
+                const x = round(Math.cos(angle) * dist)
+                const y = round(Math.sin(angle) * dist)
+                shadowVal = `text-shadow: ${x}px ${y}px ${blur}px ${shadowColor};`
+            } else if (glow.length) {
+                const glowColor = resolveColor(glow, ctx.colors) || "rgb(255 255 255)"
+                const glowSize = round((emuToPixels(getAttribute(glow, "rad")) || 0) * ctx.scale.factor)
+                shadowVal = `text-shadow: 0 0 ${glowSize}px ${glowColor};`
+            }
+
+            return shadowVal
+        }
+
+        function getRStyle(r: any[], pPr: any, pPrL: any, pPrM: any, tx: any, parentRuns: any[] = []) {
             let rPr = getValue(r, "a:rPr")
             if (!rPr.length) rPr = getValue(r, "a:endParaRPr")
 
             // a:hlinkClick
 
             // getPrioritizedStyle(rPr, pPrL, pPrM, tx, "a:rFonts", "a:ascii") ||
-            const typeface = getTypeface(getPrioritizedStyle(rPr, pPrL, pPrM, tx, "typeface", "a:latin"))
-            const fontSizePx = ptsToPx(getPrioritizedStyle(r, pPrL, pPrM, tx, "sz")) || 24
-            const letterSpacing = ptsToPx(getPrioritizedStyle(r, pPrL, pPrM, tx, "spc"))
+            const typeface = getTypeface(getPrioritizedStyle(rPr, pPrL, pPrM, tx, "typeface", "a:latin")) || getTypeface(getAttribute(pPr, "typeface", "a:latin"))
+            const fontSizePx = ptsToPx(getPrioritizedStyle(r, pPrL, pPrM, tx, "sz")) || ptsToPx(getAttribute(pPr, "sz", "a:defRPr")) || 24
+            const letterSpacing = ptsToPx(getPrioritizedStyle(r, pPrL, pPrM, tx, "spc")) || ptsToPx(getAttribute(pPr, "spc", "a:defRPr"))
 
-            const cap = getPrioritizedStyle(r, pPrL, pPrM, tx, "cap") || "none"
+            const cap = getPrioritizedStyle(r, pPrL, pPrM, tx, "cap") || getAttribute(pPr, "cap", "a:defRPr") || "none"
 
-            const isBold = getPrioritizedStyle(r, pPrL, pPrM, tx, "b") === "1"
-            const isItalic = getPrioritizedStyle(r, pPrL, pPrM, tx, "i") === "1"
-            const underline = getPrioritizedStyle(r, pPrL, pPrM, tx, "u")
-            const isStrikethrough = getPrioritizedStyle(r, pPrL, pPrM, tx, "strike") === "1"
+            const isBold = (getPrioritizedStyle(r, pPrL, pPrM, tx, "b") || getAttribute(pPr, "b", "a:defRPr")) === "1"
+            const isItalic = (getPrioritizedStyle(r, pPrL, pPrM, tx, "i") || getAttribute(pPr, "i", "a:defRPr")) === "1"
+            const underline = getPrioritizedStyle(r, pPrL, pPrM, tx, "u") || getAttribute(pPr, "u", "a:defRPr")
+            const isStrikethrough = (getPrioritizedStyle(r, pPrL, pPrM, tx, "strike") || getAttribute(pPr, "strike", "a:defRPr")) === "1"
 
-            let color = resolveColor(getValue(rPr, "a:solidFill"), ctx.colors) || resolveColor(getValue(pPrL, "a:defRPr", "a:solidFill"), ctx.colors) || resolveColor(getValue(pPrM, "a:defRPr", "a:solidFill"), ctx.colors) || resolveColor(getValue(tx, "a:defRPr", "a:solidFill"), ctx.colors)
-            // if (!color) color = resolveColor(getValue(ctx.colors, "a:lt1"), ctx.colors) || resolveColor(getValue(ctx.colors, "a:tx1"), ctx.colors)
+            const colorFills = [getValue(rPr, "a:solidFill"), getValue(pPr, "a:defRPr", "a:solidFill"), ...parentRuns, getValue(pPrL, "a:defRPr", "a:solidFill"), getValue(pPrM, "a:defRPr", "a:solidFill"), getValue(tx, "a:defRPr", "a:solidFill"), getValue(tx, "a:solidFill"), getValue(ctx.colors, "a:tx1")]
+            const color = colorFills.map((f) => resolveColor(f, ctx.colors)).find(Boolean) || ""
 
             // outline
-            const lnWidth = getAttribute(rPr, "w", "a:ln")
-            const lnClr = resolveColor(getValue(rPr, "a:ln", "a:solidFill"), ctx.colors)
+            const lnWidth = getAttribute(rPr, "w", "a:ln") || getAttribute(getValue(pPr, "a:defRPr"), "w", "a:ln")
+            const lnClr = resolveColor(getValue(rPr, "a:ln", "a:solidFill"), ctx.colors) || resolveColor(getValue(pPr, "a:defRPr", "a:ln", "a:solidFill"), ctx.colors)
             const lnWPx = lnWidth != null ? round(emuToPixels(lnWidth)) : null
             let lnColor = ""
             if (lnWPx != null && lnClr) lnColor = lnClr
 
-            // WIP shadow
-            // const shadow = getValue(rPr, "a:effectLst", "a:outerShdw")
-            let shadowVal = "text-shadow: 0 0 0 rgb(0 0 0 / 0);"
-            // if (shadow.length) {
-            //     // const shadowAttrs = getAttrs(shadow[0]) || {}
-            // }
-
-            const effects = getValue(rPr, "a:effectLst")
-            const glow = getValue(effects, "a:glow")
-            const outerShadow = getValue(effects, "a:outerShdw")
-            if (outerShadow.length) {
-                const shadowColor = resolveColor(outerShadow, ctx.colors) || "rgb(0 0 0)"
-                const blur = emuToPixels(getAttribute(effects, "blurRad", "a:outerShdw")) || 0
-                const dist = emuToPixels(getAttribute(effects, "dist", "a:outerShdw")) || 0
-                const dirRaw = Number(getAttribute(effects, "dir", "a:outerShdw") || "0")
-                const dir = dirRaw / 60000 // convert from 60000ths of a degree to degrees
-                const angle = ((90 - dir) * Math.PI) / 180
-                const x = round(Math.cos(angle) * dist)
-                const y = round(Math.sin(angle) * dist)
-                shadowVal = `text-shadow: ${x}px ${y}px ${blur}px ${shadowColor};`
-            } else if (glow.length) {
-                const glowColor = resolveColor(glow, ctx.colors) || "rgb(255 255 255)"
-                const glowSize = ptsToPx(getAttribute(effects, "rad", "a:glow")) / 100
-                shadowVal = `text-shadow: 0 0 ${glowSize}px ${glowColor};`
-            }
+            let shadowVal = getShadowStyle(rPr, pPrL, pPrM, tx)
 
             // raised text
             const baseline = getAttribute(r, "baseline") || "0"
@@ -695,7 +717,63 @@ export class PowerPointPackage {
                 if (lnPx > 0) style += `line-height: ${lnPx}px;`
             }
 
+            // paragraph space before / after
+            function getSpace(tag: "a:spcBef" | "a:spcAft") {
+                const spc = getValue(pPr, tag).length ? getValue(pPr, tag) : getValue(pPrL, tag).length ? getValue(pPrL, tag) : getValue(pPrM, tag)
+                if (getAttribute(spc, "val", "a:spcPct")) {
+                    const pct = (Number(getAttribute(spc, "val", "a:spcPct") || "0") / 100000) * 1.2
+                    return pct > 0 ? `${round(pct, 2)}em` : ""
+                }
+                const pts = ptsToPx(getAttribute(spc, "val", "a:spcPts"))
+                return pts > 0 ? `${pts}px` : ""
+            }
+            const spcBef = getSpace("a:spcBef")
+            const spcAft = getSpace("a:spcAft")
+            if (spcBef) style += `margin-top: ${spcBef};`
+            if (spcAft) style += `margin-bottom: ${spcAft};`
+
             return style
+        }
+
+        function getBullet(pPr: any, pPrL: any, pPrM: any, tx: any, firstRun: any[]) {
+            const buChar = getPrioritizedAttribute("char", "a:buChar")
+            const autoNum = getPrioritizedAttribute("type", "a:buAutoNum")
+            if (!buChar && !autoNum) return null
+
+            function getPrioritizedAttribute(key: string, tagName: string = "") {
+                return getAttribute(pPr, key, tagName) || getAttribute(pPrL, key, tagName) || getAttribute(pPrM, key, tagName)
+            }
+
+            const firstRunRPr = getValue(firstRun, "a:rPr").length ? getValue(firstRun, "a:rPr") : firstRun
+            const customBuFont = getPrioritizedAttribute("typeface", "a:buFont")
+            const defaultTypeface = getTypeface(getPrioritizedStyle(firstRunRPr, pPrL, pPrM, tx, "typeface", "a:latin"))
+            const buFont = customBuFont ? getTypeface(customBuFont) : defaultTypeface
+
+            const customBuClr = resolveColor(getValue(pPr, "a:buClr"), ctx.colors) || resolveColor(getValue(pPrL, "a:buClr"), ctx.colors) || resolveColor(getValue(pPrM, "a:buClr"), ctx.colors)
+            const defaultClr = resolveColor(getValue(firstRunRPr, "a:solidFill"), ctx.colors) || resolveColor(getValue(pPr, "a:defRPr", "a:solidFill"), ctx.colors) || resolveColor(getValue(pPrL, "a:defRPr", "a:solidFill"), ctx.colors) || resolveColor(getValue(pPrM, "a:defRPr", "a:solidFill"), ctx.colors) || resolveColor(getValue(tx, "a:defRPr", "a:solidFill"), ctx.colors) || resolveColor(getValue(ctx.colors, "a:tx1"), ctx.colors)
+            const buClr = customBuClr || defaultClr || "#000000"
+
+            const buSzPts = getPrioritizedAttribute("val", "a:buSzPts")
+            const buSzPct = getPrioritizedAttribute("val", "a:buSzPct")
+            const defaultFontSizePx = ptsToPx(getPrioritizedStyle(firstRun, pPrL, pPrM, tx, "sz")) || 24
+            let buFontSizePx = defaultFontSizePx
+            if (buSzPts) buFontSizePx = ptsToPx(buSzPts) || defaultFontSizePx
+            else if (buSzPct) buFontSizePx = round(defaultFontSizePx * (Number(buSzPct) / 100000))
+
+            const marL = Number(getPrioritizedAttribute("marL") || "0")
+            const indent = Number(getPrioritizedAttribute("indent") || "0")
+            const padLeft = marL ? round(emuToPixels(Math.max(0, marL + indent)) * (ctx.scale.x ?? 1)) : 0
+            const rawPadRight = indent < 0 ? round(emuToPixels(Math.abs(indent)) * (ctx.scale.x ?? 1)) : 16
+            const padRight = !rawPadRight || rawPadRight < 8 ? 16 : rawPadRight
+
+            let style = `font-family: ${buFont ? buFont + ", " : ""}Calibri;font-size: ${buFontSizePx}px;color: ${buClr};padding-left: ${padLeft}px;padding-right: ${padRight}px;`
+            style += getShadowStyle(firstRunRPr, pPrL, pPrM, tx)
+            if (getPrioritizedStyle(firstRun, pPrL, pPrM, tx, "b") === "1") style += "font-weight: bold;"
+            if (getPrioritizedStyle(firstRun, pPrL, pPrM, tx, "i") === "1") style += "font-style: italic;"
+
+            const startAt = Number(getPrioritizedAttribute("startAt", "a:buAutoNum") || "1")
+
+            return { value: buChar, style, autoNum, startAt }
         }
 
         const getText = (n: any) => {
@@ -709,34 +787,25 @@ export class PowerPointPackage {
             return p
                 .map((line, i) => {
                     const pPr = getValue(line, "a:pPr")
+                    const lvl = Number(getAttribute(line, "lvl", "a:pPr") || getAttribute(pPr, "lvl") || getAttribute(line, "lvl") || "0") + 1
 
-                    const lvl = Number(getAttribute(line, "lvl") || "0") + 1
-
-                    // let pPrL = getValue(pL[i] ? pL[i] : pL[0], "a:p", "a:pPr")
-                    // let pPrM = getValue(pM[i] ? pM[i] : pM[0], "a:p", "a:pPr")
                     const pPrL = getValue(pL[i] ? pL[i] : pL[0], "a:lstStyle", `a:lvl${lvl}pPr`)
                     const pPrM = getValue(pM[i] ? pM[i] : pM[0], "a:lstStyle", `a:lvl${lvl}pPr`)
                     let tx = getValue(shape.txStyles, `a:lvl${lvl}pPr`)
                     if (!tx.length) tx = getValue(shape.txStyles, "a:defPPr")
 
+                    const parentRuns = [
+                        getValue(shape.layoutShape, "p:txBody", "a:p", "a:r", "a:rPr", "a:solidFill"),
+                        getValue(shape.layoutShape, "p:txBody", "a:p", "a:pPr", "a:defRPr", "a:solidFill"),
+                        getValue(shape.layoutShape, "p:txBody", "a:p", "a:endParaRPr", "a:solidFill"),
+                        getValue(shape.masterShape, "p:txBody", "a:p", "a:r", "a:rPr", "a:solidFill"),
+                        getValue(shape.masterShape, "p:txBody", "a:p", "a:pPr", "a:defRPr", "a:solidFill"),
+                        getValue(shape.masterShape, "p:txBody", "a:p", "a:endParaRPr", "a:solidFill")
+                    ].filter((f) => f.length)
+
                     const sharedStyle = getSharedStyle(pPr, pPrL, pPrM)
-
-                    // let marL: string | number = getAttribute(pPr, "marL") || "0"
-                    // marL = round(emuToPixels(marL)) * ctx.scale.factor
-                    // let indent: string | number = getAttribute(pPr, "indent") || "0"
-                    // indent = round(emuToPixels(indent)) * ctx.scale.factor
-                    // // indent is typically negative
-                    // if (indent < 0) indent = Math.abs(indent)
-
-                    const buFont = getAttribute(pPr, "typeface", "a:buFont") || getAttribute(pPrL, "typeface", "a:buFont") || getAttribute(pPrM, "typeface", "a:buFont") || "Calibri"
-                    const buSize = getAttribute(pPr, "val", "a:buSzPts") || getAttribute(pPrL, "val", "a:buSzPts") || getAttribute(pPrM, "val", "a:buSzPts") || getAttribute(getValue(line, "a:r"), "sz")
-                    const buClr = resolveColor(getValue(pPr, "a:buClr"), ctx.colors) || resolveColor(getValue(pPrL, "a:buClr"), ctx.colors) || resolveColor(getValue(pPrM, "a:buClr"), ctx.colors)
-                    const buChar = getAttribute(pPr, "char", "a:buChar") || getAttribute(pPrL, "char", "a:buChar") || getAttribute(pPrM, "char", "a:buChar")
-                    const autoNum = getAttribute(pPr, "type", "a:buAutoNum") || getAttribute(pPrL, "type", "a:buAutoNum") || getAttribute(pPrM, "type", "a:buAutoNum")
-                    // const blip = getAttribute(pPr, "embed", "a:buBlip")
-                    // let bulletPadding = `margin-left: ${marL - indent - 5}px;margin-right: ${indent}px;`
-                    let bulletPadding = "padding-left: 38px;padding-right: 45px;"
-                    let bullet = buChar || autoNum ? { value: buChar, style: `text-shadow: 0 0 0 rgb(0 0 0 / 0);font-family: ${buFont};font-size: ${ptsToPx(buSize) || 24}px;color: ${buClr || "#000000"};${bulletPadding}` } : null
+                    const firstRun = line.find((a: any) => a["a:r"])?.["a:r"] || line.find((a: any) => a["a:endParaRPr"]) || []
+                    const bullet = getBullet(pPr, pPrL, pPrM, tx, firstRun)
 
                     // WIP split "a:br" properly as it breaks when style is changed
 
@@ -751,22 +820,24 @@ export class PowerPointPackage {
                             rs.push(br)
                         }
                     })
-                    const algn = getAttribute(line, "algn")
+                    const algn = getAttribute(line, "algn", "a:pPr") || getAttribute(pPr, "algn") || getAttribute(pPrL, "algn") || getAttribute(pPrM, "algn") || getAttribute(tx, "algn") || (svgText ? "ctr" : "")
 
                     if (i === 0) hasText = false
                     if (rs.length) hasText = true
 
                     function getAlignment(algn: string) {
-                        if (algn === "ctr") return ""
+                        if (algn === "ctr") return "" // FreeShow default is center
                         if (algn === "r") return "text-align: right;"
-                        return "text-align: left;" // l
+                        if (algn === "just") return "text-align: justify;"
+                        if (algn === "l") return "text-align: left;"
+                        return svgText ? "" : "text-align: left;" // PPT default is left
                     }
 
                     let text = rs.length
                         ? rs.map((r) => {
                               // const br = getValue(r, "a:br")
                               const value = (getValue(r, "a:t")[0]?.["#text"]?.toString() || "").replaceAll("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
-                              const style = sharedStyle + getRStyle(r, pPrL, pPrM, tx)
+                              const style = sharedStyle + getRStyle(r, pPr, pPrL, pPrM, tx, parentRuns)
                               return { value, style }
                           }) // .filter((a) => a.value?.length)
                         : hasText
@@ -777,16 +848,33 @@ export class PowerPointPackage {
                                         sharedStyle +
                                         getRStyle(
                                             line.find((a) => a["a:endParaRPr"]),
+                                            pPr,
                                             pPrL,
                                             pPrM,
-                                            tx
+                                            tx,
+                                            parentRuns
                                         )
                                 }
                             ] // space so style (font size) applies
                           : []
 
-                    if (text.length && bullet) {
-                        text = [autoNum ? { ...bullet, value: getBulletValue(autoNum, bulletNum) } : bullet, ...text]
+                    if (text.length) {
+                        const mergedText: { value: string; style: string }[] = []
+                        for (const seg of text) {
+                            const prev = mergedText[mergedText.length - 1]
+                            if (prev && prev.style === seg.style && prev.value !== "<br>" && seg.value !== "<br>") {
+                                prev.value += seg.value
+                            } else {
+                                mergedText.push({ ...seg })
+                            }
+                        }
+                        text = mergedText
+                    }
+
+                    const hasContent = text.some((t) => t.value && t.value !== "<br>" && t.value !== "&nbsp;" && t.value.replaceAll("&nbsp;", "").trim().length > 0)
+                    if (hasContent && bullet) {
+                        const val = bullet.autoNum ? getBulletValue(bullet.autoNum, bulletNum + bullet.startAt - 1) : bullet.value
+                        text = [{ value: val, style: bullet.style }, ...text]
                         bulletNum++
 
                         function getBulletValue(type: string, index: number) {
@@ -830,7 +918,7 @@ export class PowerPointPackage {
 
         const type2 = types[shape.name] || "icon"
 
-        let style = ""
+        let style = "overflow: visible;" // PPT shows overflow text
 
         const spPr = getValue(shape.shape, "p:spPr")
         const flipH = getAttribute(spPr, "flipH", "a:xfrm") === "1"
@@ -849,25 +937,29 @@ export class PowerPointPackage {
             style
         }
 
-        // auto size
-        const bodyPr = getValue(shape.shape, "p:txBody", "a:bodyPr")
-        if (bodyPr[0]?.["a:normAutofit"]) item.textFit = "shrinkToFit"
-        // a:spAutoFit
-        // const fontScale = getAttribute(getValue(shape.shape, "p:txBody", "a:bodyPr"), "fontScale", "a:normAutofit") // 92500
+        const bodyPrs = [getValue(shape.shape, "p:txBody", "a:bodyPr"), getValue(shape.layoutShape, "p:txBody", "a:bodyPr"), getValue(shape.masterShape, "p:txBody", "a:bodyPr")]
+
+        // auto size (shrinkToFit changes the font size even when it's not overflowing)
+        // const hasNormAutofit = bodyPrs.some((b) => b?.some?.((n: any) => n.hasOwnProperty("a:normAutofit")))
+        // const hasSpAutoFit = bodyPrs.some((b) => b?.some?.((n: any) => n.hasOwnProperty("a:spAutoFit")))
+        // if (hasNormAutofit || hasSpAutoFit) item.textFit = "shrinkToFit"
 
         const itemAlign = getAttribute(shape.shape, "anchor", "p:txBody") || getAttribute(getValue(shape.shape, "p:txBody"), "anchor", "a:bodyPr") || getAttribute(getValue(shape.layoutShape, "p:txBody"), "anchor", "a:bodyPr") || getAttribute(getValue(shape.masterShape, "p:txBody"), "anchor", "a:bodyPr") || ""
-        item.align = getItemAlign(itemAlign)
+        item.align = getItemAlign(itemAlign) + "overflow: visible;" // PPT shows overflow text
         function getItemAlign(anchor: string) {
-            if (anchor === "ctr") return ""
+            if (anchor === "ctr") return "" // FreeShow default is center alignment
             if (anchor === "b") return "align-items: flex-end;"
-            return "align-items: flex-start;" // t
+            if (anchor === "t") return "align-items: flex-start;"
+            if (svgText) return ""
+            return "align-items: flex-start;" // PPT default is top alignment
         }
 
         const pptShapeToNormalizedSvg = (node: any, image?: string): string | null => {
             const spPr = getValue(node, "p:spPr")
             if (!spPr) return null
 
-            const prstGeom = getAttribute(spPr, "prst", "a:prstGeom")
+            let prstGeom = getAttribute(spPr, "prst", "a:prstGeom")
+            if (!prstGeom && shape.name === "p:cxnSp") prstGeom = "line"
             // const prstGeom = spPr["a:prstGeom"]?.[0].$?.prst
             // if (!prstGeom || prstGeom === "rect") return null
 
@@ -896,8 +988,8 @@ export class PowerPointPackage {
             const lineFill = getValue(spPr, "a:ln", "a:solidFill")
             if (lineFill.length) {
                 stroke = resolveColor(lineFill, ctx.colors) || "none"
-                strokeWidth = round(emuToPixels(getAttribute(spPr, "w", "a:ln") || "0") * 0.05)
-                // strokeWidth = getAttribute(spPr, "w", "a:ln") ? (parseInt(getAttribute(spPr, "w", "a:ln"), 10) / 12700) * 0.02 : 1 // EMUs → pt → px-ish
+                const lnW = getAttribute(spPr, "w", "a:ln") || "0"
+                strokeWidth = Math.max(1, round((emuToPixels(lnW) || 1) * (ctx.scale?.factor ?? 1)))
                 const ln = getValue(spPr, "a:ln")
                 // Dash style
                 const dashVal = getAttribute(ln, "val", "a:prstDash")
@@ -922,13 +1014,16 @@ export class PowerPointPackage {
                     const miterLim = getAttribute(ln, "miterLim")
                     strokeMiterlimit = miterLim ? parseFloat(miterLim) : 4
                 }
+            } else if (shape.name === "p:cxnSp") {
+                stroke = resolveColor(getValue(spPr, "a:ln", "a:schemeClr"), ctx.colors) || "#ffffff"
+                strokeWidth = 1
             }
             // WIP stroke is overflowing outside of item
 
             let svgAttributes = `fill="${fill}"`
             if (fillOpacity < 1) svgAttributes += ` fill-opacity="${fillOpacity}"`
             if (stroke !== "none") svgAttributes += ` stroke="${stroke}"`
-            if (strokeWidth) svgAttributes += ` stroke-width="${strokeWidth}"`
+            if (strokeWidth && stroke !== "none") svgAttributes += ` stroke-width="${strokeWidth}" vector-effect="non-scaling-stroke"`
             if (strokeDasharray) svgAttributes += ` stroke-dasharray="${strokeDasharray}"`
             if (strokeLinecap) svgAttributes += ` stroke-linecap="${strokeLinecap}"`
             if (strokeLinejoin) svgAttributes += ` stroke-linejoin="${strokeLinejoin}"`
@@ -1045,9 +1140,9 @@ export class PowerPointPackage {
             }
 
             const path = getPresetShapePath(prstGeom, pos.left, pos.top, pos.width, pos.height, adj)
+            if (!path) return null
 
-            // viewBox="0 0 1 1"
-            return `<svg data-shape="${prstGeom}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vbWidth} ${vbHeight}" style="position: absolute;">
+            return `<svg data-shape="${prstGeom}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" preserveAspectRatio="none" style="position: absolute; width: 100%; height: 100%;">
                     <path ${svgAttributes} d="${path}"></path>
                 </svg>`
         }
@@ -1073,7 +1168,7 @@ export class PowerPointPackage {
             const customPath = getValue(spPr, "a:custGeom", "a:pathLst", "a:path")
             if (!svgText && (!hasContent || (prstGeom && prstGeom !== "rect") || customPath.length)) {
                 const rid = getAttribute(blipFill, "r:embed", "a:blip")
-                const image = this.getMediaPath(rid, ctx) || ""
+                const image = this.getMediaPath(rid, shape.part ? { part: shape.part, ...ctx } : ctx) || ""
 
                 const svg = pptShapeToNormalizedSvg(shape.shape, image)
                 if (svg) {
@@ -1097,7 +1192,7 @@ export class PowerPointPackage {
         } else if (item.type === "media") {
             // findAttribute(node, "r:embed") || findAttribute(node, "r:link")
             const rid = getAttribute(blipFill, "r:embed", "a:blip")
-            const image = this.getMediaPath(rid, ctx) || ""
+            const image = this.getMediaPath(rid, shape.part ? { part: shape.part, ...ctx } : ctx) || ""
 
             const svg = pptShapeToNormalizedSvg(shape.shape, image)
             if (svg) {
@@ -1112,10 +1207,13 @@ export class PowerPointPackage {
                 // const mediaFit = getAttribute(fill, "method", "p:blipFill")
                 item.fit = "fill"
 
+                const filter = resolveImageEffects(blipFill, ctx.colors)
+                if (filter) item.filter = filter
+
                 // is video elem
                 const nvPr = getValue(shape.shape, "p:nvPicPr", "p:nvPr")
                 const videoId = getAttribute(nvPr, "r:link", "a:videoFile")
-                const videoPath = this.getMediaPath(videoId, ctx)
+                const videoPath = this.getMediaPath(videoId, shape.part ? { part: shape.part, ...ctx } : ctx)
                 if (videoPath) {
                     item.src = videoPath
                     item.loop = false
@@ -1125,8 +1223,9 @@ export class PowerPointPackage {
                 // const title = getAttribute(getValue(shape.shape, "p:nvPicPr")[0], "title")
                 const cNvPr = getValue(shape.shape, "p:nvPicPr", "p:cNvPr")
                 const hlinkClickId = getAttribute(cNvPr[0], "r:id", "hlinkClick")
-                const links = ctx.slide.getRelationships("http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink")
-                const url = links.find((l) => l.id === hlinkClickId)?.target
+                const activePart = shape.part || ctx.slide
+                const links = activePart?.getRelationships?.("http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink") || []
+                const url = links.find((l: any) => l.id === hlinkClickId)?.target
                 if (url) {
                     item.type = "web"
                     item.web = { src: url, noNavigation: true }
@@ -1146,7 +1245,13 @@ export class PowerPointPackage {
                 // })
             }
         } else if (shape.name === "p:cxnSp") {
-            // line style
+            const svg = pptShapeToNormalizedSvg(shape.shape)
+            if (svg) {
+                delete item.lines
+                item.type = "icon"
+                item.customSvg = svg
+                svgShape = true
+            }
         } else if (type2 === "chart") {
             // table / chart
             return null
@@ -1154,14 +1259,14 @@ export class PowerPointPackage {
 
         if (shape.isDecoration) item.decoration = true
 
-        // WIP get correct padding
-        const fallbackPadding = 0 // shape.name === "p:sp" && !svgShape ? 12 : 0
-        // padding: 0 30px;
-        const paddingL = Number(getAttribute(shape.shape, "lIns", "p:txBody")) || Number(getAttribute(getValue(shape.layoutShape, "p:txBody"), "lIns", "a:bodyPr")) || Number(getAttribute(getValue(shape.masterShape, "p:txBody"), "lIns", "a:bodyPr")) || 0
-        const paddingT = Number(getAttribute(shape.shape, "tIns", "p:txBody")) || Number(getAttribute(getValue(shape.layoutShape, "p:txBody"), "tIns", "a:bodyPr")) || Number(getAttribute(getValue(shape.masterShape, "p:txBody"), "tIns", "a:bodyPr")) || 0
-        const paddingR = Number(getAttribute(shape.shape, "rIns", "p:txBody")) || Number(getAttribute(getValue(shape.layoutShape, "p:txBody"), "rIns", "a:bodyPr")) || Number(getAttribute(getValue(shape.masterShape, "p:txBody"), "rIns", "a:bodyPr")) || 0
-        const paddingB = Number(getAttribute(shape.shape, "bIns", "p:txBody")) || Number(getAttribute(getValue(shape.layoutShape, "p:txBody"), "bIns", "a:bodyPr")) || Number(getAttribute(getValue(shape.masterShape, "p:txBody"), "bIns", "a:bodyPr")) || 0
-        item.style += `padding: ${round(emuToPixels(paddingT) || fallbackPadding)}px ${round(emuToPixels(paddingR) || fallbackPadding)}px ${round(emuToPixels(paddingB) || fallbackPadding)}px ${round(emuToPixels(paddingL) || fallbackPadding)}px;`
+        // padding: default 72000 EMU (0.1 in) left/right, 36000 EMU (0.05 in) top/bottom for text shapes
+        const isText = (shape.name === "p:sp" || svgText) && !svgShape
+        const getPad = (key: string, defEmu: number, scale = 1) => {
+            const raw = bodyPrs.map((b) => getAttribute(b, key)).find((v) => v !== "")
+            const emu = raw != null && !isNaN(Number(raw)) ? Number(raw) : isText ? (svgText && (key === "tIns" || key === "bIns") ? 0 : defEmu) : 0
+            return round(emuToPixels(emu) * scale)
+        }
+        item.style += `padding: ${getPad("tIns", 36000, ctx.scale.y)}px ${getPad("rIns", 72000, ctx.scale.x)}px ${getPad("bIns", 36000, ctx.scale.y)}px ${getPad("lIns", 72000, ctx.scale.x)}px;`
 
         if (bgColor && !svgShape && !svgText) item.style += `background-color: ${bgColor};`
 
@@ -1216,6 +1321,23 @@ export class PowerPointPackage {
         if (pos.width + pos.height + pos.left + pos.top === 0) pos = getPosition(shape.layoutShape, ctx.scale)
         if (pos.width + pos.height + pos.left + pos.top === 0) pos = getPosition(shape.masterShape, ctx.scale)
         if (pos.width === 0 && pos.height === 0) pos = { left: 80, top: 200, width: 1760, height: 680 } // set default pos
+
+        // some PPT shapes have width or height of 0, which will cause them to not be visible in CSS rendering, set minimum size
+        if (svgShape) {
+            const lnW = getAttribute(spPr, "w", "a:ln") || "0"
+            const strokeWidth = emuToPixels(lnW)
+            if (!pos.height) {
+                const size = Math.max(strokeWidth, 4)
+                pos.top -= size / 2
+                pos.height = size
+            }
+            if (!pos.width) {
+                const size = Math.max(strokeWidth, 4)
+                pos.left -= size / 2
+                pos.width = size
+            }
+        }
+
         item.style += Object.entries(pos)
             .map(([k, v]) => (v != null ? `${k}: ${v}px;` : ""))
             .join("")
@@ -1255,9 +1377,9 @@ export class PowerPointPackage {
         return item
     }
 
-    private getMediaPath(rid?: string, ctx?: { slide: any; layout: any; master: any }): string | null {
+    private getMediaPath(rid?: string, ctx?: { slide?: any; layout?: any; master?: any; part?: any } | OpcPart | null): string | null {
         if (!rid) return null
-        // Look for relationship in slide, then layout, then master
+        // Look for relationship in part, then slide, then layout, then master
         const tryFind = (part: any) => {
             if (!part) return null
             const rels = part.relationships || []
@@ -1265,7 +1387,12 @@ export class PowerPointPackage {
             if (rel) return getTarget(part.path, rel) || rel.target
             return null
         }
-        let target = tryFind(ctx?.slide) || tryFind(ctx?.layout) || tryFind(ctx?.master)
+        let target: string | null = null
+        if (ctx instanceof OpcPart || (ctx && "relationships" in ctx && "path" in ctx)) {
+            target = tryFind(ctx)
+        } else if (ctx) {
+            target = tryFind(ctx.part) || tryFind(ctx.slide) || tryFind(ctx.layout) || tryFind(ctx.master)
+        }
         if (!target) target = rid
         // Map to contentPaths if available
         const fsPath = this.contentPaths && this.contentPaths[target]
@@ -1513,7 +1640,7 @@ function unpackGroups(shapes: Shape[], parentPos: Position | null = null, child:
 }
 
 const keyOf = (s: TempShape) => `${s.phType}|${s.phIdx}`
-function buildRenderList(masterShapes: Shape[], layoutShapes: Shape[], slideShapes: Shape[], master: SlideMasterPart | null, layoutShowMasterSp: boolean = false) {
+function buildRenderList(masterShapes: Shape[], layoutShapes: Shape[], slideShapes: Shape[], master: SlideMasterPart | null, slide: SlidePart | null = null, layout: SlideLayoutPart | null = null, layoutShowMasterSp: boolean = false) {
     const tempSlideShapes: TempShape[] = unpackGroups(slideShapes).map(getTempShape)
     const tempLayoutShapes: TempShape[] = unpackGroups(layoutShapes).map(getTempShape)
     const tempMasterShapes: TempShape[] = unpackGroups(masterShapes).map(getTempShape)
@@ -1546,16 +1673,41 @@ function buildRenderList(masterShapes: Shape[], layoutShapes: Shape[], slideShap
         }
     }
 
-    const render: { name: string; shape: Shape; pos: Position; layoutShape: Shape; masterShape: Shape; txStyles: any[]; isDecoration?: boolean }[] = []
+    const render: { name: string; shape: Shape; pos: Position; layoutShape: Shape; masterShape: Shape; txStyles: any[]; isDecoration?: boolean; part?: OpcPart }[] = []
 
     for (const s of tempSlideShapes) {
-        if (!s.hidden) render.push({ name: s.name, shape: s.node, pos: s.pos, layoutShape: getMatchingShape(keyOf(s), tempLayoutShapes), masterShape: getMatchingShape(keyOf(s), tempMasterShapes), txStyles: getTxStyles(s.phType) })
+        if (!s.hidden) {
+            const matchedLayout = findMatchingPlaceholder(s, tempLayoutShapes)
+            const matchedMaster = findMatchingPlaceholder(s, tempMasterShapes) || (matchedLayout ? findMatchingPlaceholder(matchedLayout, tempMasterShapes) : null)
+            const effectivePhType = s.phType || matchedLayout?.phType || matchedMaster?.phType || (s.phIdx === "0" ? "title" : s.phIdx === "1" ? "body" : "")
+
+            render.push({
+                name: s.name,
+                shape: s.node,
+                pos: s.pos,
+                layoutShape: matchedLayout ? matchedLayout.node : [],
+                masterShape: matchedMaster ? matchedMaster.node : [],
+                txStyles: getTxStyles(effectivePhType),
+                part: slide || undefined
+            })
+        }
     }
 
     for (const s of tempLayoutShapes) {
         if (s.hidden) continue
         if (!s.isPlaceholder || !slidePH.has(keyOf(s))) {
-            render.push({ name: s.name, shape: s.node, pos: s.pos, layoutShape: [], masterShape: getMatchingShape(keyOf(s), tempMasterShapes), txStyles: [], isDecoration: true })
+            const matchedMaster = findMatchingPlaceholder(s, tempMasterShapes)
+            const effectivePhType = s.phType || matchedMaster?.phType || (s.phIdx === "0" ? "title" : s.phIdx === "1" ? "body" : "")
+            render.push({
+                name: s.name,
+                shape: s.node,
+                pos: s.pos,
+                layoutShape: [],
+                masterShape: matchedMaster ? matchedMaster.node : [],
+                txStyles: getTxStyles(effectivePhType),
+                isDecoration: true,
+                part: layout || undefined
+            })
         }
     }
 
@@ -1564,7 +1716,7 @@ function buildRenderList(masterShapes: Shape[], layoutShapes: Shape[], slideShap
             if (s.hidden) continue
             const k = keyOf(s)
             if (!s.isPlaceholder || (!slidePH.has(k) && !layoutPH.has(k))) {
-                render.push({ name: s.name, shape: s.node, pos: s.pos, layoutShape: [], masterShape: [], txStyles: [] })
+                render.push({ name: s.name, shape: s.node, pos: s.pos, layoutShape: [], masterShape: [], txStyles: [], isDecoration: true, part: master || undefined })
             }
         }
     }
@@ -1578,17 +1730,20 @@ function buildRenderList(masterShapes: Shape[], layoutShapes: Shape[], slideShap
 
     function getTxStyles(type: string | undefined) {
         const txStyles = master?.textStyles || []
-        if (type?.toLowerCase().includes("title")) return getValue(txStyles, "p:titleStyle")
-        if (type?.toLowerCase().includes("body")) return getValue(txStyles, "p:bodyStyle")
+        if (type && (type.toLowerCase().includes("title") || type.toLowerCase().includes("ctrtitle"))) return getValue(txStyles, "p:titleStyle")
+        if (type && (type.toLowerCase().includes("body") || type.toLowerCase().includes("subtitle"))) return getValue(txStyles, "p:bodyStyle")
         return getValue(txStyles, "p:otherStyle")
     }
 }
 
-function getMatchingShape(id: string, tempShapes: TempShape[]) {
-    for (const s of tempShapes) {
-        if (keyOf(s) === id) return s.node
-    }
-    return []
+function findMatchingPlaceholder(source: TempShape | null, targetShapes: TempShape[]): TempShape | null {
+    if (!source?.isPlaceholder) return null
+
+    const type = source.phType || (source.phIdx === "0" ? "title" : source.phIdx === "1" ? "body" : "")
+    const isTitle = type === "title" || type === "ctrTitle"
+    const isBody = type === "body" || type === "subTitle"
+
+    return (source.phIdx ? targetShapes.find((t) => t.isPlaceholder && t.phIdx === source.phIdx) : null) || (source.phType ? targetShapes.find((t) => t.isPlaceholder && t.phType === source.phType) : null) || (isTitle ? targetShapes.find((t) => t.isPlaceholder && (t.phType === "title" || t.phType === "ctrTitle" || t.phIdx === "0")) : null) || (isBody ? targetShapes.find((t) => t.isPlaceholder && (t.phType === "body" || t.phType === "subTitle" || t.phIdx === "1")) : null) || null
 }
 
 function resolveColor(solidFill: any[], colors: { [key: string]: any }[], { lumMod, lumOff }: { lumMod?: string; lumOff?: string } = {}) {
@@ -1638,25 +1793,27 @@ function resolveColor(solidFill: any[], colors: { [key: string]: any }[], { lumM
     }
 
     let scheme = getAttribute(solidFill, "val", "a:schemeClr")
-    if (!scheme.startsWith("a:")) scheme = "a:" + scheme
     if (scheme) {
+        if (!scheme.startsWith("a:")) scheme = "a:" + scheme
         let themeClr = getValue(colors, scheme)
         if (!themeClr.length) {
-            if (scheme === "a:tx1") {
-                themeClr = getValue(colors, "a:dk1")
-            }
+            if (scheme === "a:tx1") themeClr = getValue(colors, "a:dk1")
+            else if (scheme === "a:tx2") themeClr = getValue(colors, "a:dk2")
+            else if (scheme === "a:bg1") themeClr = getValue(colors, "a:lt1")
+            else if (scheme === "a:bg2") themeClr = getValue(colors, "a:lt2")
         }
 
         const lumMod = getAttribute(getValue(solidFill, "a:schemeClr"), "val", "a:lumMod")
         const lumOff = getAttribute(getValue(solidFill, "a:schemeClr"), "val", "a:lumOff")
-        return resolveColor(themeClr, colors, { lumMod, lumOff })
+        const color = resolveColor(themeClr, colors, { lumMod, lumOff })
 
-        // const alpha = getAttribute(scheme, "val", "a:alpha")
-        // const opacity = alpha ? parseInt(alpha, 10) / 100000 : 1
-        // if (alpha) {
-        //     const rgb = hexToRgb(hex)
-        //     return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`
-        // }
+        const alpha = getAttribute(getValue(solidFill, "a:schemeClr"), "val", "a:alpha")
+        if (alpha && color) {
+            const opacity = parseInt(alpha, 10) / 100000
+            const rgb = hexToRgb(color)
+            if (rgb) return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`
+        }
+        return color
     }
 
     return ""
@@ -1686,15 +1843,99 @@ function resolveGradient(gradFill: any[], colors: { [key: string]: any }[]) {
     return `linear-gradient(${angle}deg, ${gradientStops.join(", ")})`
 }
 
+function resolveImageEffects(blipFill: any[], colors: { [key: string]: any }[] = []): string {
+    const blip = getValue(blipFill, "a:blip")
+    if (!blip.length) return ""
+
+    const filters: string[] = []
+    const toPct = (val?: string) => (val != null && val !== "" ? Number(val) / 100000 : null)
+
+    // DrawingML direct effects
+    const lum = getValue(blip, "a:lum")
+    const lumB = toPct(getAttribute(lum, "bright"))
+    const lumC = toPct(getAttribute(lum, "contrast"))
+    if (lumB != null) filters.push(`brightness(${round(Math.max(0, 1 + lumB))})`)
+    if (lumC != null) filters.push(`contrast(${round(Math.max(0, 1 + lumC))})`)
+    if (getValue(blip, "a:grayscl").length) filters.push("grayscale(1)")
+
+    // a:duotone effect
+    const duotone = getValue(blip, "duotone")
+    if (duotone.length) {
+        let tintColor: string | null = null
+        for (const clrNode of duotone) {
+            const clr = resolveColor([clrNode], colors)
+            if (clr && clr.toLowerCase() !== "#000000" && clr.toLowerCase() !== "#000" && clr.toLowerCase() !== "black") {
+                tintColor = clr
+                break
+            }
+        }
+
+        if (tintColor) {
+            const hsl = hexToHSL(tintColor)
+            if (hsl && hsl.s > 5) {
+                const hueDiff = Math.round(hsl.h - 38)
+                const satBoost = Math.max(1, Math.round(hsl.s / 35))
+                filters.push(`grayscale(1) sepia(1) hue-rotate(${hueDiff}deg) saturate(${satBoost})`)
+            } else {
+                filters.push("grayscale(1)")
+            }
+        } else {
+            filters.push("grayscale(1)")
+        }
+    }
+
+    // Extension image effects (a14 / a15 / a16 / any namespace)
+    const effects = getValues(blip, "extLst", "ext", "imgProps", "imgLayer", "imgEffect").flat()
+    for (const effect of effects) {
+        const attrs = effect?.[":@"] || {}
+        const tag = Object.keys(effect || {}).find((k) => k !== ":@") || ""
+        const name = tag.includes(":") ? tag.split(":")[1] : tag
+
+        if (name === "brightnessContrast") {
+            const b = toPct(attrs.bright)
+            const c = toPct(attrs.contrast)
+            if (b != null) filters.push(`brightness(${round(Math.max(0, 1 + b))})`)
+            if (c != null) filters.push(`contrast(${round(Math.max(0, 1 + c))})`)
+        } else if (name === "saturation") {
+            const s = toPct(attrs.sat)
+            if (s != null) filters.push(`saturate(${round(Math.max(0, s))})`)
+        } else if (name === "colorTemperature") {
+            const temp = Number(attrs.colorTemp)
+            if (temp > 0 && temp !== 6500) {
+                const diff = (6500 - temp) / 6500
+                filters.push(diff > 0 ? `sepia(${round(diff * 0.4)})` : `hue-rotate(${round(diff * 20)}deg)`)
+            }
+        } else if (name === "sharpenSoften") {
+            const amount = Number(attrs.amount || 0)
+            if (amount < 0) filters.push(`blur(${round(Math.abs(amount) / 20000, 1)}px)`)
+        }
+    }
+
+    return filters.join(" ")
+}
+
 ///// XML
+
+function getNodeChild(n: any, key: string): any[] | undefined {
+    if (!n || typeof n !== "object") return undefined
+    if (n.hasOwnProperty(key)) return n[key]
+    const local = key.includes(":") ? key.split(":")[1] : key
+    const matchKey = Object.keys(n).find((k) => k !== ":@" && (k === local || k.endsWith(":" + local)))
+    return matchKey ? n[matchKey] : undefined
+}
 
 function getValue(data: any[], ...path: string[]): any[] {
     if (!Array.isArray(data)) return []
 
     let current = data
     for (const key of path) {
-        current = current.find((n: any) => n.hasOwnProperty(key))?.[key]
-        if (!Array.isArray(current)) return []
+        let next: any[] | undefined
+        for (const n of current) {
+            next = getNodeChild(n, key)
+            if (Array.isArray(next)) break
+        }
+        if (!Array.isArray(next)) return []
+        current = next
     }
 
     return current
@@ -1707,13 +1948,16 @@ function getValues(data: any[], ...path: string[]): any[][] {
 
     let current = data
     for (const key of path) {
-        current = current.find((n: any) => n.hasOwnProperty(key))?.[key]
-        if (!Array.isArray(current)) return []
+        let next: any[] | undefined
+        for (const n of current) {
+            next = getNodeChild(n, key)
+            if (Array.isArray(next)) break
+        }
+        if (!Array.isArray(next)) return []
+        current = next
     }
 
-    current = current.filter((n: any) => n.hasOwnProperty(lastPath)).map((n: any) => n[lastPath])
-
-    return current
+    return current.map((n: any) => getNodeChild(n, lastPath)).filter((child): child is any[] => Array.isArray(child))
 }
 
 // [slide, layout, master]

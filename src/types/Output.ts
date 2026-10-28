@@ -1,5 +1,5 @@
 import type { Cropping, Resolution } from "./Settings"
-import type { OutBackground, OutSlide, OutTransition } from "./Show"
+import type { OutBackground, OutScene, OutSlide, OutTransition } from "./Show"
 
 export interface Outputs {
     [key: string]: Output
@@ -22,10 +22,12 @@ export interface Output {
     transparent?: boolean
     ndi?: boolean
     ndiData?: any
+    omt?: boolean
+    omtData?: any
     blackmagic?: boolean
     blackmagicData?: any
     webrtc?: boolean
-    webrtcData?: { url?: string; token?: string; streaming?: boolean; fps?: string | number; bitrate?: string | number }
+    webrtcData?: { url?: string; token?: string; streaming?: boolean; startedAt?: number; fps?: string | number; bitrate?: string | number }
     rtmp?: boolean
     rtmpData?: RtmpData
     forcedResolution?: Resolution
@@ -34,6 +36,10 @@ export interface Output {
     style?: string
     show?: any
     out?: OutData
+}
+
+export interface SyncedOutputs {
+    [id: string]: string
 }
 
 // RTMP
@@ -45,8 +51,11 @@ export interface RtmpDestination {
 }
 export interface RtmpData {
     streaming?: boolean
+    startedAt?: number
     fps?: string | number
     bitrate?: string | number
+    rateControl?: "cbr" | "vbr"
+    encoder?: string
     destinations?: RtmpDestination[]
     url?: string // deprecated, only used in v1.6.4
     key?: string // deprecated, only used in v1.6.4
@@ -61,12 +70,13 @@ export interface RtmpStatus {
 }
 
 export interface OutData {
-    refresh?: boolean
+    refresh?: number
     background?: null | OutBackground
     slide?: null | OutSlide
     effects?: string[]
     overlays?: string[]
     transition?: null | OutTransition
+    scene?: null | OutScene
 }
 
 export interface Animation {

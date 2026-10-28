@@ -153,7 +153,8 @@
         transition: 0.4s filter ease;
     }
     .row.gradient :global(button:not(.isActive):not(:disabled):hover),
-    .row.gradient :global(button:not(.isActive):not(:disabled):active) {
+    .row.gradient :global(button:not(.isActive):not(:disabled):active),
+    .row.gradient :global(button:not(.isActive):not(:disabled):hover:active) {
         background:
             linear-gradient(var(--background), var(--background)) padding-box,
             linear-gradient(160deg, #09f76c 0%, #0eee16 10%, #7df505 20%, #79f812 35%, var(--secondary) 100%) border-box !important;

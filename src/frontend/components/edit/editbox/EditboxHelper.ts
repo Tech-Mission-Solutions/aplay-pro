@@ -1,9 +1,5 @@
-import { get } from "svelte/store"
 import type { Item, Line } from "../../../../types/Show"
-import { styles } from "../../../stores"
 import { clone } from "../../helpers/array"
-import { getFirstActiveOutput } from "../../helpers/output"
-import { getStyles } from "../../helpers/style"
 import { getItemText } from "../scripts/textStyle"
 
 export class EditboxHelper {
@@ -238,6 +234,8 @@ export class EditboxHelper {
 
         // fix quotes (for font family names with spaces)
         style = style.replaceAll('"', "'")
+        // remove font size it it's 0
+        style = style.replace(/font-size:\s*0(?:px)?;?/gi, "")
 
         // text gradient
 
@@ -252,22 +250,7 @@ export class EditboxHelper {
             // style = newStyles
         }
 
-        // custom font size ratio
-
-        const fontSize = Number(getStyles(style, true)["font-size"] || 100)
-
-        // get first output style
-        const currentOutput = getFirstActiveOutput()
-        const outputStyle = get(styles)[currentOutput?.style || ""] || {}
-        if (!Object.keys(outputStyle).length) return style
-
-        const customFontSizeRatio = (outputStyle.aspectRatio?.fontSizeRatio ?? 100) / 100
-
-        // remove custom font size
-        // let customIndex = style.indexOf("--custom")
-        // if (customIndex > -1) style = style.slice(0, customIndex)
-
-        return `${style};--custom:true;font-size: ${fontSize * customFontSizeRatio}px;`
+        return style
     }
 }
 

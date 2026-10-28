@@ -1,4 +1,6 @@
 import { get, Writable, writable } from "svelte/store"
+import type { AudioChannelData } from "../../../types/Audio"
+import type { AudioRoutingConfig } from "../../../types/AudioRouting"
 import type { Bible } from "../../../types/Bible"
 import type { OutData } from "../../../types/Output"
 import type { Dictionary } from "../../../types/Settings"
@@ -23,6 +25,7 @@ export let isConnected = writable(false)
 export let quickPlay = writable(false)
 export let createShow: Writable<boolean | string> = writable(false)
 export let showSearchValue = writable("")
+export let showSearchResults: Writable<{ query: string; results: { id: string; match: number }[] } | null> = writable(null)
 export let activeTab = writable("shows")
 export let activeDrawerTab = writable("shows")
 export let activeCategory = writable("all")
@@ -112,6 +115,8 @@ export let scriptureSearchResults: Writable<any> = writable(null)
 
 export let audio: Writable<{ [key: string]: any }> = writable({})
 export let mixer: Writable<any> = writable(null)
+export let audioRouting: Writable<AudioRoutingConfig | null> = writable(null)
+export let audioChannelsData: Writable<{ [key: string]: AudioChannelData }> = writable({})
 
 /////
 
@@ -121,6 +126,7 @@ export const _ = {
     password,
     isConnected,
     quickPlay,
+    showSearchResults,
     activeTab,
     activeDrawerTab,
     activeCategory,
@@ -169,6 +175,8 @@ export const _ = {
     scriptureSearchResults,
     audio,
     mixer,
+    audioRouting,
+    audioChannelsData,
     actions,
     actionTags,
     variables,

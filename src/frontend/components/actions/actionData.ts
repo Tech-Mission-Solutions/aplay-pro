@@ -7,6 +7,7 @@ export const actionData = {
     index_select_project_item: { name: "actions.index_select_project_item", icon: "project", input: "index", incompatible: ["next_project_item", "previous_project_item"] },
     name_start_project_item: { name: "actions.name_start_project_item", icon: "project", input: "strval" },
     mark_active_as_played: { name: "actions.mark_played", icon: "check", input: "toggle" },
+    unmark_all_as_played: { name: "actions.unmark_all_as_played", icon: "check" },
 
     // SHOWS
     id_select_show: { SECTION: "guide_title.show", name: "actions.id_select_show", icon: "showIcon", input: "start_show" },
@@ -36,6 +37,7 @@ export const actionData = {
     clear_overlay: { name: "clear.overlay", icon: "overlays", input: "id", red: true, incompatible: ["restore_output", "clear_all", "clear_overlays"] }, // common: true,
     clear_audio: { slideId: "clearAudio", common: true, name: "clear.audio", icon: "audio", red: true, incompatible: ["restore_output", "clear_all"] },
     clear_next_timer: { name: "clear.nextTimer", icon: "timer", red: true, incompatible: ["restore_output", "clear_all"] },
+    clear_scene: { name: "clear.scene", icon: "scene", red: true },
     clear_drawing: { name: "clear.drawing", icon: "paint", red: true },
 
     // MEDIA
@@ -49,18 +51,19 @@ export const actionData = {
     id_select_overlay: { common: true, canAddMultiple: true, name: "actions.id_select_overlay", icon: "overlays", input: "id" },
 
     // OUTPUT
-    start_webrtc_stream: { SECTION: "guide_title.output", name: "output.start_streaming (WebRTC)", icon: "record", input: "id" },
+    start_scene: { SECTION: "guide_title.output", canAddMultiple: true, name: "actions.start_scene", icon: "scene", input: "id" },
+    start_webrtc_stream: { name: "output.start_streaming (WebRTC)", icon: "record", input: "id" },
     stop_webrtc_stream: { name: "output.stop_streaming (WebRTC)", icon: "stop", input: "id", red: true },
     start_rtmp_stream: { name: "output.start_streaming (RTMP)", icon: "record", input: "id" },
     stop_rtmp_stream: { name: "output.stop_streaming (RTMP)", icon: "stop", input: "id", red: true },
+    start_output_recording: { name: "actions.start_recording", icon: "record", input: "id" },
+    stop_output_recording: { name: "actions.stop_recording", icon: "stop", red: true },
     lock_output: { canAddMultiple: true, name: "actions.toggle_output_lock", icon: "locked", input: "output_lock" },
     toggle_output_windows: { name: "actions.toggle_output_windows", icon: "outputs", input: "toggle", incompatible: ["toggle_output"] },
     toggle_output: { canAddMultiple: true, name: "actions.toggle_output_window", icon: "outputs", input: "toggle_output", incompatible: ["toggle_output_windows"] },
     // id_select_output_style: { name: "actions.id_select_output_style", icon: "styles", input: "id" },
     change_output_style: { slideId: "outputStyle", common: true, canAddMultiple: true, name: "actions.change_output_style", icon: "styles", input: "change_output_style" },
     change_transition: { name: "actions.change_transition", icon: "transition", input: "transition" },
-    mute_output: { name: "output.mute", icon: "muted", input: "id" },
-    unmute_output: { name: "output.unmute", icon: "volume", input: "id" },
 
     // STAGE
     // SECTION: "menu.stage",
@@ -68,9 +71,10 @@ export const actionData = {
     id_select_stage_layout: { name: "actions.id_change_stage_layout", icon: "stage", input: "id" },
 
     // AUDIO
-    change_volume: { SECTION: "tabs.audio", name: "actions.change_volume", icon: "volume", input: "volume" },
+    change_volume: { SECTION: "tabs.audio", canAddMultiple: true, name: "actions.change_volume", icon: "volume", input: "volume" },
+    mute: { canAddMultiple: true, name: "actions.mute", icon: "muted", input: "mute" },
     start_audio_stream: { slideId: "audioStream", common: true, name: "actions.start_audio_stream", icon: "audio_stream", input: "id" },
-    toggle_audio_recording: { canAddMultiple: true, name: "actions.toggle_specific", replace: ["recording"], icon: "record", input: "toggle_channel_recording" },
+    toggle_audio_recording: { canAddMultiple: true, name: "actions.toggle_audio_recording", icon: "record", input: "toggle_channel_recording" },
     toggle_icecast: { name: "actions.toggle_specific", replace: ["Icecast"], icon: "cloud", input: "toggle" },
     start_playlist: { common: true, name: "actions.start_playlist", icon: "playlist", input: "id", incompatible: ["playlist_next"] },
     playlist_next: { name: "actions.playlist_next", icon: "playlist", incompatible: ["start_playlist"] },
@@ -123,6 +127,9 @@ export const actionData = {
     spotify_fade_out: { name: "Spotify: media.fade_out", icon: "clear" },
     spotify_next: { name: "Spotify: media.next", icon: "nextFull" },
     spotify_previous: { name: "Spotify: media.previous", icon: "previousFull" },
+
+    // Smart
+    smart_toggle_stt: { SECTION: "settings.ai", name: "actions.toggle_specific", replace: ["STT"], icon: "mic", input: "toggle" },
 
     // OTHER
     toggle_log_song_usage: { SECTION: "settings.other", name: "settings.log_song_usage", icon: "history", input: "toggle" },

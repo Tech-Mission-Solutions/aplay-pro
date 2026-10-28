@@ -5,8 +5,10 @@
     import { activeEdit, activePage, activeShow, labelsDisabled, mediaOptions, outLocked, outputs, overlayCategories, overlays, styles, timelineRecordingAction } from "../../../stores"
     import { translateText } from "../../../utils/language"
     import { getAccess } from "../../../utils/profile"
+    import { runAction } from "../../actions/actions"
     import { clone, keysToID, sortByName } from "../../helpers/array"
     import { history } from "../../helpers/history"
+    import Icon from "../../helpers/Icon.svelte"
     import { findMatchingOut, getResolution, setOutput } from "../../helpers/output"
     import T from "../../helpers/T.svelte"
     import FloatingInputs from "../../input/FloatingInputs.svelte"
@@ -19,7 +21,6 @@
     import Card from "../Card.svelte"
     import Effects from "../effects/Effects.svelte"
     import OverlayActions from "./OverlayActions.svelte"
-    import { runAction } from "../../actions/actions"
 
     export let active: string | null
     export let searchValue = ""
@@ -74,10 +75,13 @@
             loaded = true
         } else {
             if (timeout) clearTimeout(timeout)
-            timeout = setTimeout(() => {
-                const batch = lazyLoader === 0 ? 4 : Math.min(32, lazyLoader * 2)
-                lazyLoader += batch
-            }, lazyLoader === 0 ? 60 : 30)
+            timeout = setTimeout(
+                () => {
+                    const batch = lazyLoader === 0 ? 4 : Math.min(32, lazyLoader * 2)
+                    lazyLoader += batch
+                },
+                lazyLoader === 0 ? 60 : 30
+            )
         }
     }
 
@@ -168,7 +172,7 @@
 
                                     <Zoomed {resolution} background={overlay.items.length ? "var(--primary);" : overlay.color || "var(--primary);"} checkered={!!overlay.items.length}>
                                         {#each overlay.items as item}
-                                            <Textbox {item} ref={{ type: "overlay", id: overlay.id }} preview />
+                                            <Textbox {item} ref={{ type: "overlay", id: overlay.id }} preview miniPreview />
                                         {/each}
                                     </Zoomed>
                                 {/if}
@@ -191,7 +195,8 @@
 
 {#if overlayWithNonExistentCategory}
     <FloatingInputs side="left" onlyOne>
-        <MaterialButton icon="autofill" on:click={createNonExistentCategories}>
+        <MaterialButton on:click={createNonExistentCategories}>
+            <Icon id="autofill" gradient />
             <T id="category.create_nonexistent" />
         </MaterialButton>
     </FloatingInputs>

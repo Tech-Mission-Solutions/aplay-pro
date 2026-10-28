@@ -89,7 +89,7 @@ const specialImports = {
     }
 }
 
-export async function importShow(id: string, files: string[] | null, importSettings: any) {
+export async function importShow(id: string, files: string[] | null) {
     if (!files?.length) return
 
     let importId = id
@@ -110,22 +110,8 @@ export async function importShow(id: string, files: string[] | null, importSetti
         await importTemplate(files)
         return
     }
-
-    if (id === "songbeamer") {
-        const encoding = importSettings.encoding
-        const fileContents: any[] = []
-        await asyncPool(20, files, async (file) => {
-            fileContents.push(await readFile(file, encoding))
-        })
-        const custom = {
-            files: fileContents,
-            length: fileContents.length,
-            encoding,
-            category: importSettings.category.id,
-            translationMethod: importSettings.translation
-        }
-
-        sendToMain(ToMain.IMPORT2, { channel: id, data: [], custom })
+    if (id === "freeshow_overlay") {
+        await importOverlay(files)
         return
     }
 
@@ -209,6 +195,9 @@ async function importProject(files: string[]) {
     // remove folder if no files stored
     // if (!readFolder(importFolder).length) deleteFolder(importFolder)
 
+    // might have alerted an error, so just return if there is no data
+    if (!data.length) return
+
     sendToMain(ToMain.IMPORT2, { channel: "freeshow_project", data })
 }
 
@@ -241,6 +230,35 @@ async function importTemplate(files: string[]) {
     sendToMain(ToMain.IMPORT2, { channel: "freeshow_template", data })
 }
 
+// OVERLAY
+
+async function importOverlay(files: string[]) {
+    sendToMain(ToMain.ALERT, "popup.importing")
+
+    // some .fsoverlay files are plain JSON and others are zip
+    const zipFiles: string[] = []
+    const jsonFiles: string[] = []
+    await asyncPool(20, files, async (file) => {
+        const zip = await isZip(file)
+        if (zip) zipFiles.push(file)
+        else jsonFiles.push(file)
+    })
+
+    const data: FileData[] = []
+    await asyncPool(20, jsonFiles, async (file) => {
+        data.push(await readFile(file))
+    })
+
+    const importFolder = getDataFolderPath("imports", "Overlays")
+
+    for (const zipFile of zipFiles) {
+        const dataFile = await extractZipDataAndMedia(zipFile, importFolder)
+        if (dataFile) data.push(dataFile)
+    }
+
+    sendToMain(ToMain.IMPORT2, { channel: "freeshow_overlay", data })
+}
+
 /// ZIP ///
 
 async function extractZipDataAndMedia(filePath: string, importFolder: string) {
@@ -255,6 +273,9 @@ async function extractZipDataAndMedia(filePath: string, importFolder: string) {
     const replacedMedia: { [key: string]: string } = {}
 
     dataContent.files?.forEach((rawPath: string) => {
+        if (!rawPath || typeof rawPath !== "string") return
+        if (rawPath.startsWith("data:") || rawPath.startsWith("http://") || rawPath.startsWith("https://") || rawPath.startsWith("blob:") || rawPath.startsWith("freeshow-protected://")) return
+
         // check if path already exists on the system
         if (doesPathExist(rawPath)) return
 

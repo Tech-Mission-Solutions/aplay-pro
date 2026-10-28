@@ -3,8 +3,8 @@
 
 import { get } from "svelte/store"
 import { uid } from "uid"
-import { activeAudioEffects, audioEffects, type AudioEffectsConfig, type AudioEffectInstance } from "../../stores"
 import { clone } from "../../components/helpers/array"
+import { activeAudioEffects, audioEffects, type AudioEffectInstance, type AudioEffectsConfig } from "../../stores"
 
 export const ALL_EFFECT_KEYS = ["equalizer", "filter", "noiseGate", "compressor", "limiter", "reverb", "delay", "stereoShaper"] as const
 export type EffectType = (typeof ALL_EFFECT_KEYS)[number]
@@ -81,29 +81,31 @@ export function migrateAudioEffects(raw: any): Record<string, AudioEffectsConfig
         if (Array.isArray((cfg as any).stack)) {
             for (const item of (cfg as any).stack) {
                 const type = typeof item === "string" ? (item as EffectType) : item?.type
-                if (ALL_EFFECT_KEYS.includes(type)) {
-                    const savedConfig = typeof item === "string" ? (cfg as any)[type] : item.config
-                    const defaultConfig = DEFAULT_EFFECT_CONFIGS[type] || { enabled: true }
+                if (!ALL_EFFECT_KEYS.includes(type)) continue
 
-                    stack.push({
-                        id: (typeof item === "object" && item.id) || `${type}_${uid(6)}`,
-                        type,
-                        enabled: typeof item === "object" ? item.enabled !== false : savedConfig?.enabled !== false,
-                        config: clone(savedConfig || defaultConfig)
-                    })
-                }
+                const savedConfig = typeof item === "string" ? (cfg as any)[type] : item.config
+                const mergedConfig = migrateConfig(type, savedConfig)
+
+                stack.push({
+                    id: (typeof item === "object" && item.id) || `${type}_${uid(6)}`,
+                    type,
+                    enabled: typeof item === "object" ? item.enabled !== false : savedConfig?.enabled !== false,
+                    config: mergedConfig
+                })
             }
         } else {
             // Legacy individual keys fallback
             ALL_EFFECT_KEYS.forEach((key) => {
-                if ((cfg as any)[key]?.enabled) {
-                    stack.push({
-                        id: `${key}_${uid(6)}`,
-                        type: key,
-                        enabled: true,
-                        config: clone((cfg as any)[key])
-                    })
-                }
+                if (!(cfg as any)[key]?.enabled) return
+
+                const config = migrateConfig(key, (cfg as any)[key])
+
+                stack.push({
+                    id: `${key}_${uid(6)}`,
+                    type: key,
+                    enabled: true,
+                    config
+                })
             })
         }
 
@@ -111,6 +113,22 @@ export function migrateAudioEffects(raw: any): Record<string, AudioEffectsConfig
     }
 
     return result
+
+    function migrateConfig(key: (typeof ALL_EFFECT_KEYS)[number], config: any) {
+        if (!config) return clone(DEFAULT_EFFECT_CONFIGS[key] || { enabled: true })
+        config = clone(config)
+
+        // remove old EQ "lowpass" & "highpass" band types
+        if (key === "equalizer" && Array.isArray(config.bands)) {
+            config.bands = config.bands.map((band: any) => {
+                if (band?.type === "lowpass") return { ...band, type: "lowshelf" }
+                if (band?.type === "highpass") return { ...band, type: "highshelf" }
+                return band
+            })
+        }
+
+        return config
+    }
 }
 
 /** Read effect config merged with runtime defaults. */
@@ -118,6 +136,27 @@ export function getEffectConfig<T>(key: EffectKey, defaults: T, channelId?: stri
     const stack = getEffectStack(undefined, channelId)
     const item = effectId ? stack.find((s) => s.id === effectId) : stack.find((s) => s.type === key)
     return item?.config ? { ...defaults, ...item.config } : { ...defaults }
+}
+
+/** Replace full effect config in store (e.g. applying a preset). */
+export function setEffectConfig(key: EffectKey, config: any, channelId?: string, effectId?: string): void {
+    const defaults = DEFAULT_EFFECT_CONFIGS[key as EffectType] || {}
+    updateStack(channelId, (stack) => {
+        const idx = findStackIndex(stack, effectId || key, !!effectId)
+        if (idx >= 0) {
+            const currentEnabled = stack[idx].enabled ?? stack[idx].config?.enabled ?? true
+            const enabled = config?.enabled !== undefined ? config.enabled : currentEnabled
+            stack[idx] = {
+                ...stack[idx],
+                enabled,
+                config: {
+                    ...clone(defaults),
+                    ...clone(config),
+                    enabled
+                }
+            }
+        }
+    })
 }
 
 /** Merge partial update into store. */

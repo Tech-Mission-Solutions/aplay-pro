@@ -6,13 +6,13 @@ import { EXPORT } from "../../../types/Channels"
 import type { Effects } from "../../../types/Effects"
 import type { Project, ProjectShowRef } from "../../../types/Projects"
 import type { Action, Overlays, Shows, SlideData } from "../../../types/Show"
-import { actions as actionsStores, effects as effectsStores, folders, media, overlays as overlayStores, showsCache, special } from "../../stores"
+import { actions as actionsStores, categories, effects as effectsStores, folders, media, overlays as overlayStores, showsCache, special } from "../../stores"
 import { send } from "../../utils/request"
 import { clone } from "../helpers/array"
 import { loadShows } from "../helpers/setShow"
 import { formatToFileName } from "../helpers/show"
 import { _show } from "../helpers/shows"
-import { getMedia } from "../helpers/media"
+import { getMedia, isLocalFile } from "../helpers/media"
 
 export async function exportProject(project: Project, projectId: string, savePath?: string) {
     if (!project) return
@@ -110,6 +110,19 @@ export async function exportProject(project: Project, projectId: string, savePat
     if (Object.keys(overlays).length) projectData.overlays = overlays
     if (Object.keys(effects).length) projectData.effects = effects
     if (Object.keys(actions).length) projectData.actions = actions
+
+    // used show categories
+    const usedCategories: { [id: string]: { name: string; icon?: string | null } } = {}
+    const allCategories = get(categories)
+    Object.values(shows).forEach((show) => {
+        if (!show?.category) return
+
+        const cat = allCategories[show.category]
+        if (!cat?.name) return
+
+        usedCategories[show.category] = { name: cat.name, icon: cat.icon ?? null }
+    })
+    if (Object.keys(usedCategories).length) projectData.categories = usedCategories
     const includeMediaFiles = get(special).projectIncludeMedia ?? true
     if (includeMediaFiles) {
         const resolvedFiles: string[] = []
@@ -128,7 +141,7 @@ export async function exportProject(project: Project, projectId: string, savePat
             }
         }
 
-        projectData.files = resolvedFiles
+        projectData.files = [...new Set(resolvedFiles)]
         if (Object.keys(mediaData).length) projectData.media = mediaData
     }
 
@@ -147,7 +160,7 @@ export async function exportProject(project: Project, projectId: string, savePat
     }
 
     function getFile(path: string | undefined) {
-        if (!path) return
+        if (!path || !isLocalFile(path)) return
         files.push(path)
     }
 
@@ -180,4 +193,3 @@ export async function exportProject(project: Project, projectId: string, savePat
     // let base64 = await toDataURL(showRef.id)
     // media[showRef.id] = base64
 }
-

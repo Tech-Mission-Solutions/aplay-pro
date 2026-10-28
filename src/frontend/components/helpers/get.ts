@@ -38,5 +38,14 @@ export const GetLayout = (showID: null | ID = null, layoutID: null | ID = null):
             }
         })
     }
+
+    // this broke things more than it helps, use the template option instead
+    // if (get(special).alwaysPlaceEmptySlideFirst && layoutSlides.length) {
+    //     const firstSlide = currentShow?.slides?.[layoutSlides[0]?.id]
+    //     if (firstSlide && getSlideText(firstSlide).length) {
+    //         layoutSlides.unshift({ id: "fake_empty", color: null })
+    //     }
+    // }
+
     return layoutSlides
 }

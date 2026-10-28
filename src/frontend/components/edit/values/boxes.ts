@@ -187,7 +187,7 @@ export const textSections: { [key: string]: EditBoxSection } = {
             [
                 // probably not needed as we have line and item background color
                 // { label: "background_color", id: "style", key: "background-color", type: "color", value: "rgb(0 0 0 / 0)", values: { enableNoColor: true } },
-                { id: "nowrap", type: "checkbox", value: false, values: { label: "edit.no_wrap" } }
+                { id: "style", key: "white-space", type: "checkbox", value: false, styleValue: "nowrap", values: { label: "edit.no_wrap" } }
             ]
         ]
     },
@@ -332,9 +332,28 @@ const mediaSections: { [key: string]: EditBoxSection } = {
             { id: "fit", type: "dropdown", value: "contain", values: { label: "media.fit", defaultValue: "contain", options: mediaFitOptions } },
             // { name: "popup.media_fit", id: "fit", input: "popup", popup: "media_fit" }, // WIP
             { id: "blend", type: "dropdown", value: "normal", values: { label: "media.blend", defaultValue: "normal", options: mediaBlendOptions } },
-            { id: "muted", type: "checkbox", value: false, values: { label: "actions.mute" } }, // , hidden: true
+            // { id: "muted", type: "checkbox", value: false, values: { label: "actions.mute" } }, // not needed anymore when we have volume
             { id: "loop", type: "checkbox", value: true, values: { label: "media._loop" } },
+            { id: "volume", type: "number", value: 1, multiplier: 100, values: { label: "media.volume", min: 0, max: 125, defaultValue: 100, showSlider: true } },
             { id: "speed", type: "number", value: 1, values: { label: "media.speed", defaultValue: 1, step: 0.1, min: 0.1, max: 15, showSlider: true } },
+            { id: "fromTime", type: "number", value: 0, values: { label: "inputs.start", max: 100000, showSlider: true } },
+            { id: "toTime", type: "number", value: 0, values: { label: "inputs.end", max: 100000, showSlider: true } },
+            { id: "flipped", type: "checkbox", value: false, values: { label: "media.flip_horizontally" } },
+            { id: "flippedY", type: "checkbox", value: false, values: { label: "media.flip_vertically" } }
+        ])
+    },
+    cropping: {
+        inputs: getCroppingRowsPercentage()
+    },
+    filters: {
+        inputs: filterSection
+    }
+}
+const cameraSections: { [key: string]: EditBoxSection } = {
+    default: {
+        inputs: splitIntoRows([
+            { id: "device", type: "popup", value: "", values: { label: "popup.choose_media_input", icon: "camera", popupId: "choose_media_input" } },
+            { id: "fit", type: "dropdown", value: "contain", values: { label: "media.fit", defaultValue: "contain", options: mediaFitOptionsNoBlur } },
             { id: "flipped", type: "checkbox", value: false, values: { label: "media.flip_horizontally" } },
             { id: "flippedY", type: "checkbox", value: false, values: { label: "media.flip_vertically" } }
         ])
@@ -400,13 +419,18 @@ export const itemBoxes: Box2 = {
         icon: "image",
         sections: mediaSections
     },
+    camera: {
+        icon: "camera",
+        sections: cameraSections
+    },
     web: {
         icon: "web",
         sections: {
             default: {
                 inputs: splitIntoRows([
                     { id: "web.src", type: "string", value: "", values: { label: "inputs.url" } },
-                    { id: "web.noNavigation", type: "checkbox", value: false, values: { label: "edit.disable_navigation" } }
+                    { id: "web.noNavigation", type: "checkbox", value: false, values: { label: "edit.disable_navigation" } },
+                    { id: "web.zoom", type: "number", value: 100, values: { label: "actions.zoom (%)", defaultValue: 100, min: 10, max: 1000, step: 5, showSlider: true, sliderValues: { min: 50, max: 250, step: 10 } } }
                 ])
             }
         }
@@ -517,22 +541,6 @@ export const itemBoxes: Box2 = {
             })
         }
     },
-    camera: {
-        icon: "camera",
-        sections: {
-            default: {
-                inputs: splitIntoRows([
-                    { id: "device", type: "popup", value: "", values: { label: "popup.choose_camera", icon: "camera", popupId: "choose_camera" } },
-                    { id: "fit", type: "dropdown", value: "contain", values: { label: "media.fit", options: mediaFitOptions.filter((a) => a.value !== "blur") } },
-                    { id: "flipped", type: "checkbox", value: false, values: { label: "media.flip_horizontally" } },
-                    { id: "flippedY", type: "checkbox", value: false, values: { label: "media.flip_vertically" } }
-                ])
-            },
-            cropping: {
-                inputs: getCroppingRowsPercentage()
-            }
-        }
-    },
     slide_tracker: {
         icon: "percentage",
         sections: {
@@ -627,7 +635,29 @@ export const itemBoxes: Box2 = {
                                 options: [
                                     { value: "bars", label: "Lines" },
                                     { value: "particles", label: "Particles" },
-                                    { value: "kaleidoscope", label: "Kaleidoscope" }
+                                    { value: "kaleidoscope", label: "Kaleidoscope" },
+                                    { value: "aurora", label: "Aurora" },
+                                    { value: "horizon", label: "Horizon" },
+                                    { value: "orbit", label: "Orbit" },
+                                    { value: "soft-spectrum", label: "Soft spectrum" }
+                                ]
+                            }
+                        }
+                    ],
+                    [
+                        {
+                            id: "visualizer.palette",
+                            type: "dropdown",
+                            value: "ocean",
+                            hidden: true,
+                            values: {
+                                label: "Palette",
+                                defaultValue: "ocean",
+                                options: [
+                                    { value: "ocean", label: "Ocean" },
+                                    { value: "violet", label: "Violet" },
+                                    { value: "ember", label: "Ember" },
+                                    { value: "forest", label: "Forest" }
                                 ]
                             }
                         }
@@ -716,5 +746,18 @@ export const itemBoxes: Box2 = {
             sections.align = { defaultValues: ["center", "center"], inputs: [alignX, alignY] }
             return sections
         })()
+    },
+    qr_code: {
+        icon: "qr_code",
+        sections: {
+            default: {
+                inputs: splitIntoRows([
+                    { id: "qr_code.text", type: "string", value: "", values: { label: "inputs.url" } },
+                    // colors:
+                    { id: "qr_code.color", type: "color", value: "#000000", values: { label: "edit.color", defaultValue: "#000000", allowOpacity: true, style: "flex: 1;" } },
+                    { id: "qr_code.background", type: "color", value: "#FFFFFF", values: { label: "edit.background_color", defaultValue: "#FFFFFF", allowOpacity: true, style: "flex: 1;" } }
+                ])
+            }
+        }
     }
 }

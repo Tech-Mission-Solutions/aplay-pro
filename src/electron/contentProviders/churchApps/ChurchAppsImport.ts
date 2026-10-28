@@ -11,6 +11,7 @@ import { sendToMain } from "../../IPC/main"
 import { ChurchAppsConnect } from "./ChurchAppsConnect"
 import { ChurchAppsShowBuilder } from "./ChurchAppsShowBuilder"
 import type { FeedFile, VenueFeed } from "./types"
+import { getLessonsApiUrl } from "./types"
 
 export class ChurchAppsImport {
     private static projects: any[] = []
@@ -47,7 +48,7 @@ export class ChurchAppsImport {
         const projectItems: any[] = []
         const planItems: any = await ChurchAppsConnect.apiRequest({
             api: "doing",
-            authenticated: false,
+            authenticated: true,
             scope: "plans",
             endpoint: `/planItems/presenter/${plan.churchId}/${plan.id}`
         })
@@ -61,7 +62,7 @@ export class ChurchAppsImport {
                     id: uid(5),
                     name: pi.label || "",
                     scheduleLength: pi.seconds,
-                    notes: pi.description || ""
+                    notes: [pi.description, pi.assignees].filter(Boolean).join("\n")
                 })
 
                 for (const child of pi.children || []) {
@@ -148,7 +149,7 @@ export class ChurchAppsImport {
             console.error(err)
         }
 
-        if (!data?.arrangementKey) return null
+        if (!data || !data.arrangementKey || !data.arrangement || !data.song || !data.songDetail) return null
 
         return ChurchAppsShowBuilder.createSongShow(data.arrangementKey, data.arrangement, data.song, data.songDetail)
     }
@@ -228,7 +229,7 @@ export class ChurchAppsImport {
         if (data.video) {
             files.push({
                 name: data.name || "",
-                url: `https://api.lessons.church/externalVideos/download/${data.video.id}`,
+                url: `${getLessonsApiUrl()}/externalVideos/download/${data.video.id}`,
                 streamUrl: data.video.videoId ? `https://vimeo.com/${data.video.videoId}` : undefined,
                 seconds: data.video.seconds,
                 loopVideo: data.video.loopVideo,

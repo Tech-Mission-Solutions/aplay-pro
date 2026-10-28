@@ -16,6 +16,7 @@
     export let mirror = false
 
     $: duration = transition.duration ?? 800
+    $: noTransition = transition.type === "none" || !duration
     $: style = `height: 100%;zoom: ${1 / ratio};transition: filter ${duration}ms, backdrop-filter ${duration}ms;${slideFilter}`
 
     let firstActive = true
@@ -83,28 +84,28 @@
             return
         }
 
-        timeout = setTimeout(
-            () => {
-                loading = true
-                let loadingFirst = !background1 // && background2?.path ? background2?.path !== data.path : background2?.id !== data.id
-                currentlyLoadingFirst = loadingFirst
-                firstFadingOut = !loadingFirst
+        const hasActiveBg = !!(background1 || background2)
+        const mountDelay = hasActiveBg ? duration / 4 + 20 : 0
+        timeout = setTimeout(() => {
+            loading = true
+            let loadingFirst = !background1 // && background2?.path ? background2?.path !== data.path : background2?.id !== data.id
+            currentlyLoadingFirst = loadingFirst
+            firstFadingOut = !loadingFirst
 
-                if (loadingFirst) {
-                    background1 = newData
-                    transition1 = clone(transition)
-                } else {
-                    background2 = newData
-                    transition2 = clone(transition)
-                }
+            if (loadingFirst) {
+                background1 = newData
+                transition1 = clone(transition)
+            } else {
+                background2 = newData
+                transition2 = clone(transition)
+            }
 
-                // max 2 seconds loading time
-                timeout = setTimeout(() => {
-                    if (loading) loaded(loadingFirst)
-                }, 2000)
-            },
-            duration / 4 + 20
-        )
+            // max loading time fallback
+            const maxLoadTimeout = Math.max(2000, duration)
+            timeout = setTimeout(() => {
+                if (loading) loaded(loadingFirst)
+            }, maxLoadTimeout)
+        }, mountDelay)
     }
 
     function loaded(isFirst: boolean) {
@@ -150,12 +151,12 @@
 
 <div class="media" {style}>
     {#if background1}
-        <div class="media" class:hidden={loading && !firstActive}>
+        <div class="media" class:hidden={!firstActive && (loading || noTransition)}>
             <BackgroundMedia data={background1Data} fadingOut={firstFadingOut} {outputId} transition={transition1} {currentStyle} animationStyle={animation1} {mirror} on:loaded={() => loaded(true)} />
         </div>
     {/if}
     {#if background2}
-        <div class="media" class:hidden={loading && firstActive}>
+        <div class="media" class:hidden={firstActive && (loading || noTransition)}>
             <BackgroundMedia data={background2Data} fadingOut={!firstFadingOut} {outputId} transition={transition2} {currentStyle} animationStyle={animation2} {mirror} on:loaded={() => loaded(false)} />
         </div>
     {/if}

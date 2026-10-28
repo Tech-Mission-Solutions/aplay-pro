@@ -51,8 +51,7 @@ export class LyricSearch {
                 if (searchedSong.id.toString() === song.key) {
                     result = await searchedSong.lyrics()
                     // remove extra song info
-                    const songInfo = result.indexOf("Read More")
-                    if (songInfo > -1) result = result.slice(songInfo + 9).trim()
+                    result = result.replace(/^[\s\S]*(?:\d*\s*Contributors?|Read More|Lyrics)\s*/i, "").trim()
                     break
                 }
             }
@@ -77,7 +76,7 @@ export class LyricSearch {
     private static searchHymnary = async (title: string) => {
         try {
             const url = `https://hymnary.org/search?qu=%20tuneTitle%3A${encodeURIComponent(title)}%20media%3Atext%20in%3Atexts&export=csv`
-            const response = await axios.get(url)
+            const response = await axios.get(url, { timeout: 10000 })
             const csv = await response.data
             if (typeof csv !== "string") return []
             const songs = LyricSearch.csvToArray(csv, ",")
@@ -92,11 +91,16 @@ export class LyricSearch {
     }
 
     private static getHymnary = async (song: LyricSearchResult) => {
-        const url = `https://hymnary.org/text/${song.key}`
-        const response = await axios.get(url)
-        const html = await response.data
-        if (typeof html !== "string") return ""
-        return this.getLyricFromHtml(html, /<div property=['"]text['"]>([\s\S]*?)<\/div>/g)
+        try {
+            const url = `https://hymnary.org/text/${song.key}`
+            const response = await axios.get(url, { timeout: 10000 })
+            const html = await response.data
+            if (typeof html !== "string") return ""
+            return this.getLyricFromHtml(html, /<div property=['"]text['"]>([\s\S]*?)<\/div>/g)
+        } catch (err) {
+            console.error(err)
+            return ""
+        }
     }
 
     private static convertHymnaryToResult = (hymnaryResult: any, originalQuery: string) => {
@@ -113,7 +117,7 @@ export class LyricSearch {
     private static searchLetras = async (title: string) => {
         try {
             const url = `https://solr.sscdn.co/letras/m1/?q=${encodeURIComponent(title)}`
-            const response = await axios.get(url)
+            const response = await axios.get(url, { timeout: 10000 })
             const data = response.data
             if (typeof data !== "string") return []
             const json = JSON.parse(data.replace("LetrasSug(", "").slice(0, -2))
@@ -136,11 +140,16 @@ export class LyricSearch {
     }
 
     private static getLetras = async (song: LyricSearchResult) => {
-        const url = `https://www.letras.mus.br/${song.key}`
-        const response = await axios.get(url)
-        const html = await response.data
-        if (typeof html !== "string") return ""
-        return this.getLyricFromHtml(html, /<div class=\"lyric-original\">([\s\S]*?)<\/div>/g)
+        try {
+            const url = `https://www.letras.mus.br/${song.key}`
+            const response = await axios.get(url, { timeout: 10000 })
+            const html = await response.data
+            if (typeof html !== "string") return ""
+            return this.getLyricFromHtml(html, /<div class=\"lyric-original\">([\s\S]*?)<\/div>/g)
+        } catch (err) {
+            console.error(err)
+            return ""
+        }
     }
 
     private static getLyricFromHtml = (songHtml: string, regex: RegExp) => {
@@ -170,14 +179,19 @@ export class LyricSearch {
     // ULTIMATE GUITAR
     private static ugHeaders = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
 
     private static parseUGStore = (html: string) => {
         const match = html.match(/class=['"]js-store['"][^>]*data-content=['"]([^'"]+)['"]/)
         if (!match) return null
         try {
-            return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&"))
+            return JSON.parse(
+                match[1]
+                    .replace(/&quot;/g, '"')
+                    .replace(/&#039;/g, "'")
+                    .replace(/&amp;/g, "&")
+            )
         } catch {
             return null
         }
@@ -248,7 +262,7 @@ export class LyricSearch {
             rdquo: '"',
             hellip: "...",
             ndash: "-",
-            mdash: "-",
+            mdash: "-"
         }
 
         return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);?/gi, (_, entity: string) => {

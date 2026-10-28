@@ -3,8 +3,9 @@
     import type { ContentProviderId } from "../../../../electron/contentProviders/base/types"
     import { Main } from "../../../../types/IPC/Main"
     import { requestMain, sendMain } from "../../../IPC/main"
-    import { activePage, activePopup, activeShow, activeTriggerFunction, cloudSyncData, companion, connections, contentProviderData, disabledServers, maxConnections, notFound, obsData, outputs, popupData, ports, projectTemplates, providerConnections, serverData, special } from "../../../stores"
+    import { activePage, activePopup, activeShow, activeTriggerFunction, cloudSyncData, connections, contentProviderData, disabledServers, maxConnections, notFound, obsData, outputs, popupData, ports, projectTemplates, providerConnections, saved, serverData, special } from "../../../stores"
     import { translateText } from "../../../utils/language"
+    import { startRemoteController, stopRemoteController } from "../../../utils/remoteController"
     import { contentProviderSync } from "../../../utils/startup"
     import { keysToID, sortByName } from "../../helpers/array"
     import Icon from "../../helpers/Icon.svelte"
@@ -18,7 +19,6 @@
     import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
     import MaterialToggleSwitch from "../../inputs/MaterialToggleSwitch.svelte"
     import Tip from "../../main/Tip.svelte"
-    import { startRemoteController, stopRemoteController } from "../../../utils/remoteController"
 
     let ip = "localhost"
 
@@ -28,11 +28,10 @@
 
     // WIP reset in popups
     // function reset() {
-    //     remotePassword.set(randomNumber(1000, 9999).toString())
     //     ports.set({ remote: 5510, stage: 5511 })
     //     maxConnections.set(10)
     //     disabledServers.set({})
-    //     serverData.set({})
+    //     serverData.set({ remote: { password: randomNumber(1000, 9999).toString() } })
     // }
     // const randomNumber = (from: number, to: number): number => Math.floor(Math.random() * (to - from)) + from
 
@@ -64,12 +63,14 @@
     function toggleCompanion(e: any) {
         let value = e.detail
 
-        companion.update((a) => {
-            a.enabled = value
+        serverData.update((a) => {
+            if (!a.companion) a.companion = {}
+            a.companion.enabled = value
             return a
         })
+        sendMain(Main.SERVER_DATA, $serverData)
 
-        if (value) sendMain(Main.WEBSOCKET_START, $ports.companion)
+        if (value) sendMain(Main.WEBSOCKET_START, { port: $ports.companion, password: $serverData?.companion?.password })
         else sendMain(Main.WEBSOCKET_STOP)
     }
 
@@ -155,6 +156,8 @@
             a[id][key] = value
             return a
         })
+
+        saved.set(false)
     }
 
     $: projectTemplateOptions = [{ value: "", label: translateText("main.none") }, ...sortByName(keysToID($projectTemplates)).map(({ id, name }) => ({ value: id, label: name }))]
@@ -164,6 +167,34 @@
         { value: "local", label: "Always use local instance" },
         { value: "online", label: "Always use online instance" }
     ]
+
+    // OnStage
+
+    // OnStage team switching: instant for a team with cached tokens, one preselected browser
+    // consent for a new team. The list comes from the connected user's confirmed teams.
+    let onstageTeams: { id: string; name: string; current: boolean }[] = []
+    let onstageTeamsRequested = false
+    $: if ($providerConnections.onstage && !onstageTeamsRequested) {
+        onstageTeamsRequested = true
+        loadOnStageTeams()
+    }
+    $: if (!$providerConnections.onstage) {
+        onstageTeamsRequested = false
+        onstageTeams = []
+    }
+    async function loadOnStageTeams() {
+        onstageTeams = (await requestMain(Main.ONSTAGE_GET_TEAMS)) || []
+    }
+    $: onstageTeamOptions = onstageTeams.map((team) => ({ value: team.id, label: team.name }))
+    $: onstageCurrentTeamId = onstageTeams.find((team) => team.current)?.id || ""
+    async function switchOnStageTeam(teamId: string) {
+        if (!teamId || teamId === onstageCurrentTeamId) return
+        const result = await requestMain(Main.ONSTAGE_SWITCH_TEAM, { teamId })
+        if (result?.success) {
+            syncContentProvider()
+            loadOnStageTeams()
+        }
+    }
 
     // Remote Control
 
@@ -189,7 +220,7 @@
 </script>
 
 {#each servers as server}
-    {@const disabled = server.id === "companion" ? $companion?.enabled !== true : server.enabledByDefault ? $disabledServers[server.id] === true : $disabledServers[server.id] !== false}
+    {@const disabled = server.id === "companion" ? $serverData?.companion?.enabled !== true : server.enabledByDefault ? $disabledServers[server.id] === true : $disabledServers[server.id] !== false}
     {@const connections = Object.keys($connections[server.id.toUpperCase()] || {})?.length || 0}
 
     <InputRow>
@@ -222,7 +253,7 @@
         </MaterialButton>
 
         {#if server.id === "companion"}
-            <MaterialToggleSwitch label="" checked={$companion?.enabled === true} on:change={toggleCompanion} />
+            <MaterialToggleSwitch label="" checked={$serverData?.companion?.enabled === true} on:change={toggleCompanion} />
         {:else}
             <MaterialToggleSwitch label="" checked={server.enabledByDefault ? $disabledServers[server.id] !== true : $disabledServers[server.id] === false} on:change={(e) => toggleServer(e, server.id)} />
         {/if}
@@ -248,7 +279,7 @@
     <MaterialToggleSwitch label="" checked={$special.remoteController} on:change={(e) => toggleRemoteController(e.detail)} />
 </InputRow>
 
-{#if !$providerConnections.planningcenter && (!$providerConnections.churchApps || cloudOnly.churchApps) && !$providerConnections.amazinglife}
+{#if !$providerConnections.planningcenter && (!$providerConnections.churchApps || cloudOnly.churchApps) && !$providerConnections.amazinglife && !$providerConnections.onstage}
     <!-- No provider connected - show connection options -->
     <Title label="settings.content_provider" icon="list" />
 
@@ -267,6 +298,12 @@
     <InputRow>
         <MaterialButton on:click={() => contentProviderConnect("amazinglife")} style="flex: 1;" icon="login">
             <T id="settings.connect_to" replace={["APlay"]} />
+        </MaterialButton>
+    </InputRow>
+
+    <InputRow>
+        <MaterialButton on:click={() => contentProviderConnect("onstage")} style="flex: 1;" icon="login">
+            <T id="settings.connect_to" replace={["OnStage"]} />
         </MaterialButton>
     </InputRow>
 {:else if $providerConnections.planningcenter}
@@ -339,6 +376,29 @@
             <T id="cloud.sync" />
         </MaterialButton> -->
     </InputRow>
+{:else if $providerConnections.onstage}
+    <!-- OnStage connected -->
+    <Title label="Content Provider: OnStage" icon="list" />
+
+    <InputRow>
+        <MaterialButton on:click={() => contentProviderConnect("onstage")} style="flex: 1;border-bottom: 2px solid var(--connected) !important;" icon="logout">
+            <T id="settings.disconnect_from" replace={["OnStage"]} />
+        </MaterialButton>
+        <MaterialButton icon="cloud_sync" on:click={syncContentProvider}>
+            <T id="cloud.sync" />
+        </MaterialButton>
+        <MaterialButton on:click={() => sendMain(Main.URL, "https://getonstage.app")} title="OnStage" white>
+            <Icon id="launch" white />
+        </MaterialButton>
+    </InputRow>
+
+    <MaterialToggleSwitch label="settings.auto_sync_startup" checked={$contentProviderData.onstage?.autoSync !== false} on:change={(e) => updateProvider("onstage", "autoSync", e.detail)} />
+
+    {#if onstageTeams.length > 1}
+        <MaterialDropdown label="Team" options={onstageTeamOptions} value={onstageCurrentTeamId} on:change={(e) => switchOnStageTeam(e.detail)} />
+    {/if}
+
+    <MaterialDropdown label="Song origin" options={providerOriginOptions} value={$contentProviderData.onstage?.songOrigin || ""} on:change={(e) => updateProvider("onstage", "songOrigin", e.detail)} />
 {/if}
 
 <!-- OBS Studio Controller -->

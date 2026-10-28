@@ -12,6 +12,9 @@
     import MaterialButton from "../../inputs/MaterialButton.svelte"
     import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
     import Center from "../../system/Center.svelte"
+    import { registerPopupSubmit } from "../../../utils/popup"
+
+    registerPopupSubmit(() => applyValue())
 
     const obj = $popupData.obj || {}
     const caret = $popupData.caret || {}
@@ -48,7 +51,7 @@
 
         let separatorId = ""
         // the ones that can have a custom name should be first (to prevent it from overwriting a category)
-        const separators = ["$", "timer_", "meta_", "rss_", "project_", "time_", "show_", "slide_text", "exif_", "video_", "audio_", "scripture_", "interaction_"]
+        const separators = ["$", "timer_", "meta_", "rss_", "txt_", "project_", "time_", "show_", "slide_text", "exif_", "video_", "audio_", "scripture_", "interaction_"]
 
         let newList: { [key: string]: typeof list } = {}
         list.forEach((value) => {
@@ -79,6 +82,7 @@
         if (id === "meta_") return "tools.metadata"
         if (id === "timer_") return "items.timer"
         if (id === "rss_") return "settings.rss"
+        if (id === "txt_") return "settings.txt"
         if (id === "$") return "items.variable"
         return ""
     }
@@ -113,9 +117,9 @@
         // previousSearchValue = searchValue
     }
 
-    function applyValue(e: any, id = "") {
+    function applyValue(e?: any, id = "") {
         if (!id) {
-            if (e.key !== "Enter" || searchValue.length < 2) return
+            if (searchValue.length < 2) return
             id = Object.values(searchedValues)[0]?.[0]?.id
         }
         if (!id) return
@@ -208,7 +212,7 @@
         }
 
         function finish() {
-            if (e.ctrlKey) {
+            if (e?.ctrlKey) {
                 resetInput = true
                 setTimeout(() => (resetInput = false))
                 searchValue = ""
@@ -229,8 +233,6 @@
     }, 1000)
     onDestroy(() => clearInterval(dynamicInterval))
 </script>
-
-<svelte:window on:keydown={applyValue} />
 
 <MaterialButton class="popup-reset" icon="edit" iconSize={1.1} title="create_show.more_options" on:click={() => activePopup.set("manage_dynamic_values")} white />
 

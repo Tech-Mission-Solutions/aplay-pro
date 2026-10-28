@@ -12,6 +12,7 @@ import { AudioMicrophone } from "../../audio/audioMicrophone"
 import { AudioPlayer } from "../../audio/audioPlayer"
 import { requestMain, sendMain } from "../../IPC/main"
 import { isMainWindow, isOutputWindow } from "../../utils/common"
+import { convertTXTToString, getTXT } from "../../utils/dynamicTXT"
 import { send } from "../../utils/request"
 import { convertRSSToString, getRSS } from "../../utils/rss"
 import { runAction, slideHasAction } from "../actions/actions"
@@ -60,8 +61,8 @@ import {
     variables
 } from "./../../stores"
 import { clone, keysToID, sortByName } from "./array"
-import { downloadOnlineMedia, encodeFilePath, getExtension, getFileName, getMedia, getMediaStyle, getMediaType, removeExtension } from "./media"
-import { defaultLayers, getActiveOutputs, getAllActiveOutputIds, getAllNormalOutputs, getAllStageOutputs, getFirstActiveOutput, getFirstOutput, getWindowOutputId, isOutCleared, refreshOut, setOutput, startFolderTimer } from "./output"
+import { downloadOnlineMedia, encodeFilePath, getExtension, getFileName, getMedia, getMediaStyle, getMediaType, locateMediaFile, removeExtension } from "./media"
+import { defaultLayers, getActiveOutputs, getAllActiveOutputIds, getAllNormalOutputs, getAllStageOutputs, getFirstActiveOutput, getFirstOutput, getWindowOutputId, isOutCleared, refreshOut, resolveOutputId, resolveOutputIds, setOutput, startFolderTimer } from "./output"
 import { OutputHelper } from "./OutputHelper"
 import { getSetChars } from "./randomValue"
 import { loadShows } from "./setShow"
@@ -201,31 +202,62 @@ const triggerActionsBeforeOutput = {
         const layers = get(styles)[actionValue?.outputStyle]?.layers
         if (!Array.isArray(layers)) return false
         return !layers.includes("background")
-    }
+    },
+    clear_background: () => true,
+    clear_overlays: () => true
 }
 function shouldTriggerBefore(action: any) {
     return action?.triggers?.find((trigger) => triggerActionsBeforeOutput[trigger]?.(action.actionValues?.[trigger]))
 }
-export function checkActionTrigger(layoutData: SlideData, slideIndex = 0) {
-    if (Array.isArray(layoutData?.actions?.slideActions)) {
-        layoutData.actions.slideActions.forEach((a) => {
-            if (shouldTriggerBefore(a)) runAction(a, { slideIndex, source: "slide" })
-        })
-    }
+
+const perOutputActions: Record<string, (outputId: string) => void> = {
+    clear_background: (outputId) => setOutput("background", null, false, outputId),
+    clear_overlays: (outputId) => clearOverlays(outputId),
+    clear_scene: (outputId) => setOutput("scene", null, false, outputId)
+}
+function runPerOutputAction(trigger: string, outputIds: string[]) {
+    const action = perOutputActions[trigger]
+    if (!action) return
+
+    outputIds.forEach((outputId) => action(outputId))
 }
 
-export async function playPdf(data: OutSlide | null, next: boolean, loop = false) {
+export function checkActionTrigger(layoutData: SlideData, slideIndex = 0) {
+    if (!Array.isArray(layoutData?.actions?.slideActions)) return
+
+    const outputIds = getActiveOutputs(get(outputs), true, false, true)
+
+    layoutData.actions.slideActions.forEach((a) => {
+        if (!shouldTriggerBefore(a)) return
+
+        const trigger = a?.triggers?.[0]
+        if (trigger && trigger in perOutputActions) {
+            runPerOutputAction(trigger, outputIds)
+            return
+        }
+
+        runAction(a, { slideIndex, source: "slide" })
+    })
+}
+
+export async function playPdf(data: OutSlide | null, next: boolean, loop = false, page?: number) {
     if (!data?.id || data?.type !== "pdf") return
 
+    const located = await locateMediaFile(data.id)
+    const targetId = located?.path || data.id
+
     GlobalWorkerOptions.workerSrc = "./assets/pdf.worker.min.mjs"
-    const loadingTask = getDocument(encodeFilePath(data.id))
+    const loadingTask = getDocument(encodeFilePath(targetId))
     const pdfDoc = await loadingTask.promise
     const pages = pdfDoc.numPages
-    loadingTask.destroy()
 
-    let nextPage = data.page
-    if (nextPage === undefined) nextPage = next ? -1 : pages
-    nextPage += next ? 1 : -1
+    let nextPage: number
+    if (page !== undefined) {
+        nextPage = page
+    } else {
+        const currentPage = data.page !== undefined ? data.page : next ? -1 : pages
+        nextPage = currentPage + (next ? 1 : -1)
+    }
 
     if (nextPage > pages - 1) {
         if (!loop) return
@@ -233,13 +265,13 @@ export async function playPdf(data: OutSlide | null, next: boolean, loop = false
     }
 
     const projectItem = get(projects)[get(activeProject) || ""]?.shows?.[get(activeShow)?.index || 0]
-    const name = data?.name || projectItem?.name
+    const name = data?.name || projectItem?.name || removeExtension(getFileName(targetId))
 
-    setOutput("slide", { type: "pdf", id: data.id, page: nextPage, pages, name })
+    setOutput("slide", { type: "pdf", id: targetId, page: nextPage, pages, name })
     clearBackground()
 
     const timer = projectItem?.data?.timer || 0
-    if (timer) startFolderTimer(data.id, { type: "pdf", path: "" })
+    if (timer) startFolderTimer(targetId, { type: "pdf", path: "" })
 }
 
 // go to random slide in current project
@@ -297,9 +329,10 @@ export function updateOut(showId: string, index: number, layout: LayoutRef[], ex
     }
 
     const bindings = data?.bindings || []
+    const resolvedBindings = bindings.length ? resolveOutputIds(bindings) : []
 
     // get output slide
-    const outputIds = specificOutputId ? [specificOutputId] : bindings.length ? bindings : getActiveOutputs(get(outputs), true, false, true)
+    const outputIds = specificOutputId ? (resolveOutputId(specificOutputId) ? [resolveOutputId(specificOutputId)!] : [specificOutputId]) : resolvedBindings.length ? resolvedBindings : getActiveOutputs(get(outputs), true, false, true)
 
     // WIP custom next slide timer duration (has to be changed on slide click & in preview as well)
     // let outputWithLine = outputIds.find((id: string) => get(outputs)[id].out?.slide?.line !== undefined)
@@ -481,20 +514,16 @@ export function updateOut(showId: string, index: number, layout: LayoutRef[], ex
     }
 }
 
-const runPerOutput = ["clear_background", "clear_overlays"]
 function playSlideActions(slideActions: SlideAction[], outputIds: string[] = [], slideIndex = -1) {
     slideActions = clone(slideActions)
 
     // run these actions on each active output
     if (outputIds.length > 1) {
-        runPerOutput.forEach((id) => {
+        Object.keys(perOutputActions).forEach((id) => {
             const existingIndex = slideActions.findIndex((a) => a && a.triggers?.[0] === id)
             if (existingIndex < 0) return
 
-            outputIds.forEach((outputId) => {
-                if (id.includes("background")) setOutput("background", null, false, outputId)
-                else if (id.includes("overlays")) clearOverlays(outputId)
-            })
+            runPerOutputAction(id, outputIds)
             slideActions.splice(existingIndex, 1)
         })
     }
@@ -544,6 +573,9 @@ export async function startShow(showId: string) {
     while (slideRef[index] && slideRef[index]?.data?.disabled) index++
     if (!slideRef[index]) return
 
+    const slideData = slideRef[index]?.data
+    checkActionTrigger(slideData, index)
+
     setOutput("slide", { id: showId, layout: activeLayout, index, line: 0 })
     // timeout has to be 1200 to let output data update properly (in case slide has special actions)
     updateOut(showId, index, slideRef, true, "", 1200)
@@ -574,7 +606,8 @@ export function changeOutputStyle(data: API_output_style) {
         return
     }
 
-    const outputIds = data.outputId ? [data.outputId] : getAllNormalOutputs().map((a) => a.id)
+    const targetId = data.outputId ? resolveOutputId(data.outputId) : null
+    const outputIds = targetId ? [targetId] : getAllNormalOutputs().map((a) => a.id)
     outputs.update((a) => {
         outputIds.forEach((outputId) => {
             if (!a[outputId]) return
@@ -728,7 +761,7 @@ export function sendMidi(data: any) {
 
 // DYNAMIC VALUES
 
-const commonOnly = ["time_str", "project_section_time", "show_name_next", "show_text_full", "slide_group_text", "slide_text_", "layout_notes", "slide_group_upcoming", "slide_notes_next", "exif_", "audio_subtitle", "audio_genre", "audio_year", "audio_volume"]
+const commonOnly = ["time_str", "project_section_notes", "project_section_time", "project_item_number", "project_items_count", "show_name_next", "show_text_full", "slide_group_text", "slide_text_", "layout_notes", "slide_group_upcoming", "slide_notes_next", "exif_", "audio_subtitle", "audio_genre", "audio_year", "audio_volume"]
 const deprecatedDynamicValues = ["show_name_next", "project_section_next", "project_section_time_next", "slide_group_next", "slide_group_next_color", "slide_notes_next", "slide_text_previous", "slide_text_current", "slide_text_next"]
 
 function insertOffsetVariants(idList: string[]): string[] {
@@ -769,8 +802,13 @@ export function getDynamicIds(noVariables = false, mode: null | "scripture" | "d
         .filter((a) => a.name)
         .map(({ name }) => `rss_${getVariableNameId(name)}`)
 
+    const txtValues = sortByName(get(special).dynamicTXT || [])
+        .filter((a) => a.name)
+        .map(({ name }) => `txt_${getVariableNameId(name)}`)
+
     if (timersList.length) mergedValues.push(...timersList)
     if (rssValues.length) mergedValues.push(...rssValues)
+    if (txtValues.length) mergedValues.push(...txtValues)
     mergedValues.push(...getVariablesIds(showAll))
     return mergedValues
 }
@@ -860,28 +898,21 @@ export function getVariableValue(dynamicId: string, ref: any = null): string | s
 // Helper to escape characters like $, *, +, etc.
 const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-// This pattern breaks down as:
+// Dynamic value replacement regular expression:
 // \{             -> Opening brace
-// ${id}          -> Your variable
-// (?:([+-]\d+))? -> Optional group 1: +num or -num offset
-// (?:#(\d+))?    -> Optional group 2: the number after #
-// (?:[|?](.*?))? -> Optional group 3: the fallback after ? (or |)
+// (${safeId})    -> Full variable ID matching non-greedily before offsets/index/fallbacks
+// (?:([+-]\d+))? -> Optional offset (+num or -num)
+// (?:#(\d+))?    -> Optional index (#num)
+// (?:[|?](.*?))? -> Optional fallback (|default or ?default)
 // \}             -> Closing brace
 const createRegex = (id: string) => {
-    // Escape the ID so the '$' isn't treated as "End of Line"
     const safeId = escapeRegExp(id)
-    return new RegExp(`\\{${safeId}(?:([+-]\\d+))?(?:#(\\d+))?(?:[|?]([^}]*))?\\}`, "g")
+    return new RegExp(`\\{(${safeId})(?:([+-]\\d+))?(?:#(\\d+))?(?:[|?]([^}]*))?\\}`, "g")
 }
-
-/** Check if the pattern exists **/
-// const exists = (str: string, id: string) => createRegex(id).test(str)
-
-/** Get all numbers (e.g., [null, 2, 100, 5, null]) **/
-// const getNumbers = (str: string, id: string) => [...str.matchAll(createRegex(id))].map(m => m[1] ?? null)
 
 /** Replace with input value or fallback **/
 const replaceTokens = (str: string, id: string, inputs: string[] = []) => {
-    return str.replace(createRegex(id), (match: string, _offset: string | undefined, num: string | undefined, fallback: string | undefined) => {
+    return str.replace(createRegex(id), (match: string, _varId: string, _offset: string | undefined, num: string | undefined, fallback: string | undefined) => {
         // 1. Determine index: Use the #num if it exists, otherwise default to 0
         const index = num !== undefined ? parseInt(num, 10) : 0
 
@@ -899,7 +930,7 @@ function getValidDynamicIds(mode = ""): Set<string> {
     if (!dynamicIdsCache.has(mode)) {
         const customIds = ["slide_text", "active_project_name", "active_layers", "active_styles", "output_windows_active", "outputs_locked", "stage_output_layout", "log_song_usage"]
         const ids = [...getDynamicIds(false, mode as any), ...deprecatedDynamicValues, ...customIds]
-        const set = new Set(ids.flatMap((id) => [id, id.replace("$", "variable_"), id.replace(/[+-]\d+$/, "")]))
+        const set = new Set(ids.flatMap((id) => [id, id.replace("$", "variable_"), id.replace(/(?:[+-]\d+)$/, "")]))
         dynamicIdsCache.set(mode, set)
         setTimeout(() => dynamicIdsCache.clear(), 3000)
     }
@@ -933,13 +964,14 @@ export function replaceDynamicValues(text: string, { showId, layoutId, slideInde
     const processed = new Set<string>()
 
     for (const token of matches) {
-        const dynamicId = token.slice(1, -1).match(/^([^+\-#|?]+)/)?.[1] || ""
+        // Parse dynamicId by ignoring optional offset ([+-]\d+), index (#\d+), or fallbacks (|/?) before the closing brace
+        const dynamicId = token.slice(1, -1).match(/^([^#|?]+?)(?:[+-]\d+)?(?:#\d+)?(?:[|?].*)?$/)?.[1] || ""
         if (!dynamicId || processed.has(dynamicId) || !validIds.has(dynamicId)) continue
         processed.add(dynamicId)
 
         // get offset from {dynamicId+num} or {dynamicId-num}
         const match = createRegex(dynamicId).exec(text)
-        const offset = match?.[1] ? parseInt(match[1], 10) : 0
+        const offset = match?.[2] ? parseInt(match[2], 10) : 0
 
         const newValue = getDynamicValueText(dynamicId, currentShow, offset)
         text = replaceDynamicValueWithFallback(text, dynamicId, newValue)
@@ -1026,6 +1058,14 @@ export function replaceDynamicValues(text: string, { showId, layoutId, slideInde
             if (!rss) return ""
 
             return convertRSSToString(getRSS(rss.url, rss.updateInterval), rss.divider, rss.count)
+        }
+
+        if (dynamicId.startsWith("txt_")) {
+            const nameId = dynamicId.slice(4)
+            const txt = get(special).dynamicTXT?.find((a) => getVariableNameId(a.name) === nameId)
+            if (!txt) return ""
+
+            return convertTXTToString(getTXT(txt.url, txt.updateInterval), txt.divider)
         }
 
         let outputId: string = getWindowOutputId()
@@ -1160,11 +1200,29 @@ const dynamicValues = {
         const active = getActiveProjectSection({ outSlide }, 1)
         return active?.name || ""
     }, // DEPRECATED
+    project_section_notes: ({ outSlide, offset }) => {
+        const active = getActiveProjectSection({ outSlide }, offset)
+        return active?.notes || ""
+    },
     project_section_time: ({ offset }) => getActiveProjectSection({}, offset)?.data?.time || "00:00",
     project_section_time_next: () => getActiveProjectSection({}, 1)?.data?.time || "00:00", // DEPRECATED
     project_section_time_until_next: ({ offset }) => {
         const projectTime = getActiveProjectSection({}, 1 + offset)?.data?.time
         return projectTime ? joinTimeBig(getTimeUntilClock(getActiveProjectSection({}, 1 + offset)?.data?.time)) : "00:00"
+    },
+    project_item_number: ({ projectRef }) => {
+        // get outputted index
+        let index = projectRef?.index ?? -1
+        if (index < 0) {
+            // get any opened index
+            const activeItem = get(focusMode) ? get(activeFocus) : get(activeShow)
+            if (typeof activeItem?.index === "number" && activeItem.index >= 0) index = activeItem.index
+        }
+        return (Number(index ?? -1) + 1).toString()
+    },
+    project_items_count: ({ projectRef }) => {
+        const projectItems = get(projects)[projectRef?.id || ""]?.shows || []
+        return projectItems.length
     },
 
     // show
@@ -1187,7 +1245,7 @@ const dynamicValues = {
     layout_slides: ({ ref }) => ref.length,
     layout_notes: ({ layout }) => layout.notes || "",
 
-    slide_number: ({ slideIndex, offset }) => (Number(slideIndex ?? -1) + 1 + offset).toString(),
+    slide_number: ({ slideIndex }) => (Number(slideIndex ?? -1) + 1).toString(),
     slide_group: ({ show, ref, slideIndex, outSlide, offset }) => {
         const idx = slideIndex + offset
         const parentIndex = ref[idx]?.parent?.layoutIndex ?? idx
@@ -1303,7 +1361,8 @@ const scriptureDynamicValues = {
 
     // not replaced directly, but the style is used:
     scripture_number: () => "1",
-    scripture_red_jesus: () => "Words"
+    scripture_red_jesus: () => "Words",
+    scripture_undertitle: () => "Title"
 }
 
 function getOffsetDate(offset = 0, unit: "date" | "month" | "year" | "hours" | "minutes" | "seconds" = "date") {
@@ -1359,8 +1418,8 @@ export function getGroupText({ outSlide, show, ref, slideIndex }, groupOffset: n
 function getSlideText({ outSlide, show, ref }, slideIndex: number = 0) {
     let slideItemLines: string[] = []
     if (outSlide?.id === "temp") {
-        if (slideIndex < 0) slideItemLines = getTextLines({ items: outSlide?.previousSlides[0] }, true)
-        else if (slideIndex > 0) slideItemLines = getTextLines({ items: outSlide?.nextSlides[0] }, true)
+        if (slideIndex < 0) slideItemLines = getTextLines({ items: outSlide?.previousSlides?.[0] }, true)
+        else if (slideIndex > 0) slideItemLines = getTextLines({ items: outSlide?.nextSlides?.[0] }, true)
         else slideItemLines = getTextLines({ items: outSlide?.tempItems }, true)
     } else {
         const slide = show?.slides?.[ref[slideIndex]?.id]
@@ -1485,8 +1544,9 @@ function getMetadata(audioPath: string) {
 }
 
 function getArtist(metadata: ICommonTagsResult) {
-    const artists = [metadata.originalartist, metadata.artist, metadata.albumartist, ...(metadata.artists || [])].filter(Boolean)
-    return [...new Set(artists)].join(", ")
+    if (!metadata) return ""
+    const list = (metadata.artists?.length ? metadata.artists : [metadata.artist || metadata.albumartist || metadata.originalartist]).filter((a): a is string => Boolean(a))
+    return [...new Set(list.map((a) => a.trim()).filter(Boolean))].join(", ")
 }
 
 // INTERACTION

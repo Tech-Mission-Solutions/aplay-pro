@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { getDocument, GlobalWorkerOptions } from "pdfjs-dist"
     import type { ClickEvent } from "../../../types/Main"
     import { AudioPlayer } from "../../audio/audioPlayer"
     import { activeEdit, activeFocus, activePage, activeProject, activeShow, categories, editingProjectTemplate, effects, focusMode, globalTags, media, notFound, outLocked, outputs, overlayCategories, overlays, playerVideos, playingAudio, projects, projectTemplates, refreshEditSlide, shows, showsCache, special, styles, textCache } from "../../stores"
@@ -9,13 +8,13 @@
     import { history, historyAwait } from "../helpers/history"
     import Icon from "../helpers/Icon.svelte"
     import { encodeFilePath, getExtension, getFileName, getMedia, getMediaLayerType, getMediaStyle, getMediaType, getVideoDuration, mediaSize, removeExtension } from "../helpers/media"
-    import { findMatchingOut, getActiveOutputs, setOutput, startFolderTimer } from "../helpers/output"
+    import { findMatchingOut, getActiveOutputs, setOutput } from "../helpers/output"
     import { loadShows } from "../helpers/setShow"
     import { checkName, getLayoutRef } from "../helpers/show"
-    import { swichProjectItem, updateOut } from "../helpers/showActions"
+    import { playPdf, swichProjectItem, updateOut } from "../helpers/showActions"
     import T from "../helpers/T.svelte"
     import { joinTime, secondsToTime } from "../helpers/time"
-    import { clearBackground, clearSlide } from "../output/clear"
+    import { clearSlide } from "../output/clear"
     import { getTextSnippet, highlightText } from "../quicksearch/searchHighlight"
     import HiddenInput from "./HiddenInput.svelte"
     import MaterialButton from "./MaterialButton.svelte"
@@ -40,7 +39,7 @@
     // search
     $: searchStyle = match !== null ? `width: ${match}%;` : ""
     // excerpt of the matching lyrics
-    $: snippet = !isProject && match !== null && searchValue.length > 2 ? getTextSnippet($textCache[id] || "", searchValue) : ""
+    $: snippet = !isProject && match !== null && searchValue.length > 2 ? getTextSnippet($textCache[id] || "", searchValue, show.name) : ""
 
     function setNotFound(id: string) {
         notFound.update((a) => {
@@ -177,19 +176,7 @@
 
             setOutput("background", out)
         } else if (type === "pdf") {
-            // get PDF data
-            // WIP duplicate of playPdf in showActions.ts
-            GlobalWorkerOptions.workerSrc = "./assets/pdf.worker.min.mjs"
-            const loadingTask = getDocument(encodeFilePath(id))
-            const pdfDoc = await loadingTask.promise
-            const pages = pdfDoc.numPages
-            loadingTask.destroy()
-
-            let name = show.name || removeExtension(getFileName(id))
-            setOutput("slide", { type: "pdf", id, page: 0, pages, name })
-            clearBackground()
-
-            if (show.data?.timer) startFolderTimer(id, { type: "pdf", path: "" })
+            await playPdf({ id, type: "pdf", name: show.name }, false, false, 0)
         } else if (type === "audio") AudioPlayer.start(id, { name: show.name })
         else if (type === "overlay") setOutput("overlays", show.id, false, "", true)
         else if (type === "effect") setOutput("effects", show.id, false, "", true)
@@ -273,7 +260,8 @@
 
     // placeholder title with index
     // $: showTemplateName = type === "show_placeholder" ? `${translateText("new.placeholder: formats.show")} ${index !== null ? ($editingProjectTemplate ? $projectTemplates[$editingProjectTemplate] : $projects[$activeProject || ""])?.shows?.reduce((c, show, i) => (show.type === "show_placeholder" && i < index ? c + 1 : c), 1) : ""}` : ""
-    $: showTemplateName = type === "show_placeholder" ? (show.name && show.name !== "—" ? show.name : translateText("new.placeholder")) : ""
+    $: showPlaceholderShowName = type === "show_placeholder" && show.data?.showId ? $shows[show.data.showId]?.name || "" : ""
+    $: showTemplateName = type === "show_placeholder" ? (show.name && show.name !== "—" ? show.name : translateText("new.placeholder")) + (showPlaceholderShowName ? ` (${showPlaceholderShowName})` : "") : ""
 </script>
 
 <div id="show_{id}" class="main" class:isProject class:played={show.played}>
@@ -297,7 +285,7 @@
                     {/if}
                 </div>
 
-                <HiddenInput value={type === "show_placeholder" ? showTemplateName : newName} id={index !== null ? "show_" + id + "#" + index : "show_drawer_" + id} on:edit={rename} bind:edit={editActive} allowEmpty={false} allowEdit={!readOnly && ((type === "show_placeholder" && !!$editingProjectTemplate) || !show.type || show.type === "show")} />
+                <HiddenInput value={type === "show_placeholder" ? (editActive ? show.name || "" : showTemplateName) : newName} id={index !== null ? "show_" + id + "#" + index : "show_drawer_" + id} on:edit={rename} bind:edit={editActive} allowEmpty={false} allowEdit={!readOnly && ((type === "show_placeholder" && !!$editingProjectTemplate) || !show.type || show.type === "show")} />
 
                 {#if isProject}
                     {#if show.layoutInfo?.name}

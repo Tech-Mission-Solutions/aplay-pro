@@ -4,6 +4,7 @@ import { Main } from "../../../types/IPC/Main"
 import type { Clipboard } from "../../../types/Main"
 import type { Folder, Project } from "../../../types/Projects"
 import type { Item } from "../../../types/Show"
+import { removeOutputAudioChannel } from "../../audio/routing/audioRoutingInit"
 import { getProjectsInFolder } from "../../converters/project"
 import { sendMain } from "../../IPC/main"
 import {
@@ -42,6 +43,7 @@ import {
     projects,
     projectTemplates,
     refreshEditSlide,
+    scenes,
     scriptures,
     scriptureSettings,
     selectAllAudio,
@@ -61,6 +63,7 @@ import {
 import { newToast, setStatus, triggerFunction } from "../../utils/common"
 import { translateText } from "../../utils/language"
 import { confirmCustom } from "../../utils/popup"
+import { copyFromTextField, cutFromTextField, isFormField } from "../../utils/shortcutsHelper"
 import { removeSlide } from "../context/menuClick"
 import { deleteTimer } from "../drawer/timers/timers"
 import { updateSortedStageItems } from "../edit/scripts/itemHelpers"
@@ -71,14 +74,20 @@ import { pasteText } from "./caretHelper"
 import { history } from "./history"
 import { deleteStore } from "./historyStores"
 import { getFileName, removeExtension } from "./media"
+import { updateActiveSceneOutputs } from "./output"
 import { select } from "./select"
 import { loadShows } from "./setShow"
-import { checkName, getLayoutRef, removeTemplatesFromShow } from "./show"
+import { checkName, getLayoutRef, removeTemplatesFromShow, updateShowsList } from "./show"
 import { _show } from "./shows"
-import { removeOutputAudioChannel } from "../../audio/routing/audioRoutingInit"
 
 export function copy(clip: Clipboard | null = null, getData = true, shouldDuplicate = false) {
     let copyData: Clipboard | null = clip
+
+    const activeField = document.activeElement
+    if (!clip && isFormField(activeField)) {
+        copyFromTextField(activeField)
+        return
+    }
 
     if (window.getSelection()?.toString()) {
         navigator.clipboard.writeText(window.getSelection()!.toString())
@@ -116,6 +125,7 @@ export function copy(clip: Clipboard | null = null, getData = true, shouldDuplic
 
 // pasting text in editbox is it's own function
 export function paste(clip: Clipboard | null = null, extraData: any = {}, customElem: HTMLElement | null = null, isDuplicating = false) {
+    const hasCustomClip = !!clip
     if (!clip) clip = get(clipboard)
     let activeElem = document.activeElement
 
@@ -130,6 +140,8 @@ export function paste(clip: Clipboard | null = null, extraData: any = {}, custom
         pasteText(activeElem)
         return
     }
+
+    if (!hasCustomClip && isFormField(activeElem)) return
 
     if (clip.id === null) return
 
@@ -154,6 +166,12 @@ export function paste(clip: Clipboard | null = null, extraData: any = {}, custom
 }
 
 export function cut(clip: Clipboard | null = null) {
+    const activeField = document.activeElement
+    if (!clip && isFormField(activeField)) {
+        cutFromTextField(activeField)
+        return
+    }
+
     // Handle text directly
     if (window.getSelection()?.toString()) {
         const selection = window.getSelection()!
@@ -401,6 +419,11 @@ const selectActions = {
 
         selected.set({ id: "template", data: newSelection })
     },
+    scene: () => {
+        let newSelection: any[] = Object.entries(get(scenes)).map(([id, a]) => ({ ...a, id }))
+        newSelection = newSelection.map(({ id }) => id)
+        selected.set({ id: "scene", data: newSelection })
+    },
     media: () => selectAllMedia.set(true),
     audio: () => selectAllAudio.set(true),
     timeline: () => triggerFunction("timeline_selectAll")
@@ -511,6 +534,10 @@ const copyActions = {
         if (!Array.isArray(data)) return []
         return data.map((id: string) => clone(get(templates)[id]))
     },
+    scene: (data: any) => {
+        if (!Array.isArray(data)) return []
+        return data.map((id: string) => clone(get(scenes)[id]))
+    },
     effect: (data: any) => {
         if (!Array.isArray(data)) return []
         return data.map((id: string) => clone(get(effects)[id]))
@@ -617,6 +644,7 @@ const pasteActions = {
     group: (data: any, extraData: any = {}, isDuplicating: boolean = false) => pasteActions.slide(data, extraData, isDuplicating),
     overlay: (data: any) => pasteDrawerItem(data, "overlay"),
     template: (data: any) => pasteDrawerItem(data, "template"),
+    scene: (data: any) => pasteDrawerItem(data, "scene"),
     effect: (data: any) => {
         data?.forEach((effect) => {
             const newEffect = clone(effect)
@@ -708,7 +736,7 @@ const deleteActions = {
         const showId = get(activeShow)?.id || ""
         const items = get(activeEdit).items || []
         const currentShow = get(showsCache)[showId]
-        if (currentShow.locked || currentShow?.slides?.[groupId || ""]?.locked) {
+        if (currentShow?.locked || currentShow?.slides?.[groupId || ""]?.locked) {
             newToast("output.state_locked")
             return
         }
@@ -763,6 +791,26 @@ const deleteActions = {
 
             return a
         })
+    },
+    scene_overlay: (data: any) => {
+        const sceneId = get(activeEdit).id || ""
+        const scene = get(scenes)[sceneId]
+        if (!scene) return
+
+        const currentOverlays = clone(scene.content?.overlays || [])
+        const index = typeof data === "number" ? data : (data?.index ?? data?.[0]?.index)
+        if (index === undefined || index < 0 || index >= currentOverlays.length) return
+
+        currentOverlays.splice(index, 1)
+        const newContent = { ...clone(scene.content || {}), overlays: currentOverlays }
+        history({
+            id: "UPDATE",
+            newData: { key: "content", data: newContent },
+            oldData: { id: sceneId },
+            location: { page: "drawer", id: "scene_key" }
+        })
+
+        updateActiveSceneOutputs(sceneId)
     },
     audio_stream: (data: any) => {
         audioStreams.update((a) => {
@@ -830,6 +878,7 @@ const deleteActions = {
     category_templates: (data: any) => historyDelete("UPDATE", data, { updater: "category_templates" }),
     player: (data: any) => historyDelete("UPDATE", data, { updater: "player_video" }),
     overlay: (data: any) => historyDelete("UPDATE", data, { updater: "overlay" }),
+    scene: (data: any) => historyDelete("UPDATE", data, { updater: "scene" }),
     effect: (data: any) => historyDelete("UPDATE", data, { updater: "effect" }),
     template: async (data: any) => {
         const ids = data.map((id) => id)
@@ -1021,6 +1070,10 @@ const deleteActions = {
         data.forEach(({ id }) => {
             history({ id: "UPDATE", newData: { id }, location: { page: "settings", id: "settings_profile" } })
         })
+
+        // clear admin user also if all other users are deleted
+        const profileList = Object.keys(get(profiles)).filter((id) => id !== "admin")
+        if (!profileList.length) profiles.set({})
     },
     audio_channel: (data: any) => {
         const channelId = data?.[0]?.id || data?.[0]
@@ -1179,7 +1232,9 @@ const duplicateActions = {
 
                 const projectList = removeDeleted(keysToID(get(projects))).filter((project) => project.parent === oldParent)
                 projectList.forEach((project) => {
-                    newProjects.push({ ...clone(project), parent: newParent })
+                    const cloned = clone(project)
+                    delete cloned.origin
+                    newProjects.push({ ...cloned, parent: newParent })
                 })
             }
 
@@ -1199,6 +1254,7 @@ const duplicateActions = {
             const project = clone(get(projects)[selData.id])
             if (!project) return
 
+            delete project.origin
             const id = uid()
             history({ id: "UPDATE", newData: { data: project, replace: { name: project.name + " 2" } }, oldData: { id }, location: { page: "show", id: "project" } })
         })
@@ -1299,7 +1355,7 @@ const duplicateActions = {
     }
 }
 
-function pasteDrawerItem(data: any, type: "overlay" | "template") {
+function pasteDrawerItem(data: any, type: "overlay" | "template" | "scene") {
     data?.forEach((item) => {
         const newItem = clone(item)
         delete newItem.isDefault
@@ -1399,18 +1455,32 @@ function historyDelete(id, data, { updater } = { updater: "" }) {
 
 async function duplicateShows(selectedData: any) {
     await loadShows(selectedData.map(({ id }) => id))
-    selectedData.forEach(({ id }) => {
-        const show = clone(get(showsCache)[id])
-        if (!show) return
-
-        show.name = checkName(show.name + " 2")
-        show.timestamps.modified = new Date().getTime()
-
-        const newId = uid()
-        history({ id: "UPDATE", newData: { data: show, remember: { project: id === "show" ? get(activeProject) : null } }, oldData: { id: newId }, location: { page: "show", id: "show" } })
-
-        if (selectedData.length === 1) {
-            activeRename.set("show_drawer_" + newId)
-        }
+    let newIds: string[] = []
+    selectedData.forEach(async ({ id }) => {
+        const projectId = id === "show" ? get(activeProject) : null
+        const newId = await duplicateShow(id, projectId, true)
+        if (newId !== id) newIds.push(newId)
     })
+
+    setTimeout(() => {
+        // update list instantly
+        updateShowsList(get(shows))
+
+        // activate rename
+        if (newIds.length === 1) activeRename.set("show_drawer_" + newIds[0])
+    })
+}
+
+export async function duplicateShow(id: string, projectId?: string | null, alreadyLoaded: boolean = false): Promise<string> {
+    if (!alreadyLoaded) await loadShows([id])
+    const show = clone(get(showsCache)[id])
+    if (!show) return id
+
+    show.name = checkName(show.name)
+    if (!show.timestamps) show.timestamps = { created: Date.now(), modified: Date.now(), used: null }
+    else show.timestamps.modified = Date.now()
+
+    const newId = uid()
+    history({ id: "UPDATE", newData: { data: show, remember: { project: projectId || null } }, oldData: { id: newId }, location: { page: "show", id: "show" } })
+    return newId
 }

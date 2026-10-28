@@ -7,6 +7,14 @@ export interface Shows {
     [key: string]: Show
 }
 
+export interface CustomFont {
+    type?: "local" | "google"
+    // font family name (used by CSS)
+    name: string
+    // local font file path (empty path currently means Google Fonts)
+    path?: string
+}
+
 export interface Show {
     name: string
     id?: string // this id should not be stored (but often used in the program as a temporary value)
@@ -24,7 +32,7 @@ export interface Show {
         // resolution?: Resolution
         template: null | ID
         customAction?: string // special custom trigger
-        customFonts?: { name: string; path: string }[]
+        customFonts?: CustomFont[]
     }
     timestamps: {
         created: number
@@ -103,10 +111,8 @@ export interface Item {
     id?: string
     lines?: Line[]
     list?: List
-    auto?: boolean // DEPRECATED - use textFit
     textFit?: AutosizeTypes // auto size text fix option (default: shrinkToFit)
     autoFontSize?: number // only used to store the calculated auto size text size
-    previewAutoFontSize?: number // only used to store the calculated auto size text size for the preview
     style: string
     align?: string
     specialStyle?: any // line gap && line background
@@ -122,7 +128,7 @@ export interface Item {
 
     src?: string // media item path
     customSvg?: string
-    device?: any // camera
+    device?: { id: string; group?: string; name: string; type?: string } // (camera) input data
     fit?: string
     filter?: string
     flipped?: boolean
@@ -130,9 +136,13 @@ export interface Item {
     blend?: string
     muted?: boolean // media item
     loop?: boolean // media item
+    volume?: number // media item
     speed?: number // media item
+    fromTime?: number // media item
+    toTime?: number // media item
     variable?: any
     web?: any
+    qr_code?: { text?: string; color?: string; background?: string }
     tracker?: any // slide progress tracker item data
     bindings?: string[] // bind item to stage or an output
     actions?: any // showTime | hideTime | transition
@@ -559,10 +569,31 @@ export interface TemplateSettings {
     backgroundPath?: string
     overlayId?: string
     firstSlideTemplate?: string
+    createFirstSlide?: boolean
     maxLinesPerSlide?: number | string // auto break slides if more than set lines
     breakLongLines?: number | string // auto break lines if longer than set words
     actions?: any[]
     styleOverrides?: TemplateStyleOverride[]
+}
+
+export interface Scenes {
+    [key: ID]: Scene
+}
+export interface Scene {
+    id?: string
+    name: string
+    modified?: number
+
+    bindings?: string[]
+    action?: string
+
+    content?: SceneContent
+}
+export interface SceneContent {
+    media?: any
+    style?: string
+    overlays?: string[]
+    hiddenOverlays?: string[]
 }
 
 // output
@@ -620,6 +651,11 @@ export interface OutTransition {
     folderPath?: string
 }
 
+export interface OutScene extends SceneContent {
+    id?: string
+    name?: string
+}
+
 export interface SlideTimer {
     time: number
     paused: boolean
@@ -640,7 +676,7 @@ export interface Tag {
 // types
 
 export type ID = string
-export type ItemType = "text" | "media" | "camera" | "timer" | "clock" | "button" | "events" | "weather" | "variable" | "web" | "icon" | "slide_tracker" | "visualizer" | "captions" | "metronome" | "current_output" | "chart" | "table" // "shape" | "video"
+export type ItemType = "text" | "media" | "camera" | "timer" | "clock" | "button" | "events" | "weather" | "variable" | "web" | "qr_code" | "icon" | "slide_tracker" | "visualizer" | "captions" | "metronome" | "current_output" | "chart" | "table" // "shape" | "video"
 export type ShowType = "DIVIDER" | "show" | "image" | "video" | "audio" | "player" | "section" | "overlay" | "effect" | "pdf" | "ppt" | "screen" | "ndi" | "camera" | "folder" | "show_placeholder" // "private"
 export type TransitionType = "none" | "blur" | "fade" | "crossfade" | "fly" | "scale" | "slide" | "spin"
-export type MediaType = "media" | "video" | "image" | "effect" | "screen" | "ndi" | "camera" | "player" | "audio"
+export type MediaType = "media" | "video" | "image" | "effect" | "screen" | "ndi" | "omt" | "camera" | "player" | "audio"

@@ -1,6 +1,7 @@
 <script lang="ts">
+    import { onDestroy } from "svelte"
     import { fade } from "svelte/transition"
-    import { activePage, activePopup, companion, contextActive, contextData, currentWindow, dictionary, localeDirection, os, special, spellcheck, theme, themes } from "../../stores"
+    import { activePage, activePopup, contextActive, contextData, currentWindow, dictionary, localeDirection, os, serverData, slideDeleteHighlight, special, spellcheck, theme, themes } from "../../stores"
     import { translateText } from "../../utils/language"
     import { closeContextMenu } from "../../utils/shortcuts"
     import { getEditItems } from "../edit/scripts/itemHelpers"
@@ -59,7 +60,7 @@
 
         activeMenu = [...(getContextMenu(id) || contextMenuLayouts.default)]
         // show "Copy ID" button if API is enabled
-        if ($companion?.enabled && id) {
+        if ($serverData?.companion?.enabled && id) {
             const baseId = id.slice(1).split("_readonly")[0].split("_default")[0]
             const idCopyableMenus = ["action", "overlay_card", "drawer_show_button", "global_timer", "variable", "project_button", "template_card", "stage_slide", "style", "audio_stream", "interaction", "camera_card", "screen_card", "output_screen", "output_screen_stage"]
             if (idCopyableMenus.includes(baseId) && !activeMenu.includes("copy_id")) {
@@ -117,7 +118,13 @@
 
     // prevent duplicated menus (due to Svelte transition bug)
     let closingMenuTimeout: NodeJS.Timeout | null = null
-    $: if ($contextActive === false) startCloseTimer()
+    $: if ($contextActive === false) {
+        startCloseTimer()
+        slideDeleteHighlight.set(null)
+    }
+    onDestroy(() => {
+        slideDeleteHighlight.set(null)
+    })
     function startCloseTimer() {
         if (!highlighted.id) return
         if (contextElem) {
@@ -143,7 +150,7 @@
     function shouldShowMenuWithItems(id: string) {
         if (id === "rearrange") return getEditItems().length > 1
 
-        if (id === "bind_to") return $contextData.outputList
+        if (id === "bind_to" || id === "bind_to_effect" || id === "bind_to_scene") return $contextData.outputList
         if (id === "format") return $contextData.textContent || $activePage !== "show"
         if (id === "remove_layers") return $contextData.layers
         if (id === "tag_filter") return $contextData.tags

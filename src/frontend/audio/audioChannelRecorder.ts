@@ -1,11 +1,14 @@
+import { get } from "svelte/store"
 import { Main } from "../../types/IPC/Main"
 import { sendMain } from "../IPC/main"
-import { recordingChannels } from "../stores"
+import { recordingChannels, special } from "../stores"
 import { newToast } from "../utils/common"
 import { AudioAnalyser } from "./audioAnalyser"
 import { AudioRoutingManager } from "./routing/audioRoutingManager"
 
-const activeRecorders: { [channelId: string]: { recorder: MediaRecorder; stream: MediaStream; chunks: any[] } } = {}
+import { getRecordingFileName } from "../components/drawer/live/recorder"
+
+const activeRecorders: { [channelId: string]: { recorder: MediaRecorder; stream: MediaStream; onstopPromise: Promise<void> } } = {}
 const options: any = { mimeType: "audio/webm; codecs=opus" }
 
 export function toggleChannelRecording(channelId: string, label?: string) {
@@ -24,27 +27,33 @@ export function startChannelRecording(channelId: string, label = "") {
     const chunks: any[] = []
 
     recorder.ondataavailable = (e) => chunks.push(e.data)
-    recorder.onstop = async () => {
-        newToast("toast.recording_stopped")
-        const blob = new Blob(chunks, options)
-        const arraybuffer = await blob.arrayBuffer()
 
-        const name = `FreeShow_${label ? label.replace(/[\\/:*?"<>|]/g, "_") + "_" : ""}${formatTime()}.webm`
-        sendMain(Main.RECORDER, { blob: arraybuffer, name })
+    const onstopPromise = new Promise<void>((resolve) => {
+        recorder.onstop = async () => {
+            newToast("toast.recording_stopped")
+            const blob = new Blob(chunks, options)
+            const arraybuffer = await blob.arrayBuffer()
 
-        streamDest.stream.getTracks().forEach((track) => track.stop())
-        AudioRoutingManager.getInstance().unregisterChannelRecorder(channelId, streamDest)
-    }
+            const name = getRecordingFileName(label)
+            const customPath = get(special)?.audioRecordingsPath
+            sendMain(Main.RECORDER, { blob: arraybuffer, name, path: customPath })
+
+            streamDest.stream.getTracks().forEach((track) => track.stop())
+            AudioRoutingManager.getInstance().unregisterChannelRecorder(channelId, streamDest)
+
+            resolve()
+        }
+    })
 
     recorder.start()
-    activeRecorders[channelId] = { recorder, stream: streamDest.stream, chunks }
+    activeRecorders[channelId] = { recorder, stream: streamDest.stream, onstopPromise }
     recordingChannels.update((a) => ({ ...a, [channelId]: true }))
     newToast("toast.recording_started")
 }
 
-export function stopChannelRecording(channelId: string) {
+export function stopChannelRecording(channelId: string): Promise<void> {
     const active = activeRecorders[channelId]
-    if (!active) return
+    if (!active) return Promise.resolve()
 
     delete activeRecorders[channelId]
     recordingChannels.update((a) => {
@@ -53,24 +62,14 @@ export function stopChannelRecording(channelId: string) {
     })
 
     if (active.recorder.state !== "inactive") active.recorder.stop()
+    return active.onstopPromise
 }
 
 export function isChannelRecording(channelId = "main") {
     return !!activeRecorders[channelId]
 }
 
-export function stopAllChannelRecordings() {
-    Object.keys(activeRecorders).forEach((channelId) => stopChannelRecording(channelId))
-}
-
-function formatTime() {
-    const today = new Date()
-    const s = String(today.getSeconds()).padStart(2, "0")
-    const m = String(today.getMinutes()).padStart(2, "0")
-    const h = String(today.getHours()).padStart(2, "0")
-    const dd = String(today.getDate()).padStart(2, "0")
-    const mm = String(today.getMonth() + 1).padStart(2, "0")
-    const yyyy = today.getFullYear()
-
-    return mm + "-" + dd + "-" + yyyy + "_" + h + "-" + m + "-" + s
+export async function stopAllChannelRecordings(): Promise<void> {
+    const promises = Object.keys(activeRecorders).map((channelId) => stopChannelRecording(channelId))
+    await Promise.all(promises)
 }

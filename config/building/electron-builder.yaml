@@ -12,6 +12,13 @@ files:
   - build/types/**
   - public/**
   - "!node_modules/@napi-rs"
+  - "!**/node_modules/*/{CHANGELOG*,README*,test*,example*,docs}"
+  - "!**/node_modules/*/{*.d.ts,*.ts,*.map}"
+  - "!**/node_modules/{@types,typescript}/**"
+  - "!**/node_modules/**/*.{pdb,iobj,ipdb,obj,lib,exp,a,o,c,cc,cpp,h,hpp,gyp*,vcxproj*,filters,sln}"
+  - "!**/node_modules/**/prebuild/node-v*"
+  - "!**/node_modules/grandiose/ndi/**"
+  - "!**/node_modules/osr-capture/**/on12_harness.exe"
 
 extraResources:
   - from: node_modules/slideshow/
@@ -23,6 +30,13 @@ extraResources:
 
 win:
   icon: build/public/icon.png
+  files:
+    - "!**/node_modules/openmediatransport/lib/{macos,linux-*,win-arm64}/**"
+  asarUnpack:
+    - "**/node_modules/macadam/**/*.node"
+    - "**/node_modules/libspotifyctl/**/*"
+    - "**/node_modules/openmediatransport/**"
+    - "**/node_modules/sherpa-onnx-*/**"
   target:
     - target: nsis
       arch:
@@ -39,8 +53,12 @@ win:
 # linux
 
 linux:
+    files:
+        - "!**/node_modules/openmediatransport/lib/{macos,win-*}/**"
     asarUnpack:
         - "**/node_modules/grandiose/**"
+        - "**/node_modules/openmediatransport/**"
+        - "**/node_modules/sherpa-onnx-*/**"
         - "**/node_modules/macadam/**/*.node"
         - "**/node_modules/libltc-wrapper/**/*"
     category: AudioVideo
@@ -55,11 +73,19 @@ deb:
         - libfontconfig1
         - uuid-runtime
         - libltc11
+        - libavahi-client3
+        - avahi-daemon
 
 # macos
 
 mac:
   icon: build/public/icon.icns
+  files:
+    - "!**/node_modules/openmediatransport/lib/{linux-*,win-*}/**"
+  asarUnpack:
+    - "**/node_modules/macadam/**/*.node"
+    - "**/node_modules/openmediatransport/**"
+    - "**/node_modules/sherpa-onnx-*/**"
   target:
     - target: dmg
       arch:

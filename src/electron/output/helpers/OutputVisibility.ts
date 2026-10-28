@@ -1,6 +1,6 @@
 import type { BrowserWindow, Rectangle } from "electron"
 import { screen } from "electron"
-import { mainWindow, toApp } from "../.."
+import { isMac, mainWindow, toApp } from "../.."
 import { MAIN, OUTPUT } from "../../../types/Channels"
 import type { Output } from "../../../types/Output"
 import { OutputHelper } from "../OutputHelper"
@@ -8,19 +8,19 @@ import { setOutputAlwaysOnTop } from "./OutputAlwaysOnTop"
 import { OutputBounds } from "./OutputBounds"
 
 export class OutputVisibility {
-    static toggleOutputs(data: { outputs: (Output & { id: string })[]; state: boolean; force?: boolean; autoStartup?: boolean; autoPosition?: boolean }) {
+    static toggleOutputs(data: { outputs: (Output & { id: string })[]; state: boolean; autoStartup?: boolean; autoPosition?: boolean }) {
         const newStates: { id: string; active: boolean | "invisible" }[] = []
 
         data.outputs.forEach((output) => {
-            const force = !!(data.force || output.boundsLocked)
-            const newState = OutputVisibility.toggleOutput(output, data.state, force, data.autoStartup, data.autoPosition)
+            const autoPosition = output.boundsLocked ? false : data.autoPosition
+            const newState = OutputVisibility.toggleOutput(output, data.state, data.autoStartup, autoPosition)
             newStates.push({ id: output.id, active: newState })
         })
 
         toApp(OUTPUT, { channel: "OUTPUT_STATE", data: newStates })
     }
 
-    static toggleOutput(output: Output & { id: string }, state: boolean, force?: boolean, autoStartup?: boolean, autoPosition?: boolean) {
+    static toggleOutput(output: Output & { id: string }, state: boolean, autoStartup?: boolean, autoPosition?: boolean) {
         if (!output?.id) return false
 
         let window: BrowserWindow = OutputHelper.getOutput(output.id)?.window
@@ -39,10 +39,16 @@ export class OutputVisibility {
             return "invisible"
         }
 
-        let bounds: Rectangle = this.resolveOutputBounds(output, autoPosition && !force)
-        const windowNotCoveringMain = this.amountCovered(bounds, mainWindow!.getBounds()) < 0.5
+        const displays = screen.getAllDisplays()
+        const isSingleScreenAutoStartup = autoStartup && displays.length <= 1
+        if (isSingleScreenAutoStartup) return false
 
-        if (state === true && (force || window.isAlwaysOnTop() === false || windowNotCoveringMain)) {
+        const bounds: Rectangle = this.resolveOutputBounds(output, autoPosition)
+
+        const windowCoveringMain = this.amountCovered(bounds, mainWindow!.getBounds()) > 0.5
+        const invalidWindowPosition = windowCoveringMain && autoPosition && window.isAlwaysOnTop() === true
+
+        if (state === true && !invalidWindowPosition) {
             this.showWindow(window, output.alwaysOnTop !== false)
 
             OutputHelper.Bounds.updateBounds({ id: output.id, bounds })
@@ -63,29 +69,30 @@ export class OutputVisibility {
         const hasValidBounds = !!(output.bounds?.width && output.bounds?.height)
         const outputBounds = hasValidBounds ? output.bounds : primaryBounds
 
-        // position at any existing target display
-        if (displays.length > 0 && output.screen) {
-            const targetDisplay = displays.find((d) => d.id.toString() === output.screen)
-            if (targetDisplay) return { ...targetDisplay.bounds }
-        }
-
         // never auto position locked bounds
         if (output.boundsLocked) return outputBounds
 
-        // preserve valid input pos if already on an active display
+        // 1. Primary: Preserve valid coordinates if already within an active physical display
         if (displays.length > 0 && hasValidBounds && output.bounds) {
             const isCenterOnDisplay = displays.some((d) => {
-                const centerX = output.bounds!.x + output.bounds!.width / 2
-                const centerY = output.bounds!.y + output.bounds!.height / 2
+                const centerX = output.bounds.x + output.bounds.width / 2
+                const centerY = output.bounds.y + output.bounds.height / 2
                 return centerX >= d.bounds.x && centerX < d.bounds.x + d.bounds.width && centerY >= d.bounds.y && centerY < d.bounds.y + d.bounds.height
             })
 
             if (isCenterOnDisplay) return output.bounds
         }
 
+        // 2. Secondary fallback: Look up by target display ID if coordinates are off-screen (e.g. topology changed)
+        if (displays.length > 0 && output.screen) {
+            const isCoveringMain = this.amountCovered(outputBounds, mainWindow!.getBounds()) > 0.5
+            const targetDisplay = isCoveringMain ? null : displays.find((d) => d.id.toString() === output.screen)
+            if (targetDisplay) return { ...targetDisplay.bounds }
+        }
+
         // fallback to second display auto positioning if not locked and autoPosition requested or bounds are undefined
         // (not on macOS due to window detection quirks)
-        if ((autoPosition || !hasValidBounds) && displays.length > 1 && process.platform !== "darwin") {
+        if ((autoPosition || !hasValidBounds) && displays.length > 1 && !isMac) {
             return this.getSecondDisplay(outputBounds)
         }
 

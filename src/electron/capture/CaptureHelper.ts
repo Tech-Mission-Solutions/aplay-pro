@@ -1,6 +1,7 @@
 import type { BrowserWindow, Display, NativeImage, Size } from "electron"
 import electron from "electron"
 import { NdiSender } from "../ndi/NdiSender"
+import { OmtSender } from "../omt/OmtSender"
 import { OutputHelper } from "../output/OutputHelper"
 import type { CaptureOptions } from "./CaptureOptions"
 import { CaptureLifecycle } from "./helpers/CaptureLifecycle"
@@ -15,6 +16,7 @@ export class CaptureHelper {
         server: 10, // 30 // OutputShow
         webrtc: 30, // WebRTC (canvas stream, up to 30 fps)
         rtmp: 30, // RTMP
+        recorder: 30, // Output recording
         unconnected: 1,
         connected: 30 // NDI
     }
@@ -25,18 +27,20 @@ export class CaptureHelper {
 
         const defaultFramerates = {
             ndi: this.framerates.connected,
+            omt: this.framerates.connected,
             blackmagic: this.framerates.unconnected,
             server: this.framerates.server,
             stage: this.framerates.stage,
             webrtc: this.framerates.webrtc,
-            rtmp: this.framerates.rtmp
+            rtmp: this.framerates.rtmp,
+            recorder: this.framerates.recorder
         }
 
         return {
             window,
             frameSubscription: null,
             displayFrequency: screen.displayFrequency || 60,
-            options: { ndi: false, blackmagic: false, server: false, stage: false, webrtc: false, rtmp: false },
+            options: { ndi: false, omt: false, blackmagic: false, server: false, stage: false, webrtc: false, rtmp: false, recorder: false },
             framerates: defaultFramerates,
             id
         }
@@ -49,11 +53,13 @@ export class CaptureHelper {
     static getMaxActiveFramerate(framerates: { [key: string]: number }, activeOptions: { [key: string]: boolean }): number {
         const activeRates: number[] = []
         if (activeOptions.ndi) activeRates.push(framerates.ndi || 1)
+        if (activeOptions.omt) activeRates.push(framerates.omt || 1)
         if (activeOptions.blackmagic) activeRates.push(framerates.blackmagic || 1)
         if (activeOptions.server) activeRates.push(framerates.server || 1)
         if (activeOptions.stage) activeRates.push(framerates.stage || 1)
         if (activeOptions.webrtc) activeRates.push(framerates.webrtc || 1)
         if (activeOptions.rtmp) activeRates.push(framerates.rtmp || 1)
+        if (activeOptions.recorder) activeRates.push(framerates.recorder || 30)
         return activeRates.length > 0 ? Math.max(...activeRates) : 1
     }
 
@@ -72,6 +78,46 @@ export class CaptureHelper {
                 CaptureTransmitter.startChannel(id, "ndi")
             }
         }
+
+        if (OmtSender.OMT[id]) {
+            let omtFramerate = this.framerates.unconnected
+            if (OmtSender.OMT[id].status === "connected") omtFramerate = this.customFramerates[id]?.omt || this.framerates.connected
+
+            if (captureOptions.framerates.omt !== parseInt(omtFramerate.toString(), 10)) {
+                output.captureOptions!.framerates.omt = parseInt(omtFramerate.toString(), 10)
+                OutputHelper.setOutput(id, output)
+                CaptureTransmitter.startChannel(id, "omt")
+            }
+        }
+
+        // GPU budget: rendering several 4K OSR surfaces at 60fps saturates the GPU and balloons every
+        // readback (~20ms -> ~100ms) -> the received output only gets a few NEW frames/sec. So render each OSR
+        // output at the rate it actually needs: full rate when a receiver is connected, a low rate when not.
+        // Reacts within CONNECTION_POLL_INTERVAL_MS (250ms), so a connecting output ramps to 60 quickly.
+        this.updateRenderRate(id)
+    }
+
+    static updateRenderRate(id: string) {
+        const output = OutputHelper.getOutput(id)
+        const win = (output as any)?.window as BrowserWindow | undefined
+        if (!(output as any)?.osr || !win || win.isDestroyed()) return
+
+        let fps = 0
+        if (output?.captureOptions) fps = this.getMaxActiveFramerate(output.captureOptions.framerates || {}, output.captureOptions.options || {})
+        // setFrameRate is NOT a decimator: driving the OSR compositor below its native cadence makes
+        // Chromium deliver paints in clumps, starving the capture pipe and stuttering preview and
+        // output alike. Connected renderers render at the native rate; each consumer's configured
+        // framerate is enforced by admission-time decimation + the worker's send pacer. The sub-native
+        // setting survives only as the idle floor (no connected receiver — nobody sees the frames).
+        const idle = fps <= this.framerates.unconnected
+        const target = idle ? Math.max(1, Math.round(fps || 1)) : OutputHelper.Lifecycle.OSR_RENDER_FPS
+        try {
+            win.webContents.setFrameRate(target)
+        } catch {
+            // ignore
+        }
+        // Linux begin-frame drive (no-op elsewhere): keep its cadence in lockstep with the applied rate
+        OutputHelper.Lifecycle.updateOsrPaintDrive(win, id, target)
     }
 
     static getWindowScreen(window: BrowserWindow) {

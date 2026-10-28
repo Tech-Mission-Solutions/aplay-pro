@@ -1,10 +1,11 @@
 import { get } from "svelte/store"
 import type { Item, Show, ShowList, Shows, Slide, TrimmedShow, TrimmedShows } from "../../../types/Show"
-import { activeEdit, activeFocus, activePage, activeProject, activeShow, cachedShowsData, customMetadata, dictionary, focusMode, groupNumbers, groups, projects, refreshEditSlide, shows, showsCache, sorted, sortedShowsList } from "../../stores"
+import { activeEdit, activeFocus, activePage, activeProject, activeShow, cachedShowsData, customMetadata, dictionary, focusMode, groupNumbers, groups, projects, refreshEditSlide, selected, shows, showsCache, sorted, sortedShowsList } from "../../stores"
 import { translateText } from "../../utils/language"
 import { clone, keysToID, removeValues, sortByName, sortByNameAndNumber } from "./array"
 import { GetLayout } from "./get"
 import { history } from "./history"
+import { isOutputBound, resolveOutputId } from "./output"
 import { loadShows } from "./setShow"
 import { swichProjectItem } from "./showActions"
 import { _show } from "./shows"
@@ -14,17 +15,19 @@ export function checkName(name = "", showId = "") {
     if (!name || typeof name !== "string") name = translateText("main.unnamed")
     name = formatToFileName(name)
 
-    // if ID exists, check the name if different
-    if (showId && get(shows)[showId]) {
-        if (get(shows)[showId]?.name !== name) return checkName(name)
-        return name
-    }
+    const showsList = Object.entries(get(shows) || {})
+
+    // strip trailing space + digits from the name if it exists, so "x 2" becomes "x", and then likely "x 3" instead of "x 2 2"
+    const hasConflict = showsList.some(([id, a]) => (!showId || id !== showId) && a.name?.toLowerCase() === name.toLowerCase())
+    if (hasConflict) name = name.replace(/\s+\d+$/, "")
+
+    const nameLower = name.toLowerCase()
 
     let number = 1
-    while (Object.values(get(shows)).find((a) => a.name?.toLowerCase() === (number > 1 ? name.toLowerCase() + " " + number : name.toLowerCase()))) number++
+    while (showsList.find(([id, a]) => (!showId || id !== showId) && a.name?.toLowerCase() === (number > 1 ? `${nameLower} ${number}` : nameLower))) number++
 
     // add number if existing name, and trim away spaces from the start/end
-    return (number > 1 ? name + " " + number : name).trim()
+    return (number > 1 ? `${name} ${number}` : name).trim()
 }
 
 export function formatToFileName(name = "") {
@@ -250,6 +253,33 @@ export function updateShowsList(allShows: TrimmedShows) {
     sortedShowsList.set(filteredShows)
 }
 
+// sync "shows" data from "showsCache"
+export function syncCachedShows(cacheData: Shows = get(showsCache)) {
+    if (!cacheData || typeof cacheData !== "object") return
+
+    const current = get(shows)
+    const updates: TrimmedShows = {}
+
+    Object.entries(cacheData).forEach(([id, show]) => {
+        if (!show) return
+        const trimmed: TrimmedShow = {
+            name: show.name,
+            category: show.category || null,
+            timestamps: show.timestamps || current[id]?.timestamps || { created: 0, modified: null, used: null },
+            quickAccess: show.quickAccess || {},
+            ...(show.origin ? { origin: show.origin } : {}),
+            ...(show.private ? { private: true } : {}),
+            ...(show.locked ? { locked: true } : {})
+        }
+
+        if (JSON.stringify(current[id]) !== JSON.stringify(trimmed)) updates[id] = trimmed
+    })
+
+    if (Object.keys(updates).length) {
+        shows.update((a) => ({ ...a, ...updates }))
+    }
+}
+
 // update cached shows
 export function updateCachedShows(newShowsData: Shows) {
     const cachedShows = {}
@@ -406,15 +436,65 @@ export function bindSlidesToOutput(indexes: number[], outputId: string) {
     const ref = getLayoutRef()
     const newBindings: string[][] = []
 
-    const add = !ref[indexes[0]]?.data?.bindings?.includes(outputId)
+    const firstBindings = ref[indexes[0]]?.data?.bindings || []
+    const add = !firstBindings.length || !isOutputBound(firstBindings, outputId)
 
     indexes.forEach((i) => {
-        const bindings: string[] = ref[i]?.data?.bindings ? [...ref[i].data.bindings] : []
-        const existingIndex = bindings.indexOf(outputId)
-        if (add && existingIndex < 0) bindings.push(outputId)
-        else if (!add && existingIndex >= 0) bindings.splice(existingIndex, 1)
+        let bindings: string[] = ref[i]?.data?.bindings ? [...ref[i].data.bindings] : []
+        if (add) {
+            if (!bindings.length || !isOutputBound(bindings, outputId)) bindings.push(outputId)
+        } else {
+            bindings = bindings.filter((bId) => resolveOutputId(bId) !== outputId && bId !== outputId)
+        }
         newBindings.push(bindings)
     })
 
     history({ id: "SHOW_LAYOUT", newData: { key: "bindings", data: newBindings, indexes, dataIsArray: false } })
+}
+
+// WIP should be merged with existing functions instead
+export function getSlideHighlightIndexes(actionId: string, sel = get(selected)): number[] {
+    const showId = get(activeShow)?.id || get(activeEdit)?.showId || ""
+    if (!showId) return []
+
+    const showSlides = get(showsCache)[showId]?.slides || {}
+    const ref = getLayoutRef(showId)
+    if (!ref.length) return []
+
+    const selectedSlides = sel.id === "slide" && Array.isArray(sel.data) ? sel.data.map((a: any) => ref[a.index]).filter(Boolean) : []
+    const getParentId = (s: any) => (s?.type === "child" ? s.parent?.id : s?.id) || ""
+    const getParentLayoutIndex = (s: any) => (s?.type === "child" ? s.parent?.layoutIndex : s?.layoutIndex)
+
+    if (actionId === "remove_group") {
+        const targetLayoutIndexes = new Set(
+            selectedSlides
+                .filter((s) => {
+                    const pid = getParentId(s)
+                    return pid && !showSlides[pid]?.locked && showSlides[pid]?.group !== "."
+                })
+                .map(getParentLayoutIndex)
+                .filter((idx) => idx !== undefined)
+        )
+        return targetLayoutIndexes.size ? ref.map((_, i) => i).filter((i) => targetLayoutIndexes.has(getParentLayoutIndex(ref[i]))) : []
+    }
+
+    if (actionId === "delete_slide" || actionId === "delete" || actionId === "delete_remove") {
+        const targetIds = new Set(
+            selectedSlides
+                .filter((s) => {
+                    const pid = getParentId(s)
+                    return pid && !showSlides[pid]?.locked
+                })
+                .map((s) => s.id)
+        )
+        return targetIds.size ? ref.map((_, i) => i).filter((i) => targetIds.has(ref[i].id)) : []
+    }
+
+    if (actionId === "delete_group" || sel.id === "group") {
+        const groupIds = sel.id === "group" ? (sel.data || []).map((a: any) => a.id).filter(Boolean) : selectedSlides.map(getParentId).filter((pid) => pid && !showSlides[pid]?.locked)
+        const targetGroupIds = new Set(groupIds)
+        return targetGroupIds.size ? ref.map((_, i) => i).filter((i) => targetGroupIds.has(getParentId(ref[i]))) : []
+    }
+
+    return []
 }

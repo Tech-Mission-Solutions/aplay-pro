@@ -1,6 +1,6 @@
 import type { SaveListSettings, SaveListSyncedSettings } from "../../types/Save"
 
-export const defaultConfig = { loaded: false, maximized: true, bounds: { width: 800, height: 600, x: 0, y: 0 }, dataPath: null, disableHardwareAcceleration: null }
+export const defaultConfig = { loaded: false, maximized: true, bounds: { width: 800, height: 600, x: 0, y: 0 }, dataPath: null, disableHardwareAcceleration: null, graphicsDevice: null }
 
 export const defaultGroups = {
     break: { name: "break", default: true, color: "#f5255e" },
@@ -35,7 +35,6 @@ export const defaultSettings: { [key in SaveListSettings]: any } = {
     autoOutput: false,
     autosave: "15min",
     timeFormat: "24",
-    remotePassword: "",
     ports: { remote: 5510, stage: 5511 },
     disabledServers: {},
     serverData: {},
@@ -53,26 +52,27 @@ export const defaultSettings: { [key in SaveListSettings]: any } = {
     drawerTabsData: {},
     drawer: { height: 300, stored: null },
     language: null,
+    customFonts: [],
     labelsDisabled: false,
     groupNumbers: true,
     fullColors: false,
     formatNewShow: false,
-    showsPath: null, // DEPRECATED
-    dataPath: "", // DEPRECATED
-    lockedOverlays: [],
+    lockedOverlays: {},
+    activeScenes: {},
     splitLines: 0,
     theme: "default",
     transitionData: {
         text: { type: "fade", duration: 500, easing: "sine" },
         media: { type: "fade", duration: 800, easing: "sine" }
     },
+    audioRouting: {},
     audioChannelsData: {},
     cloudSyncData: {},
     driveData: { mainFolderId: null, disabled: false, initializeMethod: null, disableUpload: false },
     calendarAddShow: "",
     metronome: {},
     audioEffects: {},
-    eqPresets: {},
+    audioEffectPresets: {},
     effectsLibrary: [],
     special: {},
     timeline: {},
@@ -85,7 +85,8 @@ export const defaultSettings: { [key in SaveListSettings]: any } = {
             syncCategories: ["song"]
         }
     },
-    obsData: {}
+    obsData: {},
+    ai: {}
 }
 
 export const defaultSyncedSettings: { [key in SaveListSyncedSettings]: any } = {
@@ -112,6 +113,7 @@ export const defaultSyncedSettings: { [key in SaveListSyncedSettings]: any } = {
     variables: {
         default: { name: "Counter", type: "number" }
     },
+    scenes: {},
     interactions: {},
     audioStreams: {},
     audioPlaylists: {},
@@ -159,11 +161,10 @@ export const defaultSyncedSettings: { [key in SaveListSyncedSettings]: any } = {
     variableTags: {},
     timerTags: {},
     customizedIcons: { disabled: [], svg: [] },
-    companion: {},
     globalTags: {},
     globalRegexes: {},
     customMetadata: { disabled: [], custom: [] },
     effects: {},
-    audioRouting: {},
-    deletedDefaults: {}
+    deletedDefaults: {},
+    syncedOutputs: {}
 }

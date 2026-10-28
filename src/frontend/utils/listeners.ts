@@ -2,9 +2,9 @@ import { get } from "svelte/store"
 import { OUTPUT, REMOTE, STAGE } from "../../types/Channels"
 import { AudioPlayer } from "../audio/audioPlayer"
 import { midiInListen } from "../components/actions/midi"
-import { getAllActiveOutputIds, getAllNormalOutputs } from "../components/helpers/output"
+import { getAllActiveOutputIds, getAllNormalOutputs, updateSyncedOutputs } from "../components/helpers/output"
 import { loadShows } from "../components/helpers/setShow"
-import { getShowCacheId, updateCachedShow, updateCachedShows, updateShowsList } from "../components/helpers/show"
+import { getShowCacheId, syncCachedShows, updateCachedShow, updateCachedShows, updateShowsList } from "../components/helpers/show"
 import {
     $,
     actions,
@@ -13,7 +13,9 @@ import {
     activeScripture,
     activeShow,
     activeTimers,
+    audioChannelsData,
     audioData,
+    audioRouting,
     cachedShowsData,
     categories,
     colorbars,
@@ -50,8 +52,11 @@ import {
     special,
     stageShows,
     styles,
+    syncedOutputs,
     templateCategories,
     templates,
+    theme,
+    themes,
     timeFormat,
     timers,
     timerTags,
@@ -61,56 +66,15 @@ import {
 } from "../stores"
 import { hasNewerUpdate } from "./common"
 import { driveConnect } from "./drive"
-import { convertBackgrounds } from "./remoteTalk"
+import { convertBackgrounds, getFilteredAudioChannels } from "./remoteTalk"
 import { send } from "./request"
 import { arrayToObject, eachConnection, filterObjectArray, sendData, timedout } from "./sendData"
 
-// shows list has not changed when only a timestamp value changes
-function hasShowsListChanged(prevData: any, newData: any): boolean {
-    if (!prevData || !newData) return true
-    const prevKeys = Object.keys(prevData)
-    const newKeys = Object.keys(newData)
-    if (prevKeys.length !== newKeys.length) return true
-
-    for (const key of newKeys) {
-        const prevShow = prevData[key]
-        const newShow = newData[key]
-
-        if (!prevShow || newShow.name !== prevShow.name || newShow.category !== prevShow.category || newShow.private !== prevShow.private || newShow.locked !== prevShow.locked || newShow.origin !== prevShow.origin || (newShow.quickAccess ? JSON.stringify(newShow.quickAccess) : "") !== prevShow.quickAccess) {
-            return true
-        }
-    }
-    return false
-}
-
-function copyShowsMetadata(data: any): any {
-    const copy: any = {}
-    if (!data) return copy
-    for (const key of Object.keys(data)) {
-        const show = data[key]
-        if (show) {
-            copy[key] = {
-                name: show.name,
-                category: show.category,
-                private: show.private,
-                locked: show.locked,
-                origin: show.origin,
-                quickAccess: show.quickAccess ? JSON.stringify(show.quickAccess) : ""
-            }
-        }
-    }
-    return copy
-}
-
 export function storeSubscriber() {
-    let lastShowsData: any = {}
     shows.subscribe(async (data) => {
-        if (await hasNewerUpdate("LISTENER_SHOWS", 200)) return
+        if (await hasNewerUpdate("LISTENER_SHOWS", 800)) return
 
         // sendData(REMOTE, { channel: "SHOWS", data })
-
-        if (!hasShowsListChanged(lastShowsData, data)) return
-        lastShowsData = copyShowsMetadata(data)
 
         // temporary cache shows data
         updateShowsList(data)
@@ -121,6 +85,9 @@ export function storeSubscriber() {
 
     showsCache.subscribe(async (data) => {
         if (await hasNewerUpdate("LISTENER_SHOWSCACHE")) return // TIMELINE style updates everytime unless set to 20ms
+
+        // update "shows" with new "showsCache" data
+        syncCachedShows(data)
 
         // needs to be sent before output data
         send(OUTPUT, ["SHOWS"], data)
@@ -231,6 +198,8 @@ export function storeSubscriber() {
         send(OUTPUT, ["OUTPUTS"], data)
         // used for stage mirror data
         send(OUTPUT, ["ALL_OUTPUTS"], data)
+        send(REMOTE, ["AUDIO_ROUTING"], getFilteredAudioChannels())
+        updateSyncedOutputs()
 
         // let it update properly
         setTimeout(() => {
@@ -243,6 +212,9 @@ export function storeSubscriber() {
         // sendData(STAGE, { channel: "SLIDES" }, true)
         // send(STAGE, ["OUTPUTS"], data)
         // sendBackgroundToStage(a)
+    })
+    syncedOutputs.subscribe((data) => {
+        send(OUTPUT, ["SYNCED_OUTPUTS"], data)
     })
     styles.subscribe((data) => {
         send(OUTPUT, ["STYLES"], data)
@@ -371,24 +343,12 @@ export function storeSubscriber() {
         send(OUTPUT, ["SLIDE_TIMELINE_SPEED_MULTIPLIER"], data)
     })
 
-    // let prevAudioChannelsJson = ""
-    // audioChannelsData.subscribe((data) => {
-    //     const controlData: any = {}
-    //     Object.entries(data || {}).forEach(([id, ch]: [string, any]) => {
-    //         if (!ch) return
-    //         const { dB, ...rest } = ch
-    //         controlData[id] = rest
-    //     })
-
-    //     const json = JSON.stringify(controlData)
-    //     if (json !== prevAudioChannelsJson) {
-    //         prevAudioChannelsJson = json
-    //         send(OUTPUT, ["AUDIO_CHANNELS_DATA"], data)
-
-    //         // REMOTE mixer updates
-    //         sendRemoteMixer()
-    //     }
-    // })
+    audioRouting.subscribe(() => {
+        send(REMOTE, ["AUDIO_ROUTING"], getFilteredAudioChannels())
+    })
+    audioChannelsData.subscribe((data) => {
+        send(REMOTE, ["AUDIO_CHANNELS_DATA"], data)
+    })
 
     playingVideoState.subscribe((data) => {
         send(OUTPUT, ["PLAYING_VIDEO_STATE"], data)
@@ -458,6 +418,20 @@ export function storeSubscriber() {
         send(REMOTE, ["RUNNING_ACTIONS"], data)
     })
 
+    theme.subscribe(async (currentTheme) => {
+        if (await hasNewerUpdate("LISTENER_THEME_REMOTE", 30)) return
+
+        const themeObj = get(themes)[currentTheme]
+        if (themeObj?.colors) send(REMOTE, ["THEME_COLORS"], themeObj.colors)
+    })
+    themes.subscribe(async (allThemes) => {
+        if (await hasNewerUpdate("LISTENER_THEMES_REMOTE", 30)) return
+
+        const currentTheme = get(theme)
+        const themeObj = allThemes[currentTheme]
+        if (themeObj?.colors) send(REMOTE, ["THEME_COLORS"], themeObj.colors)
+    })
+
     activeShow.subscribe((data) => {
         if (!data?.id) return
         const type = data?.type || "show"
@@ -513,6 +487,7 @@ const initalOutputData = {
     TIME_FORMAT: "timeFormat",
 
     SPECIAL: "special",
+    SYNCED_OUTPUTS: "syncedOutputs",
 
     SLIDE_TIMELINE_SPEED_MULTIPLIER: "slideTimelineSpeedMultiplier",
 

@@ -7,7 +7,7 @@ import fs, { type WriteFileOptions } from "fs"
 import { basename, dirname, extname, join } from "path"
 import { EXPORT, STARTUP } from "../../types/Channels"
 import { ToMain } from "../../types/IPC/ToMain"
-import type { Show, Slide, Template } from "../../types/Show"
+import type { Overlay, Show, Slide, Template } from "../../types/Show"
 import type { Message } from "../../types/Socket"
 import { isProd } from "../index"
 import { sendToMain } from "../IPC/main"
@@ -20,6 +20,7 @@ import { compressToZip } from "./zip"
 // SHOW: .show, PROJECT: .project, BIBLE: .fsb
 const customJSONExtensions = {
     TEMPLATE: ".fstemplate",
+    OVERLAY: ".fsoverlay",
     THEME: ".fstheme",
     ACTION: ".fsaction",
     STAGE_LAYOUT: ".fsstage"
@@ -45,6 +46,11 @@ export function startExport(_e: Electron.IpcMainEvent, msg: Message) {
 
     if (msg.channel === "TEMPLATE") {
         exportTemplate(msg.data)
+        return
+    }
+
+    if (msg.channel === "OVERLAY") {
+        exportOverlay(msg.data)
         return
     }
 
@@ -153,7 +159,7 @@ export function createPDFWindow(data: any) {
     const windowWidth = isLandscape ? 1123 : 794
     const windowHeight = isLandscape ? 631 : 1123
 
-    let options = { ...exportOptions }
+    const options = { ...exportOptions }
     if (!isLandscape) {
         options.width = windowWidth
         options.height = windowHeight
@@ -186,7 +192,6 @@ export function exportJSONFile(content: any, path: string, name: string) {
 // ----- SHOW -----
 
 export function exportShow(data: { path: string; shows: Show[] }) {
-    console.log(data.path, data.shows.length)
     data.shows.forEach((show, i) => {
         const id = show.id
         delete show.id
@@ -234,9 +239,7 @@ function getSlidesText(show: Show) {
                 })
 
                 if (Array.isArray(line.chords) && line.chords.length) {
-                    const sortedChords = [...line.chords]
-                        .map((chord, originalIndex) => ({ chord, originalIndex }))
-                        .sort((a, b) => b.chord.pos - a.chord.pos || b.originalIndex - a.originalIndex)
+                    const sortedChords = [...line.chords].map((chord, originalIndex) => ({ chord, originalIndex })).sort((a, b) => b.chord.pos - a.chord.pos || b.originalIndex - a.originalIndex)
 
                     sortedChords.forEach(({ chord }) => {
                         while (!tempText[chord.pos]) tempText += " "
@@ -343,13 +346,34 @@ export function exportTemplate(data: { file: { template: Template; files?: strin
     compressWithMedia(files, data.file, data.name, customJSONExtensions.TEMPLATE, exportFolder, (path) => basename(path))
 }
 
+// ----- OVERLAY -----
+
+export function exportOverlay(data: { file: { overlay: Overlay; files?: string[] }; name: string }) {
+    sendToMain(ToMain.ALERT, "export.exporting")
+    const exportFolder = getDataFolderPath("exports")
+
+    const files: string[] = data.file.files || []
+    if (!files.length) {
+        // export as plain JSON
+        delete data.file.files
+        exportJSON(data.file, customJSONExtensions.OVERLAY, exportFolder, data.name)
+        return
+    }
+
+    // create archive with original filenames
+    compressWithMedia(files, data.file, data.name, customJSONExtensions.OVERLAY, exportFolder, (path) => basename(path))
+}
+
 function compressWithMedia(files: string[], fileData: any, name: string, extension: string, exportFolder: string, getFileName: (path: string, ext: string) => string, canOverwrite = false) {
-    const entries: { name: string; content?: Buffer | string; filePath?: string }[] = files
-        .filter((filePath) => fs.existsSync(filePath))
-        .map((filePath) => ({
-            name: getFileName(filePath, extname(filePath)),
-            filePath
-        }))
+    const uniqueEntries = new Map<string, { name: string; content?: Buffer | string; filePath?: string }>()
+    for (const filePath of files) {
+        if (!fs.existsSync(filePath)) continue
+
+        const name = getFileName(filePath, extname(filePath))
+        if (!uniqueEntries.has(name)) uniqueEntries.set(name, { name, filePath })
+    }
+
+    const entries: { name: string; content?: Buffer | string; filePath?: string }[] = Array.from(uniqueEntries.values())
 
     entries.push({ name: "data.json", content: Buffer.from(JSON.stringify(fileData)) })
 

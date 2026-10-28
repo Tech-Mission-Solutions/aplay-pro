@@ -18,7 +18,8 @@ export function createCategory(name: string, icon = "song", { isDefault, isArchi
         if (!categoryCount) return selectedCategory
     }
 
-    const id = name.toLowerCase().replaceAll(" ", "_")
+    // remove parentheses and replace spaces with underscores to convert name to id
+    const id = name.toLowerCase().replace(/[()]/g, "").trim().replace(/\s+/g, "_")
     if (get(categories)[id]) return id
     if (isDefault) name = "category." + name
 
@@ -112,6 +113,29 @@ export function importTemplate(files: { content: string; name?: string; extensio
         delete template.id
 
         history({ id: "UPDATE", newData: { data: template }, oldData: { id: templateId }, location: { page: "drawer", id: "template" } })
+    })
+
+    if (get(activePopup)) {
+        alertMessage.set("actions.imported")
+        activePopup.set("alert")
+    } else {
+        newToast("actions.imported")
+    }
+}
+
+/// OVERLAY ///
+
+export function importOverlay(files: { content: string; name?: string; extension?: string }[]) {
+    files.forEach(({ content }) => {
+        const parsed = JSON.parse(content)
+
+        const overlay = parsed.overlay ? parsed.overlay : parsed
+        if (!overlay.items) return
+
+        const overlayId = overlay.id
+        delete overlay.id
+
+        history({ id: "UPDATE", newData: { data: overlay }, oldData: { id: overlayId }, location: { page: "drawer", id: "overlay" } })
     })
 
     if (get(activePopup)) {

@@ -41,7 +41,7 @@
                 ...stageSections.special,
                 inputs: [
                     ...stageSections.special.inputs,
-                    [{ id: "flash.enabled", type: "checkbox", value: flashEnabled, values: { label: "timer.flash" } }],
+                    [{ id: "flash.enabled", type: "checkbox", value: false, values: { label: "timer.flash" } }],
                     [
                         { id: "flash.color", type: "color", value: item.flash?.color || "#FF0000", hidden: !flashEnabled, values: { label: "edit.color" } },
                         { id: "flash.count", type: "number", value: item.flash?.count ?? 3, hidden: !flashEnabled, values: { label: "edit.count", min: 1, max: 20 } }
@@ -81,19 +81,17 @@
     $: if (item?.style || item === null) styles = getStyles(item?.style, true)
 
     $: if (stageSections?.font || type === "text") {
-        setBoxInputValue(stageSections, "font", "font-size", "disabled", !isTextItem && item?.textFit === "growToFit")
-        setBoxInputValue(stageSections, "font", "textFit", "value", item?.textFit || "growToFit")
-        // setBoxInputValue(stageSections, "font", "auto", "value", item.auto ?? true)
-
-        setBoxInputValue(stageSections, "text", "nowrap", "value", !!styles["white-space"]?.includes("nowrap"))
+        let sectionId = stageSections?.font ? "font" : "default"
+        const defaultTextFit = item?.type === "text" ? "none" : "growToFit"
+        const currentTextFit = item?.textFit || defaultTextFit
+        setBoxInputValue(stageSections, sectionId, "font-size", "disabled", !isTextItem && currentTextFit === "growToFit")
+        setBoxInputValue(stageSections, sectionId, "textFit", "default", defaultTextFit)
     }
 
     $: if (item && type === "text") {
         let sectionId = stageSections?.font ? "font" : "default"
         setBoxInputValue(stageSections, sectionId, "font-family", "default", "Arial")
         setBoxInputValue(stageSections, sectionId, "font-family", "styleValue", styles["font"] || "")
-        // setBoxInputValue(stageSections, sectionId, "font-size", "disabled", item.type === "text" ? item.auto === true : item.auto !== false)
-        // setBoxInputValue(edits, sectionId, "textFit", "hidden", item?.auto !== false)
     }
     $: if (item && isSlideText) {
         setBoxInputValue(stageSections, "default", "lineCount", "hidden", Number(item.slideOffset || 0) === 0)
@@ -125,6 +123,7 @@
 
     $: if (item?.type === "camera") {
         if (item.device?.name) setBoxInputValue(stageSections, "default", "device", "name", item.device.name)
+        if (item.device?.type) setBoxInputValue(stageSections, "default", "device", "icon", item.device.type === "ndi" ? "ndi" : item.device.type === "omt" ? "omt" : item.device.type === "screen" ? "screen" : item.device.type === "blackmagic" ? "blackmagic" : "camera")
     }
 
     $: if (item?.type === "timer" && item) {
@@ -243,8 +242,6 @@
         input.input = input.type
 
         if (input.id === "textFit") {
-            updateStyle({ detail: { id: "auto", value: input.value !== "none" } })
-
             if (isTextItem) {
                 let newFontSize = 0
                 // change font size to more clearly indicate what the different text fit does

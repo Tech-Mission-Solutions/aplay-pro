@@ -154,8 +154,11 @@ export function getPresetShapePath(prstGeom, x1, y1, width, height, adj = 0) {
                 { x: x1, y: y1 + height }
             ])
             break
-        case "roundRect": {
-            const r = (adj / 100000) * width // simple approximation
+        case "roundRect":
+        case "round2SameRect": {
+            const minDim = Math.min(width, height)
+            const cornerRadius = prstGeom === "roundRect" ? 16667 : 50000
+            const r = Math.min(minDim / 2, Math.max(0, ((adj || cornerRadius) / 100000) * minDim))
             path = `M ${normalizeX(x1 + r)} ${normalizeY(y1)} 
                     L ${normalizeX(x1 + width - r)} ${normalizeY(y1)}
                     Q ${normalizeX(x1 + width)} ${normalizeY(y1)} ${normalizeX(x1 + width)} ${normalizeY(y1 + r)}
@@ -274,13 +277,18 @@ export function getPresetShapePath(prstGeom, x1, y1, width, height, adj = 0) {
                 A ${normalizeX(rx)} ${normalizeY(ry)} 0 ${largeArc} 1 ${normalizeX(xEnd)} ${normalizeY(yEnd)}`
             break
         }
-        case "line": {
+        case "line":
+        case "straightConnector1": {
             // Simple straight line
             path = `M ${normalizeX(x1)} ${normalizeY(y1)}
                 L ${normalizeX(x1 + width)} ${normalizeY(y1 + height)}`
             break
         }
-        case "connector": {
+        case "connector":
+        case "bentConnector2":
+        case "bentConnector3":
+        case "curvedConnector2":
+        case "curvedConnector3": {
             // Straight or elbow connector
             path = `M ${normalizeX(x1)} ${normalizeY(y1)}
                 L ${normalizeX(x1 + width)} ${normalizeY(y1)}
@@ -586,81 +594,86 @@ export function getCustomShapePath(path: any[], size: { w: string; h: string }):
         vbHeight = 1
     }
 
-    // Helper to normalize points to vbWidth/vbHeight range
-    function norm(x: string, y: string) {
-        let px = boxWidth ? parseFloat(x) / boxWidth : 0
-        let py = boxHeight ? parseFloat(y) / boxHeight : 0
-        // Scale to fit the viewBox
-        px *= vbWidth
-        py *= vbHeight
-        return { x: px.toFixed(4), y: py.toFixed(4) }
-    }
-
-    const customShape = {
-        // MoveTo
-        "a:moveTo": (a) => {
-            const pt = a[0]?.[":@"]
-            if (!pt) return ""
-
-            const { x, y } = norm(pt.x, pt.y)
-            return `M ${x} ${y} `
-        },
-        // LineTo
-        "a:lnTo": (a) => {
-            const pt = a[0]?.[":@"]
-            if (!pt) return ""
-
-            const { x, y } = norm(pt.x, pt.y)
-            return `L ${x} ${y} `
-        },
-        // ArcTo (approximate as line for now)
-        "a:arcTo": (a) => {
-            const pts = a.map((arc) => arc[":@"])
-            if (!pts?.[1]) return ""
-
-            // const attr1 = pts[0]
-            const attr2 = pts[1]
-            const { x, y } = norm(attr2.x, attr2.y)
-            return `L ${x} ${y} `
-        },
-        // QuadBezierTo
-        "a:quadBezTo": (a) => {
-            const pts = a.map((quad) => quad[":@"])
-            if (pts.length < 2) return ""
-
-            const attr1 = pts[0]
-            const attr2 = pts[1]
-
-            const c = norm(attr1.x, attr1.y)
-            const p = norm(attr2.x, attr2.y)
-            return `Q ${c.x} ${c.y}, ${p.x} ${p.y} `
-        },
-        // CubicBezierTo
-        "a:cubicBezTo": (a) => {
-            const pts = a.map((cubic) => cubic[":@"])
-            if (pts.length < 3) return ""
-
-            const attr1 = pts[0]
-            const attr2 = pts[1]
-            const attr3 = pts[2]
-
-            const c1 = norm(attr1.x, attr1.y)
-            const c2 = norm(attr2.x, attr2.y)
-            const p = norm(attr3.x, attr3.y)
-            return `C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p.x} ${p.y} `
-        },
-        // Close
-        "a:close": () => {
-            return "Z "
-        }
-    }
-
     let d = ""
 
-    path.forEach((p) => {
-        const key = Object.keys(p)[0]
-        if (!customShape[key]) return
-        d += customShape[key](p[key])
+    path.forEach((pathNode) => {
+        const pathAttrs = pathNode[":@"] || {}
+        const pathGridW = pathAttrs.w ? parseFloat(pathAttrs.w) : boxWidth
+        const pathGridH = pathAttrs.h ? parseFloat(pathAttrs.h) : boxHeight
+
+        // Helper to normalize points to vbWidth/vbHeight range
+        function norm(x: string, y: string) {
+            let px = pathGridW ? parseFloat(x) / pathGridW : 0
+            let py = pathGridH ? parseFloat(y) / pathGridH : 0
+            // Scale to fit the viewBox
+            px *= vbWidth
+            py *= vbHeight
+            return { x: px.toFixed(4), y: py.toFixed(4) }
+        }
+
+        const customShape = {
+            // MoveTo
+            "a:moveTo": (a) => {
+                const pt = a[0]?.[":@"] || a[":@"]
+                if (!pt) return ""
+
+                const { x, y } = norm(pt.x, pt.y)
+                return `M ${x} ${y} `
+            },
+            // LineTo
+            "a:lnTo": (a) => {
+                const items = Array.isArray(a) ? a : [a]
+                return items
+                    .map((item) => {
+                        const pt = item[":@"] || item
+                        if (!pt.x || !pt.y) return ""
+
+                        const { x, y } = norm(pt.x, pt.y)
+                        return `L ${x} ${y} `
+                    })
+                    .join("")
+            },
+            // ArcTo (approximate as line for now)
+            "a:arcTo": (a) => {
+                const items = Array.isArray(a) ? a : [a]
+                const pts = items.map((arc) => arc[":@"] || arc)
+                if (!pts?.[1]) return ""
+
+                // const attr1 = pts[0]
+                const attr2 = pts[1]
+                const { x, y } = norm(attr2.x, attr2.y)
+                return `L ${x} ${y} `
+            },
+            // QuadBezierTo
+            "a:quadBezTo": (a) => {
+                const items = Array.isArray(a) ? a : [a]
+                const pts = items.map((quad) => quad[":@"] || quad)
+                if (pts.length < 2) return ""
+
+                const c = norm(pts[0].x, pts[0].y)
+                const p = norm(pts[1].x, pts[1].y)
+                return `Q ${c.x} ${c.y}, ${p.x} ${p.y} `
+            },
+            // CubicBezierTo
+            "a:cubicBezTo": (a) => {
+                const items = Array.isArray(a) ? a : [a]
+                const pts = items.map((cubic) => cubic[":@"] || cubic)
+                if (pts.length < 3) return ""
+
+                const c1 = norm(pts[0].x, pts[0].y)
+                const c2 = norm(pts[1].x, pts[1].y)
+                const p = norm(pts[2].x, pts[2].y)
+                return `C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p.x} ${p.y} `
+            },
+            // Close
+            "a:close": () => "Z "
+        }
+
+        Object.keys(pathNode).forEach((key) => {
+            if (customShape[key]) {
+                d += customShape[key](pathNode[key])
+            }
+        })
     })
 
     return { pathData: d.trim(), vbWidth, vbHeight }

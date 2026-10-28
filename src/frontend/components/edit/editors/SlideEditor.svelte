@@ -32,7 +32,7 @@
     import Timeline from "../../timeline/Timeline.svelte"
     import EditHeader from "../EditHeader.svelte"
     import Editbox from "../editbox/Editbox.svelte"
-    import { getUsedChords } from "../scripts/chords"
+    import { getShowChords, getUsedChords } from "../scripts/chords"
     import { addItem } from "../scripts/itemHelpers"
     import { setCaretAtEnd } from "../scripts/textStyle"
     import { centerZoom } from "../scripts/zoom"
@@ -123,7 +123,6 @@
         else newStyles = {}
     }
 
-    let updateTimeout: NodeJS.Timeout | null = null
     function updateStyles() {
         if (!Object.keys(newStyles).length) return
 
@@ -160,20 +159,6 @@
             newData: { style: { key: "style", values } },
             location: { page: "edit", show: historyShow, slide: slideId, items: activeItems }
         })
-
-        if (!items[0]?.auto) return
-        // recalculate auto size
-        if (updateTimeout) clearTimeout(updateTimeout)
-        updateTimeout = setTimeout(resetAutoSize, 3000)
-
-        function resetAutoSize() {
-            showsCache.update((a) => {
-                if (!a[currentShowId]?.slides?.[slideId]?.items?.[activeItems[0] || 0]?.autoFontSize) return a
-
-                delete a[currentShowId].slides[slideId].items[activeItems[0] || 0].autoFontSize
-                return a
-            })
-        }
     }
 
     let altTimeout: NodeJS.Timeout | null = null
@@ -224,10 +209,8 @@
     // CHORDS
     let usedChords: string[] = []
     $: slideChords = Slide ? getUsedChords(Slide) : []
-    $: allChords = Object.values(currentShow?.slides || {})
-        .map(getUsedChords)
-        .flat()
-    // combine and remove duplicates
+    $: allChords = getShowChords(currentShow)
+    // combine and remove duplicates (current slide chords first, then all other show chords, both sorted alphabetically)
     $: usedChords = slideChords.length + allChords.length ? [...new Set([...slideChords, ...allChords])] : []
 
     let chordsAction = ""
@@ -368,7 +351,7 @@
                             {#each layoutSlide.overlays as id}
                                 {#if $overlays[id]}
                                     {#each $overlays[id]?.items || [] as item}
-                                        <Textbox {item} ref={{ type: "overlay", id }} preview />
+                                        <Textbox {item} ref={{ type: "overlay", id }} preview centerPreview />
                                     {/each}
                                 {/if}
                             {/each}
@@ -435,7 +418,8 @@
                     </MaterialButton>
                 {/each}
             {:else if hasBackground}
-                <MaterialButton icon="autofill" on:click={convertBackgroundToMedia}>
+                <MaterialButton on:click={convertBackgroundToMedia}>
+                    <Icon id="autofill" gradient />
                     <T id="edit.convert_to_media_item" />
                 </MaterialButton>
             {/if}

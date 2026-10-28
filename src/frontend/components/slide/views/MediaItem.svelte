@@ -16,6 +16,7 @@
     export let slideRef: any = {}
 
     export let preview = false
+    export let miniPreview = false
     export let edit = false
     export let cropPreviewMode = false
 
@@ -88,7 +89,7 @@
         thumbnailPath = media.thumbnail
 
         // only load thumbnails in main preview
-        if (shouldAutoUpdate || $currentWindow || preview) return
+        if (shouldAutoUpdate || $currentWindow || (preview && !miniPreview)) return
 
         mediaPath = thumbnailPath
     }
@@ -164,13 +165,13 @@
         if (softLoopVideo) softLoopVideo.playbackRate = playbackRate
     }
 
-    let shouldLoop = item.loop !== false
+    $: shouldLoop = item.loop !== false
 
     // Soft loop
 
     $: softLoopValue = $media[mediaPath]?.softLoop ?? 0
-    $: fromTime = $media[mediaPath]?.fromTime ?? 0
-    $: toTime = $media[mediaPath]?.toTime ?? 0
+    $: fromTime = item.fromTime ?? $media[mediaPath]?.fromTime ?? 0
+    $: toTime = item.toTime ?? $media[mediaPath]?.toTime ?? 0
 
     const softLoopSync = new SoftLoopSync()
     onDestroy(() => softLoopSync.destroy())
@@ -189,7 +190,8 @@
             {#if item.fit === "blur"}
                 <video bind:this={videoBlurElem} src={encodeFilePath(mediaPath)} style="{mediaStyleBlurString}{mediaStyleCombinedString}" muted autoplay loop={shouldLoop} />
             {/if}
-            {@const mainVol = $audioChannelsData.main?.volume ?? 1}
+            {@const itemVol = item.volume ?? $media[mediaPath]?.volume ?? 1}
+            {@const mainVol = ($audioChannelsData.main?.volume ?? 1) * itemVol}
             <video bind:this={videoElem} src={encodeFilePath(mediaPath)} style="{mediaStyleString}{mediaStyleCombinedString}" muted volume={mainVol} autoplay loop={shouldLoop}>
                 <track kind="captions" />
             </video>
@@ -201,9 +203,9 @@
             <!-- WIP image flashes when loading new image (when changing slides with the same image) -->
             <!-- TODO: use custom transition... -->
             {#if item.fit === "blur"}
-                <Image style="{mediaStyleBlurString}{mediaStyleCombinedString}" src={mediaPath} {updater} alt="" transition={!edit && item.actions?.transition?.duration && item.actions?.transition?.type !== "none"} />
+                <Image style="{mediaStyleBlurString}{mediaStyleCombinedString}" src={mediaPath} {updater} alt="" transition={!edit && !miniPreview && item.actions?.transition?.type !== "none" ? item.actions?.transition?.duration || false : false} />
             {/if}
-            <Image style="{mediaStyleString}{mediaStyleCombinedString}" src={mediaPath} {updater} alt="" transition={!edit && item.actions?.transition?.duration && item.actions?.transition?.type !== "none"} />
+            <Image style="{mediaStyleString}{mediaStyleCombinedString}" src={mediaPath} {updater} alt="" transition={!edit && !miniPreview && item.actions?.transition?.type !== "none" ? item.actions?.transition?.duration || false : false} />
         {/if}
     </div>
 {/if}

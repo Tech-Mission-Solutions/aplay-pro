@@ -1,8 +1,10 @@
 import { get } from "svelte/store"
-import { CLOUD, CONTROLLER, NDI, OUTPUT, OUTPUT_STREAM, REMOTE, STAGE } from "../../types/Channels"
+import { CLOUD, CONTROLLER, NDI, OMT, OUTPUT, OUTPUT_STREAM, REMOTE, STAGE } from "../../types/Channels"
 import type { ClientMessage } from "../../types/Socket"
 import { AudioMicrophone } from "../audio/audioMicrophone"
+import { MIN_DB } from "../audio/dBUtils"
 import { runAction } from "../components/actions/actions"
+import { handleRecorderFrame } from "../components/drawer/live/recorder"
 import { getDynamicValue } from "../components/edit/scripts/itemHelpers"
 import { clone } from "../components/helpers/array"
 import { receiveMainGlobal } from "../IPC/main"
@@ -37,6 +39,7 @@ import {
     metronome,
     metronomeTimer,
     ndiData,
+    omtData,
     outputDisplay,
     outputs,
     outputSlideCache,
@@ -54,12 +57,14 @@ import {
     special,
     stageShows,
     styles,
+    syncedOutputs,
     templates,
     timeFormat,
     timers,
     transitionData,
     variables,
-    visualizerData
+    visualizerData,
+    websiteAction
 } from "../stores"
 import { newToast } from "./common"
 import { syncDrive } from "./drive"
@@ -80,6 +85,7 @@ export function setupMainReceivers() {
 
     receive(OUTPUT, receiveOUTPUTasMAIN)
     receive(NDI, receiveNDI)
+    receive(OMT, receiveOMT)
     receive(CLOUD, receiveCLOUD)
 }
 
@@ -108,6 +114,9 @@ const receiveOUTPUTasMAIN: any = {
             return a
         })
     },
+    RECORDER_FRAME: ({ id, buffer, size }: { id: string; buffer: ArrayBuffer | Uint8Array; size: { width: number; height: number } }) => {
+        handleRecorderFrame(id, buffer, size)
+    },
     OUTPUTS: (a: any) => outputs.set(a),
     RESTART: ({ id }) => restartOutputs(id),
     // DISPLAY: (a: any) => outputDisplay.set(a.enabled),
@@ -129,32 +138,6 @@ const receiveOUTPUTasMAIN: any = {
         })
     },
     ACTION_MAIN: (a: { id: string }) => runAction(get(actions)[a.id], { source: "remote" }),
-    // AUDIO_MAIN: (data: any) => {
-    //     if (!data.id) return
-
-    //     if (data.channels) AudioAnalyserMerger.addChannels(data.id, data.channels)
-
-    //     playingVideos.update((playingVideo) => {
-    //         const existing = playingVideo.findIndex((a) => a.id === data.id)
-
-    //         if (data.stop) {
-    //             if (existing > -1) playingVideo.splice(existing, 1)
-    //             return playingVideo
-    //         }
-
-    //         if (existing > -1) {
-    //             playingVideo[existing] = { ...data, location: "output" }
-    //         } else if (get(outputs)[data.id]?.out?.background) {
-    //             playingVideo.push({ location: "output", ...data })
-    //         }
-
-    //         return playingVideo
-    //     })
-
-    //     if (data.stop && !AudioAnalyser.shouldAnalyse()) {
-    //         AudioAnalyserMerger.stop()
-    //     }
-    // },
     MOVE: (data) => {
         outputs.update((a) => {
             if (!a[data.id] || a[data.id].boundsLocked) return a
@@ -196,7 +179,7 @@ const receiveOUTPUTasMAIN: any = {
     MAIN_REQUEST_VOLUME: (data: { deviceId: string }) => {
         if (!data?.deviceId) return
         const chData = (get(audioChannelsData) || {})[data.deviceId]
-        const value = Math.round(chData?.dB ?? -60)
+        const value = Math.round(chData?.dB ?? MIN_DB)
         send(OUTPUT, ["REQUEST_VOLUME"], { deviceId: data.deviceId, value })
     }
 }
@@ -254,7 +237,7 @@ export const receiveOUTPUTasOUTPUT: any = {
     CATEGORIES: (a: any) => categories.set(a),
 
     TEMPLATES: (a: any) => templates.set(a),
-    OVERLAYS: (a: any) => clone(overlays.set(a)),
+    OVERLAYS: (a: any) => overlays.set(clone(a)),
     EVENTS: (a: any) => events.set(a),
     GROUPS: (a: any) => groups.set(a),
 
@@ -266,12 +249,13 @@ export const receiveOUTPUTasOUTPUT: any = {
     OUT_SLIDE_CACHE: (a: any) => outputSlideCache.set(a),
     CUSTOM_METADATA: (a: any) => customMetadata.set(a),
     CUSTOM_CREDITS: (a: any) => customMessageCredits.set(a),
-    EFFECTS: (a: any) => clone(effects.set(a)),
-    TIMERS: (a: any) => clone(timers.set(a)),
-    VARIABLES: (a: any) => clone(variables.set(a)),
+    EFFECTS: (a: any) => effects.set(clone(a)),
+    TIMERS: (a: any) => timers.set(clone(a)),
+    VARIABLES: (a: any) => variables.set(clone(a)),
     TIME_FORMAT: (a: any) => timeFormat.set(a),
     GLOBAL_REGEXES: (a: any) => globalRegexes.set(a),
-    SPECIAL: (a: any) => clone(special.set(a)),
+    SYNCED_OUTPUTS: (a: any) => syncedOutputs.set(a),
+    SPECIAL: (a: any) => special.set(clone(a)),
     SLIDE_TIMELINE_SPEED_MULTIPLIER: (a: any) => slideTimelineSpeedMultiplier.set(a),
     ACTIVE_TIMERS: (a: any) => activeTimers.set(a),
     // POSITION: (a: any) => outputPosition.set(a),
@@ -286,6 +270,7 @@ export const receiveOUTPUTasOUTPUT: any = {
     // AUDIO_CHANNELS_DATA: (a: any) => audioChannelsData.set(a),
 
     PLAYING_VIDEO_STATE: (a: any) => playingVideoState.set(a),
+    WEBSITE_ACTION: (a: any) => websiteAction.set(a),
 
     METRONOME: (a: any) => metronome.set(a),
     METRONOME_TIMER: (a: any) => metronomeTimer.set(a),
@@ -315,6 +300,20 @@ const receiveNDI: any = {
         if (!msg?.id) return
 
         ndiData.update((a) => {
+            a[msg.id] = msg
+
+            return a
+        })
+    }
+}
+
+// OMT
+
+const receiveOMT: any = {
+    SEND_DATA: (msg) => {
+        if (!msg?.id) return
+
+        omtData.update((a) => {
             a[msg.id] = msg
 
             return a

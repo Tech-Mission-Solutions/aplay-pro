@@ -4,7 +4,7 @@
     import { Main } from "../../../../types/IPC/Main"
     import { AudioAnalyser } from "../../../audio/audioAnalyser"
     import { sendMain } from "../../../IPC/main"
-    import { activePopup, maxConnections, os, outputs, popupData, ports, remotePassword, serverData, special } from "../../../stores"
+    import { activePopup, maxConnections, os, outputs, popupData, ports, serverData, special } from "../../../stores"
     import { clone, keysToID, sortByName } from "../../helpers/array"
     import Icon from "../../helpers/Icon.svelte"
     import T from "../../helpers/T.svelte"
@@ -84,9 +84,14 @@
             a[id] = port
             return a
         })
+
+        if (id === "companion") restartCompanion()
     }
 
-    const setRemotePassword = (e: any) => remotePassword.set(e.detail)
+    function restartCompanion() {
+        if (!$serverData?.companion?.enabled) return
+        sendMain(Main.WEBSOCKET_START, { port: $ports.companion || 5505, password: $serverData?.companion?.password })
+    }
 
     // output
     $: outputsList = getList(clone($outputs))
@@ -112,6 +117,8 @@
         })
 
         sendMain(Main.SERVER_DATA, $serverData)
+
+        if (id === "companion" && key === "password") restartCompanion()
     }
 
     function updateSpecial(key: string, value: any) {
@@ -138,7 +145,9 @@
     </div>
 
     {#if id === "remote"}
-        <MaterialTextInput label="remote.password" value={$remotePassword} on:change={setRemotePassword} />
+        <MaterialTextInput label="remote.password" value={$serverData?.remote?.password || ""} on:change={(e) => updateData(e.detail || "", "password")} />
+    {:else if id === "companion"}
+        <MaterialTextInput label="remote.password" value={$serverData?.companion?.password || ""} on:change={(e) => updateData(e.detail || "", "password")} />
     {:else if id === "output_stream"}
         <!-- {#if enableOutputSelector} -->
         <MaterialDropdown label="midi.output" options={outputsList} value={$serverData?.output_stream?.outputId || ""} on:change={(e) => updateData(e.detail, "outputId")} allowEmpty />
@@ -187,8 +196,10 @@
             {/if}
         {/if}
 
-        {#if id === "remote" && $remotePassword}
-            <p style="padding-top: 10px;font-size: 0.9em;"><T id="remote.password" />: <b>{$remotePassword}</b></p>
+        {#if id === "remote" && $serverData?.remote?.password}
+            <p style="padding-top: 10px;font-size: 0.9em;"><T id="remote.password" />: <b>{$serverData.remote.password}</b></p>
+        {:else if id === "companion" && $serverData?.companion?.password}
+            <p style="padding-top: 10px;font-size: 0.9em;"><T id="remote.password" />: <b>{$serverData.companion.password}</b></p>
         {:else if remoteController}
             <Tip value="With this you don't need to connect to the same router." top={15} />
         {/if}

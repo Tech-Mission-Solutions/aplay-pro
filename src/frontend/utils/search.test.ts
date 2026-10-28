@@ -216,6 +216,16 @@ describe("showSearch ranking", () => {
         expect(res[0]?.match).toBeGreaterThanOrEqual(65) // typo band 65-85
         expect(res[0]?.match).toBeLessThanOrEqual(85)
     })
+    it("matches single-word transposed typo such as 'Haelujah' for 'Hallelujah'", () => {
+        const res = showSearch("Haelujah", [{ id: "hallelujah", name: "Hallelujah" }] as any)
+        expect(res[0]?.id).toBe("hallelujah")
+        expect(res[0]?.match).toBeGreaterThanOrEqual(65)
+    })
+    it("matches multi-word typo queries against longer show titles", () => {
+        const res = showSearch("amzing grace", [{ id: "song", name: "Amazing Grace How Sweet" }] as any)
+        expect(res[0]?.id).toBe("song")
+        expect(res[0]?.match).toBeGreaterThanOrEqual(65)
+    })
 })
 
 describe("exact phrase (quoted) search", () => {
@@ -241,5 +251,37 @@ describe("exact phrase (quoted) search", () => {
     it("returns nothing when the quoted phrase matches no show", () => {
         const res = showSearch('"not a real phrase"', shows)
         expect(res.length).toBe(0)
+    })
+})
+
+describe("punctuation in text", () => {
+    beforeEach(() => h.textCache._set({}))
+
+    it("matches a phrase across a dash in the title", () => {
+        expect(showSearchFilter('"grace how"', { id: "a", name: "Grace - How Sweet" } as any)).toBe(100)
+    })
+    it("matches a phrase across a dash in the lyrics", () => {
+        h.textCache._set({ great: "amazing grace - how sweet the sound" })
+        expect(showSearchFilter('"grace how sweet"', shows[2])).toBe(70)
+    })
+    it("uses updated lyrics after the text cache changes", () => {
+        h.textCache._set({ great: "old words" })
+        expect(showSearchFilter("new words", shows[2])).toBe(0)
+        h.textCache._set({ great: "new words" })
+        expect(showSearchFilter("new words", shows[2])).toBeGreaterThan(0)
+    })
+})
+
+describe("cached titles", () => {
+    beforeEach(() => h.textCache._set({}))
+
+    it("uses the new name after a show is renamed", () => {
+        expect(showSearchFilter("old", { id: "renamed", name: "Old Name" } as any)).toBeGreaterThan(0)
+        expect(showSearchFilter("old", { id: "renamed", name: "New Name" } as any)).toBe(0)
+        expect(showSearchFilter("new", { id: "renamed", name: "New Name" } as any)).toBeGreaterThan(0)
+    })
+    it("uses the new song number after it changes", () => {
+        expect(showSearchFilter("123", { id: "numbered", name: "Song", quickAccess: { number: "123" } } as any)).toBe(100)
+        expect(showSearchFilter("123", { id: "numbered", name: "Song", quickAccess: { number: "456" } } as any)).toBe(0)
     })
 })

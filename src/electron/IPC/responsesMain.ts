@@ -8,12 +8,17 @@ import type { MainResponses } from "../../types/IPC/Main"
 import { Main } from "../../types/IPC/Main"
 import { ToMain } from "../../types/IPC/ToMain"
 import type { ErrorLog, LyricSearchResult, OS } from "../../types/Main"
+import { completeLLM, fetchProviderModels } from "../ai/llm/llmProviders"
+import { setAiKey } from "../ai/setup/aiKeys"
+import { aiHandleLocalSetup, LocalModelManager } from "../ai/setup/LocalModelManager"
+import { aiGetModelStatus } from "../ai/setup/status"
+import { SpeechToText } from "../ai/stt/SpeechToTextManager"
 import { getAudioMetadata } from "../audio/audio"
 import { openNowPlaying, setPlayingState, unsetPlayingAudio } from "../audio/nowPlaying"
 import { CaptureHelper } from "../capture/CaptureHelper"
-import { canSync, getSyncTeams, hasDataChanged, hasTeamData, markAsNewSync, restoreCloudBackup, syncData } from "../cloud/syncManager"
-import { ContentProviderRegistry } from "../contentProviders"
+import { canSync, getSyncTeams, hasTeamData, markAsNewSync, restoreCloudBackup, syncData } from "../cloud/syncManager"
 import { ChurchAppsChat } from "../contentProviders/churchApps/ChurchAppsChat"
+import { ContentProviderRegistry } from "../contentProviders/ContentProviderRegistry"
 import { deleteBackup, getBackups, restoreFiles } from "../data/backup"
 import { getLocalIPs } from "../data/bonjour"
 import { checkIfMediaDownloaded, downloadLessonsMedia, downloadMedia } from "../data/downloadMedia"
@@ -22,15 +27,16 @@ import { save } from "../data/save"
 import { _store, appDataPath, config, createStores, getStore, getStoreValue, setStoreValue } from "../data/store"
 import { captureSlide, doesMediaExist, getThumbnail, getThumbnailFolderPath, pdfToImage, saveImage } from "../data/thumbnails"
 import { OutputHelper } from "../output/OutputHelper"
-import { libreConvert } from "../output/ppt/libreConverter"
+import { pptToPdf } from "../output/ppt/pptToPdf"
 import { getPresentationApplications, presentationControl, startSlideshow } from "../output/ppt/presentation"
 import { closeServers, startServers, updateServerData } from "../servers"
+import { detectEncoders, setRtmpEncoderSetting } from "../streaming/encoderDetection"
+import { downloadFfmpeg, resolveFfmpegPath } from "../streaming/ffmpegManager"
 import { processAudioData, timecodeStart, timecodeStop, updateTimecodeValue } from "../timecode/timecode"
 import { apiReturnData, emitOSC, startWebSocketAndRest, stopApiListener } from "../utils/api"
 import { closeMain } from "../utils/close"
-import { detectEncoders, setRtmpEncoderSetting } from "../streaming/encoderDetection"
-import { downloadFfmpeg, resolveFfmpegPath } from "../streaming/ffmpegManager"
-import { addToMediaFolder, bundleMediaFiles, getDataFolderPath, getDataFolderRoot, getFileInfo, getMediaCodec, getMediaSyncFolderPath, getMediaTracks, getPaths, getSimularPaths, loadFile, loadShowsAsync, locateMediaFile, openInSystem, readExifData, readFile, readFolder, readFolderContent, selectFiles, selectFilesDialog, selectFolder, setMediaSyncFolderPath, writeFile } from "../utils/files"
+import { addToMediaFolder, bundleMediaFiles, createFolder, getDataFolderPath, getDataFolderRoot, getFileInfo, getMediaCodec, getMediaSyncFolderPath, getMediaTracks, getPaths, getSimularPaths, loadFile, loadShowsAsync, locateMediaFile, openInSystem, readExifData, readFile, readFolder, readFolderContent, selectFiles, selectFilesDialog, selectFolder, setMediaSyncFolderPath, writeFile } from "../utils/files"
+import { listGraphicsDevices } from "../utils/gpu"
 import { getMachineId } from "../utils/helpers"
 import { LyricSearch } from "../utils/LyricSearch"
 import { closeMidiInPorts, getMidiInputs, getMidiOutputs, receiveMidi, sendMidi } from "../utils/midi"
@@ -111,6 +117,7 @@ export const mainResponses: MainResponses = {
     [Main.GET_SCREENS]: () => getScreens(),
     [Main.GET_WINDOWS]: () => getScreens("window"),
     [Main.GET_DISPLAYS]: () => screen.getAllDisplays(),
+    [Main.GET_GRAPHICS_DEVICES]: async () => await listGraphicsDevices(),
     [Main.OUTPUT]: (_, e) => (e.sender.id === getMainWindow()?.webContents.id ? "false" : "true"),
     // MEDIA
     [Main.DOES_MEDIA_EXIST]: (data) => doesMediaExist(data),
@@ -132,7 +139,7 @@ export const mainResponses: MainResponses = {
     [Main.ACCESS_MICROPHONE_PERMISSION]: () => getPermission("microphone"),
     [Main.ACCESS_SCREEN_PERMISSION]: () => getPermission("screen"),
     // PPT
-    [Main.LIBREOFFICE_CONVERT]: (data) => libreConvert(data),
+    [Main.PPT_TO_PDF]: () => pptToPdf(),
     [Main.SLIDESHOW_GET_APPS]: () => getPresentationApplications(),
     [Main.START_SLIDESHOW]: (data) => startSlideshow(data),
     [Main.PRESENTATION_CONTROL]: (data) => presentationControl(data),
@@ -141,7 +148,7 @@ export const mainResponses: MainResponses = {
     [Main.STOP]: () => closeServers(),
     [Main.SERVER_DATA]: (data) => updateServerData(data),
     // WebSocket / REST / OSC
-    [Main.WEBSOCKET_START]: (port) => startWebSocketAndRest(port),
+    [Main.WEBSOCKET_START]: (data) => startWebSocketAndRest(data),
     [Main.WEBSOCKET_STOP]: () => stopApiListener(),
     [Main.API_TRIGGER]: (data) => apiReturnData(data),
     [Main.EMIT_OSC]: (data) => emitOSC(data),
@@ -176,7 +183,6 @@ export const mainResponses: MainResponses = {
     [Main.CAN_SYNC]: (data) => canSync(data),
     [Main.GET_TEAMS]: (data) => getSyncTeams(data),
     [Main.CLOUD_DATA]: (data) => hasTeamData(data),
-    [Main.CLOUD_CHANGED]: (data) => hasDataChanged(data),
     [Main.CLOUD_SYNC]: (data) => syncData(data),
     [Main.RESTORE_CLOUD_BACKUP]: (data) => restoreCloudBackup(data),
     [Main.GET_CONVERSATION_ID]: (data) => getConversationId(data.teamId),
@@ -186,6 +192,7 @@ export const mainResponses: MainResponses = {
         if (data.cloudOnly) markAsNewSync()
         await ContentProviderRegistry.loadServices(data.providerId, data.cloudOnly || false, data.data)
     },
+    [Main.PROVIDER_CONNECTIONS]: () => ContentProviderRegistry.getConnectedProviders(),
     [Main.PROVIDER_DISCONNECT]: (data) => {
         ContentProviderRegistry.disconnect(data.providerId, data.scope)
         return { success: true }
@@ -196,6 +203,9 @@ export const mainResponses: MainResponses = {
     [Main.PCO_LOAD_PLAN]: (data) => ContentProviderRegistry.loadSinglePlan(data.serviceTypeId, data.planId),
     [Main.PCO_LIVE_GET]: (data) => ContentProviderRegistry.getPcoLiveData(data.serviceTypeId, data.planId).catch(() => null),
     [Main.PCO_PUSHER_AUTH]: (data) => ContentProviderRegistry.getPcoPusherAuth(data.socketId, data.channelName, data.serviceTypeId),
+    [Main.ONSTAGE_GET_TEAMS]: () => ContentProviderRegistry.getOnStageTeams().catch(() => []),
+    [Main.ONSTAGE_SWITCH_TEAM]: (data) => ContentProviderRegistry.switchOnStageTeam(data.teamId).catch(() => ({ success: false })),
+    [Main.ONSTAGE_LOAD_SERVICE]: (data) => ContentProviderRegistry.loadOnStageService(data.serviceId, data.data),
     // Content Library
     [Main.GET_CONTENT_PROVIDERS]: () => {
         const providers = ContentProviderRegistry.getAvailableProviders()
@@ -251,7 +261,7 @@ export const mainResponses: MainResponses = {
     },
     [Main.ENCODER_DETECT]: (data) => detectEncoders(data?.force),
     [Main.SET_RTMP_ENCODER]: (data) => {
-        setRtmpEncoderSetting(data.encoder)
+        setRtmpEncoderSetting(data.outputId, data.encoder)
         // apply now rather than lying dormant until some unrelated capture event restarts the encode
         CaptureHelper.Lifecycle.updateRtmpState()
     },
@@ -267,23 +277,33 @@ export const mainResponses: MainResponses = {
             sendToMain(ToMain.MEDIA_DOWNLOAD_PROGRESS, { url: "ffmpeg", name: "FFmpeg", progress: 0, total: 0, status: "error" })
             return { success: false, error: error?.message || "Unknown download error" }
         }
-    }
+    },
+    // AI
+    [Main.AI_GET_MODELS]: (data) => fetchProviderModels(data.providerId),
+    [Main.AI_GET_BIN]: () => LocalModelManager.getDownloadedBinFiles(),
+    [Main.AI_LISTEN_START]: (data) => SpeechToText.listen(data.engine, data.engineOptions),
+    [Main.AI_LISTEN_STOP]: () => SpeechToText.stop(),
+    [Main.AI_AUDIO_DATA]: (data) => SpeechToText.pushAudio(data.buffer),
+    [Main.AI_GET_STATUS]: (data) => aiGetModelStatus(data),
+    [Main.AI_SETUP]: (data) => aiHandleLocalSetup(data),
+    [Main.AI_SET_KEY]: (data) => setAiKey(data),
+    [Main.AI_LLM_COMPLETE]: (data) => completeLLM(data)
 }
 
 /// ///////
 
 // IMPORT
-export function startImport(data: { channel: string; format: { name: string; extensions: string[] }; settings?: any }) {
-    const files: string[] = selectFilesDialog("", data.format)
+export async function startImport(data: { channel: string; format: { name: string; extensions: string[] } }) {
+    const files: string[] = await selectFilesDialog("", data.format)
 
     const needsFileAndNoFileSelected = data.format.extensions && !files.length
     if (needsFileAndNoFileSelected) return
 
-    importShow(data.channel, files || null, data.settings || {})
+    importShow(data.channel, files || null)
 }
 
 function importFiles(data: { id: string; paths: string[] }) {
-    importShow(data.id, data.paths, {})
+    importShow(data.id, data.paths)
 }
 
 // BIBLE
@@ -437,8 +457,8 @@ function getScreens(type: "window" | "screen" = "screen"): Promise<{ name: strin
 // RECORDER
 // only open once per session
 let systemOpened = false
-export function saveRecording(data: { blob: ArrayBuffer; name: string }) {
-    const folder = getDataFolderPath("recordings")
+export function saveRecording(data: { blob: ArrayBuffer; name: string; path?: string }) {
+    const folder = data.path ? createFolder(data.path) : getDataFolderPath("recordings")
     const filePath = path.join(folder, data.name)
 
     const buffer = Buffer.from(data.blob)

@@ -3,9 +3,10 @@
     import { Main } from "../../../types/IPC/Main"
     import { requestMain } from "../../IPC/main"
     import { AudioMicrophone } from "../../audio/audioMicrophone"
+    import { dbToGain, gainToDb, MIN_DB } from "../../audio/dBUtils"
     import { AudioRoutingManager } from "../../audio/routing/audioRoutingManager"
     import { cameraManager } from "../../media/cameraManager"
-    import { actions, activePopup, audioPlaylists, audioRouting, audioStreams, effects, effectsLibrary, groups, interactions, outputs, overlays, popupData, projects, shows, stageShows, styles, templates, timers, variables } from "../../stores"
+    import { actions, activePopup, audioPlaylists, audioRouting, audioStreams, effects, effectsLibrary, groups, interactions, outputs, overlays, popupData, projects, scenes, shows, stageShows, styles, templates, timers, variables } from "../../stores"
     import { translateText } from "../../utils/language"
     import { obsGetScenes } from "../../utils/obsTalk"
     import MetronomeInputs from "../drawer/audio/MetronomeInputs.svelte"
@@ -106,6 +107,7 @@
             ),
         clear_overlay: () => [...convertToOptions($overlays), ...convertToOptions($effects)],
         id_start_effect: () => convertToOptions($effects),
+        start_scene: () => convertToOptions($scenes),
         id_select_overlay: () => convertToOptions($overlays),
         id_select_stage_layout: () => convertToOptions($stageShows),
         normal_outputs: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label")],
@@ -132,10 +134,17 @@
         mute_output: () => sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label"),
         unmute_output: () => sortByName(keysToID($outputs).filter((a) => !a.stageOutput)).map((a) => ({ value: a.id, label: a.name }), "label"),
         interactions: () => convertToOptions($interactions),
-        start_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")],
-        stop_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")],
-        start_rtmp_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")],
-        stop_rtmp_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...sortByName(keysToID($outputs)).map((a) => ({ value: a.id, label: a.name }), "label")]
+        start_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...getOutputsWithKey("webrtc")],
+        stop_webrtc_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...getOutputsWithKey("webrtc")],
+        start_rtmp_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...getOutputsWithKey("rtmp")],
+        stop_rtmp_stream: () => [{ value: "", label: translateText("actions.all_outputs") }, ...getOutputsWithKey("rtmp")],
+        start_output_recording: () => convertToOptions($outputs)
+    }
+
+    function getOutputsWithKey(key: string) {
+        return sortByName(keysToID($outputs))
+            .filter((a) => a[key])
+            .map((a) => ({ value: a.id, label: a.name }), "label")
     }
 
     $: options = getOptions[actionId]?.() || []
@@ -193,7 +202,7 @@
 {:else if inputId === "toggle_output"}
     <MaterialDropdown label="stage.output" options={getOptions.toggle_output()} value={value?.id} on:change={(e) => updateValue("id", e.detail)} />
     <MaterialDropdown label="variables.value" options={stateOptions} value={typeof value?.value === "boolean" ? (value.value ? "on" : "off") : ""} on:change={textStateChange} />
-{:else if inputId === "toggle_channel_recording"}
+{:else if inputId === "toggle_channel_recording" || inputId === "mute"}
     <MaterialDropdown label="audio.channel" options={getOptions.audio_channels()} value={value?.id || "main"} on:change={(e) => updateValue("id", e.detail)} />
     <MaterialDropdown label="variables.value" options={stateOptions} value={typeof value?.value === "boolean" ? (value.value ? "on" : "off") : ""} on:change={textStateChange} />
 {:else if inputId === "rest"}
@@ -248,8 +257,12 @@
         <MaterialDropdown label="variables.value" {options} value={value?.id} on:change={(e) => updateValue("id", e.detail)} />
     {/if}
 {:else if inputId === "volume"}
-    <!-- gain can also be set -->
-    <MaterialNumberInput label="variables.value" value={Number(((value?.volume ?? 1) * 100).toFixed(2))} min={0} max={100} on:change={(e) => updateValue("volume", e.detail / 100)} />
+    <MaterialDropdown label="audio.channel" options={getOptions.audio_channels()} value={value?.channelId || "main"} on:change={(e) => updateValue("channelId", e.detail)} />
+
+    {@const rawVolume = Number(value?.volume ?? 1)}
+    {@const volumeValue = rawVolume > 5 ? rawVolume / 100 : rawVolume}
+    {@const dbValue = Math.max(MIN_DB, Math.min(6, gainToDb(volumeValue)))}
+    <MaterialNumberInput label="media.volume (dB)" value={Number(dbValue.toFixed(1))} min={MIN_DB} max={6} step={0.5} defaultValue={0} on:change={(e) => updateValue("volume", dbToGain(e.detail))} showSlider />
 {:else if inputId === "transition"}
     <!-- transition -->
 {:else if inputId === "variable"}

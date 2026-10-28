@@ -1,6 +1,7 @@
 import type { OpusEncoder as TOpusEncoder } from "@discordjs/opus"
 import { BlackmagicSender } from "../blackmagic/BlackmagicSender"
 import { NdiSender } from "../ndi/NdiSender"
+import { OmtSender } from "../omt/OmtSender"
 import { getServerData, toServer } from "../servers"
 import { RtmpStreamer } from "../streaming/RtmpStreamer"
 import { WebRtcHost } from "../streaming/WebRtcHost"
@@ -23,7 +24,7 @@ export function isAudioEnabled(): boolean {
 
 let icecastPcmAccumulator: Buffer = Buffer.alloc(0)
 
-export async function processAudio(buffer: Buffer, sampleRate: number = 48000, targetId?: string, icecast?: any) {
+export async function processAudio(buffer: Buffer, sampleRate = 48000, targetId?: string, icecast?: any) {
     if (!buffer || buffer.length === 0) return
 
     const sr = Number(sampleRate) || 48000
@@ -36,6 +37,11 @@ export async function processAudio(buffer: Buffer, sampleRate: number = 48000, t
         } else {
             NdiSender.sendAudioBufferNDI(buffer, { sampleRate: sr, channelCount: channelCount2 })
         }
+    }
+
+    // Route to OMT the same way (same planar Float32 buffer contract as NDI)
+    if (!tid || Object.keys(OmtSender.OMT).includes(tid)) {
+        OmtSender.sendAudioBufferOMT(buffer, { sampleRate: sr, channelCount: channelCount2 })
     }
 
     const normalizedIcecast = icecast && icecast.enabled !== false ? icecast : null
@@ -87,7 +93,7 @@ export async function processAudio(buffer: Buffer, sampleRate: number = 48000, t
     }
 }
 
-function convertPlanarFloat32ToInt16Interleaved(buffer: Buffer, channels: number = 2): Buffer {
+function convertPlanarFloat32ToInt16Interleaved(buffer: Buffer, channels = 2): Buffer {
     const totalFloat32 = Math.floor(buffer.length / 4)
     const samplesPerChannel = Math.floor(totalFloat32 / channels)
 
@@ -122,7 +128,7 @@ interface ResampleState {
 }
 let resampleState: ResampleState | null = null
 
-function resamplePcmInt16Stereo(input: Buffer, inSampleRate: number, outSampleRate: number = 48000): Buffer {
+function resamplePcmInt16Stereo(input: Buffer, inSampleRate: number, outSampleRate = 48000): Buffer {
     if (inSampleRate === outSampleRate || !input || input.length === 0) return input
 
     if (!resampleState || resampleState.inSampleRate !== inSampleRate) {
@@ -133,6 +139,7 @@ function resamplePcmInt16Stereo(input: Buffer, inSampleRate: number, outSampleRa
     if (numInputFrames === 0) return Buffer.alloc(0)
 
     const ratio = inSampleRate / outSampleRate // e.g. 44100 / 48000 = 0.91875
+    if (ratio <= 0 || !Number.isFinite(ratio)) return input
     let currentPhase = resampleState.phase
 
     const estimatedOutputFrames = Math.ceil((numInputFrames - currentPhase) / ratio) + 2

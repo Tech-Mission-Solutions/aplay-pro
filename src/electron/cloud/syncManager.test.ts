@@ -48,7 +48,9 @@ vi.mock("electron", () => {
                 }
                 return h.tempDir
             },
-            getName: () => "FreeShow-Test"
+            getName: () => "FreeShow-Test",
+            whenReady: () => Promise.resolve(),
+            getGPUInfo: () => Promise.resolve({})
         },
         dialog: {},
         shell: {},
@@ -228,10 +230,6 @@ class MockProvider {
         return this.mockCloudZipPath !== null
     }
 
-    async hasChanged(churchId: string, teamId: string) {
-        return true
-    }
-
     async getData(churchId: string, teamId: string, outputFolderPath: string) {
         if (!this.mockCloudZipPath) return null
         fs.mkdirSync(outputFolderPath, { recursive: true })
@@ -252,6 +250,10 @@ class MockProvider {
 
     async getBackup(churchId: string, teamId: string, extractLocation: string) {
         return null
+    }
+
+    async getBackupModified(churchId: string, teamId: string) {
+        return 0
     }
 
     async uploadBackup(teamId: string, backupZipPath: string) {

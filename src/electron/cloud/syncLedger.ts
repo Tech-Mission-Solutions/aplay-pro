@@ -29,6 +29,7 @@ export class SyncLedger {
     cloudChanges: Changes | null
     readonly deviceId: string
     readonly isNewDevice: boolean
+    localMergedIn = false
 
     // items deleted during THIS run; used so a same-run deletion isn't treated as "deleted locally"
     private deletedNow: string[] = []
@@ -141,7 +142,9 @@ export class SyncLedger {
         }
         if (this.isCreated(storeId, key)) this.markAsCreated(storeId, key)
 
-        // exists on both sides and not deleted → newest wins (collections pass cloudIsNewer=false → keep local)
+        // exists on both sides and not deleted → newest wins. Collections have no per-item "modified",
+        // so callers pass whether the cloud file as a whole is newer than the local one (see mergeCollection).
+        if (!cloudIsNewer) this.localMergedIn = true
         return { action: cloudIsNewer ? "download" : "upload" }
     }
 
@@ -149,6 +152,7 @@ export class SyncLedger {
     resolveLocalEntry(storeId: string, key: string): { action: EntryAction } {
         if (this.isNewDevice) {
             this.markAsCreated(storeId, key)
+            this.localMergedIn = true
             return { action: "upload" }
         }
 
@@ -156,6 +160,7 @@ export class SyncLedger {
             // this device had deleted it then restored it → revive
             if (this.isDeletedLocally(storeId, key)) {
                 this.markAsCreated(storeId, key)
+                this.localMergedIn = true
                 return { action: "upload" }
             }
             // someone else deleted it → propagate the deletion locally
@@ -165,17 +170,20 @@ export class SyncLedger {
 
         // brand-new local item → mark created so other devices download it
         this.markAsCreated(storeId, key)
+        this.localMergedIn = true
         return { action: "upload" }
     }
 
     // Merges one item-collection (e.g. scriptures) per-item. Used to avoid whole-object overwrites.
-    mergeCollection(storeId: string, type: string, cloudObj: Record<string, any>, localObj: Record<string, any>): Record<string, any> {
+    // cloudIsNewer resolves conflicts on items that exist on both sides (no per-item "modified" to
+    // compare, so this is the same whole-file newest-wins check the non-collection settings use).
+    mergeCollection(storeId: string, type: string, cloudObj: Record<string, any>, localObj: Record<string, any>, cloudIsNewer = false): Record<string, any> {
         const merged: Record<string, any> = { ...localObj }
 
         // items present in the cloud
         for (const [key, value] of Object.entries(cloudObj || {})) {
             const itemKey = `${type}/${key}`
-            const action = this.resolveCloudEntry(storeId, itemKey, key in merged).action
+            const action = this.resolveCloudEntry(storeId, itemKey, key in merged, cloudIsNewer).action
             if (action === "delete") delete merged[key]
             else if (action === "create" || action === "download") merged[key] = value
         }

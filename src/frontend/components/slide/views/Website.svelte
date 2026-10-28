@@ -1,24 +1,28 @@
 <script lang="ts">
-    import { OUTPUT } from "../../../../types/Channels"
-    import { currentWindow, outputs } from "../../../stores"
-    import { send } from "../../../utils/request"
+    import { currentWindow } from "../../../stores"
     import Icon from "../../helpers/Icon.svelte"
+    import { formatUrl } from "../../helpers/websiteControls"
     import Button from "../../inputs/Button.svelte"
+    import { attachPersistentWebview } from "./websiteDomPool"
+    import type { WebviewController } from "./websiteDomPool"
 
     export let src: string
     export let navigation = true
+    export let zoom: number | undefined = undefined
     export let clickable = false
-
-    let webview: any
+    export let disablePreview = false
+    export let outputId = ""
     export let ratio: number
 
+    let controller: WebviewController | undefined
     let parsedSrc = ""
+    let url = ""
+
     $: if (src) checkURL()
 
+    let previousParsedSrc = ""
     function checkURL() {
         let valid = false
-
-        // format url
         src = src.replaceAll("&amp;", "&").replaceAll("{", "%7B").replaceAll("}", "%7D")
         if (!src.includes("://")) src = "http://" + src
 
@@ -30,72 +34,10 @@
         }
 
         parsedSrc = valid ? src : ""
-    }
-
-    let loaded = false
-    $: if (parsedSrc) loaded = false
-    let webviewReady = false
-
-    $: if (webview && ratio) setWebpageRatio()
-    function setWebpageRatio() {
-        // custom scale does often not work on embeds (Presentations)
-        if (src.includes("embed")) return
-
-        // if preview is fullscreen, don't set ratio
-        // temporary set to always fullscreen as the scaling does not always work in the preview, if there's video streams, etc.
-        let isFullscreen = true || (webview.closest(".previewOutput")?.offsetWidth || 0) > 450
-        const inverse = isFullscreen ? 100 : Math.round(100 / ratio)
-
-        if (loaded) setStyle()
-        else {
-            webview?.addEventListener("dom-ready", () => {
-                webviewReady = true
-                websiteLoaded()
-                checkNavigation()
-            })
-            webview?.addEventListener("did-finish-load", setStyle)
-            webview?.addEventListener("did-navigate", () => {
-                checkNavigation()
-                url = webview?.getURL() || parsedSrc
-            })
+        if (parsedSrc !== previousParsedSrc) {
+            previousParsedSrc = parsedSrc
+            url = parsedSrc
         }
-
-        function setStyle() {
-            if (!webview) return
-            loaded = true
-
-            if ($currentWindow !== "output") {
-                try {
-                    webview.setAudioMuted(true)
-                } catch (err) {
-                    console.debug("Failed to mute webview audio:", err)
-                }
-            }
-
-            webview
-                .executeJavaScript(
-                    `
-                if (document.body) {
-                    document.body.style.transform = 'scale(${isFullscreen ? 1 : ratio})';
-                    document.body.style.transformOrigin = '0 0';
-                    const scaleFactor = ${inverse};
-                    document.body.style.width = scaleFactor + '%';
-                    document.body.style.height = scaleFactor + '%';
-                }
-            `
-                )
-                .catch((err: any) => {
-                    console.debug("Webview executeJavaScript failed:", err)
-                })
-        }
-    }
-
-    function websiteLoaded() {
-        if ($currentWindow !== "output") return
-
-        // set focus on website
-        send(OUTPUT, ["FOCUS"], { id: Object.keys($outputs)[0] })
-        setTimeout(() => webview?.focus())
     }
 
     let hover = false
@@ -110,72 +52,71 @@
     let backDisabled = true
     let forwardDisabled = true
     function navigate(back = true) {
-        if (!webview) return
-
-        if (back) webview.goBack()
-        else webview.goForward()
-
-        setTimeout(checkNavigation)
+        if (back) controller?.goBack()
+        else controller?.goForward()
+        checkNavigation()
     }
 
     function checkNavigation() {
-        if (!webviewReady || !webview) {
-            backDisabled = true
-            forwardDisabled = true
-            return
-        }
-
-        try {
-            backDisabled = !webview.canGoBack()
-            forwardDisabled = !webview.canGoForward()
-        } catch (err) {
-            console.debug("Webview navigation check failed:", err)
-        }
-    }
-
-    $: url = parsedSrc
-    function formatUrl(url: string) {
-        url = url.split("://")[1] || url
-        url = url.replace("www.", "")
-        if (url[url.length - 1] === "/") url = url.slice(0, -1)
-        return url
+        backDisabled = !controller?.canGoBack()
+        forwardDisabled = !controller?.canGoForward()
     }
 </script>
 
-<div class="website" class:clickable on:mouseover={mouseover} on:focus={mouseover} on:mouseleave={mouseleave}>
-    {#if navigation && hover && $currentWindow === "output"}
-        <div class="controls" style="zoom: {1 / ratio};">
-            {#if !backDisabled || !forwardDisabled}
-                <Button on:click={() => navigate(true)} disabled={backDisabled}>
-                    <Icon id="back" white />
-                </Button>
-                <Button on:click={() => navigate(false)} disabled={forwardDisabled}>
-                    <Icon id="arrow_forward" white />
-                </Button>
-            {/if}
+{#if disablePreview}
+    <div class="iconPreview">
+        <Icon id="web" size={3} white />
+    </div>
+{:else if parsedSrc}
+    <div class="website" class:clickable on:mouseover={mouseover} on:focus={mouseover} on:mouseleave={mouseleave}>
+        {#if navigation && hover && $currentWindow === "output"}
+            <div class="controls" style="zoom: {1 / ratio};">
+                {#if !backDisabled || !forwardDisabled}
+                    <Button on:click={() => navigate(true)} disabled={backDisabled}>
+                        <Icon id="back" white />
+                    </Button>
+                    <Button on:click={() => navigate(false)} disabled={forwardDisabled}>
+                        <Icon id="arrow_forward" white />
+                    </Button>
+                {/if}
 
-            <p class="url" style="zoom: {ratio};">{formatUrl(url)}</p>
-        </div>
-    {/if}
-    <webview id="webview" src={parsedSrc} bind:this={webview} />
-</div>
+                <p class="url" style="zoom: {ratio};">{formatUrl(url)}</p>
+            </div>
+        {/if}
+
+        <div
+            class="webview-container"
+            use:attachPersistentWebview={{
+                src: parsedSrc,
+                zoom,
+                isOutput: $currentWindow === "output",
+                outputId,
+                onReady: (_, ctrl) => {
+                    controller = ctrl
+                    url = ctrl.getCurrentUrl()
+                    checkNavigation()
+                },
+                onNavigate: (newUrl) => {
+                    url = newUrl
+                    checkNavigation()
+                }
+            }}
+        />
+    </div>
+{/if}
 
 <style>
-    .website {
+    .website,
+    .webview-container {
         position: absolute;
         width: 100%;
         height: 100%;
-
         pointer-events: none;
     }
 
-    .website.clickable {
+    .website.clickable,
+    .website.clickable .webview-container {
         pointer-events: initial;
-    }
-
-    webview {
-        width: 100%;
-        height: 100%;
     }
 
     .controls {
@@ -199,5 +140,19 @@
         display: flex;
         align-items: center;
         padding: 2px 10px;
+    }
+
+    .iconPreview {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        width: 100%;
+        height: 100%;
+
+        border: 2px solid white;
+        background-color: rgb(0 50 100 / 0.3);
+
+        zoom: 8;
     }
 </style>

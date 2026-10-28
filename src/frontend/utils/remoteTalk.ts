@@ -2,22 +2,31 @@ import { get } from "svelte/store"
 import { uid } from "uid"
 import type { Show } from "../../types/Show"
 import type { ClientMessage } from "../../types/Socket"
-import { AudioPlayer } from "../audio/audioPlayer"
+import { AudioRoutingManager } from "../audio/routing/audioRoutingManager"
 import { loadJsonBible } from "../components/drawer/bible/scripture"
 import { clone, keysToID, removeDeleted } from "../components/helpers/array"
 import { getThumbnailPath, mediaSize } from "../components/helpers/media"
-import { getAllNormalOutputs, getFirstActiveOutput, setOutput } from "../components/helpers/output"
+import { getFirstActiveOutput, setOutput } from "../components/helpers/output"
 import { loadShows } from "../components/helpers/setShow"
 import { getLayoutRef } from "../components/helpers/show"
 import { updateOut } from "../components/helpers/showActions"
 import { _show } from "../components/helpers/shows"
 import { clearAll } from "../components/output/clear"
 import { REMOTE } from "./../../types/Channels"
-import { actions, actionTags, activePage, activeProject, activeShow, activeTimers, audioChannelsData, categories, connections, dictionary, folders, language, openedFolders, outLocked, outputs, overlayCategories, overlays, playerVideos, projects, remotePassword, runningActions, scriptures, shows, showsCache, styles, templateCategories, templates, timers, variables, variableTags } from "./../stores"
+import { actions, actionTags, activePage, activeProject, activeShow, activeTimers, audioChannelsData, audioRouting, categories, connections, dictionary, folders, language, openedFolders, outLocked, outputs, overlayCategories, overlays, playerVideos, projects, runningActions, scriptures, serverData, shows, showsCache, sortedShowsList, styles, templateCategories, templates, theme, themes, timers, variables, variableTags } from "./../stores"
 import { lastClickTime } from "./common"
 import { translateText } from "./language"
 import { send } from "./request"
+import { formatSearch, showSearch } from "./search"
 import { sendData, setConnectedState } from "./sendData"
+
+export function getFilteredAudioChannels() {
+    const rawRouting = get(audioRouting) || { channels: [{ id: "main", name: translateText("audio.main") }], connections: [] }
+    const sortedConfig = AudioRoutingManager.sortChannels(rawRouting)
+    const inactiveOutputIds = keysToID(get(outputs) || {}).filter((a) => !a.enabled)
+    const filteredChannels = sortedConfig.channels.filter((ch) => !inactiveOutputIds.some((a) => `channel_${a.id}` === ch.id))
+    return { ...sortedConfig, channels: filteredChannels }
+}
 
 // REMOTE
 
@@ -25,9 +34,12 @@ let currentOut = ""
 let loadingShow = ""
 export const receiveREMOTE: any = {
     PASSWORD: (msg: any) => {
+        sendThemeToRemote()
+
+        const pass = get(serverData)?.remote?.password || ""
         msg.data = {
             dictionary: get(dictionary),
-            password: !!get(remotePassword).length
+            password: !!pass.length
         }
         if (msg.data.password) return msg
 
@@ -40,7 +52,10 @@ export const receiveREMOTE: any = {
         return msg
     },
     ACCESS: (msg: any) => {
-        if (get(remotePassword).length && msg.data !== get(remotePassword)) return { id: msg.id, channel: "ERROR", data: "wrongPass" }
+        const pass = get(serverData)?.remote?.password || ""
+        if (pass.length && msg.data !== pass) return { id: msg.id, channel: "ERROR", data: "wrongPass" }
+
+        sendThemeToRemote()
 
         send(REMOTE, ["LANGUAGE"], { lang: get(language), strings: get(dictionary) })
 
@@ -216,6 +231,21 @@ export const receiveREMOTE: any = {
         msg.data.bible = { books: mappedBooks }
         return msg
     },
+    SEARCH_SHOWS: (msg: ClientMessage) => {
+        const { query = "", limit = 500 } = msg.data || {}
+        const trimmed = typeof query === "string" ? query.trim() : ""
+        if (!trimmed || formatSearch(trimmed).length <= 1) {
+            msg.data = { query: trimmed, results: [] }
+            return msg
+        }
+
+        const allShows = get(sortedShowsList) || []
+        const matches = showSearch(trimmed, allShows)
+        // Return matching show IDs and scores to keep payload light
+        const results = matches.slice(0, limit).map((s) => ({ id: s.id, match: s.match }))
+        msg.data = { query: trimmed, results }
+        return msg
+    },
     SEARCH_SCRIPTURE: async (msg: ClientMessage) => {
         const { id, searchTerm, searchType, bookFilter } = msg.data || {}
         if (!id || !searchTerm) return
@@ -307,6 +337,13 @@ export const receiveREMOTE: any = {
             runningActions: get(runningActions)
         }
         return msg
+    },
+    GET_AUDIO_MIXER: (msg: any) => {
+        msg.data = {
+            audioRouting: getFilteredAudioChannels(),
+            audioChannelsData: get(audioChannelsData)
+        }
+        return msg
     }
 }
 
@@ -350,8 +387,18 @@ export async function initializeRemote(id: string) {
     sendData(REMOTE, { id, channel: "OUT_DATA" })
 
     // Send additional data
+    sendThemeToRemote()
     send(REMOTE, ["SCRIPTURE"], get(scriptures))
     send(REMOTE, ["CATEGORIES"], get(categories))
+    send(REMOTE, ["AUDIO_ROUTING"], getFilteredAudioChannels())
+    send(REMOTE, ["AUDIO_CHANNELS_DATA"], get(audioChannelsData))
+}
+
+function sendThemeToRemote() {
+    const currentThemeObj = get(themes)[get(theme)]
+    if (currentThemeObj?.colors) {
+        window.api.send(REMOTE, { id: null, channel: "THEME_COLORS", data: currentThemeObj.colors })
+    }
 }
 
 export async function convertBackgrounds(show: Show, noLoad = false, init = false) {

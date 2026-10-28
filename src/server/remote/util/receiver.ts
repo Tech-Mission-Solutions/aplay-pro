@@ -1,6 +1,6 @@
-import { sanitizeVerseText } from "../../../common/scripture/sanitizeVerseText"
 import type { Item, Show } from "../../../types/Show"
-import { setError, translate } from "./helpers"
+import { sanitizeVerseText } from "../../common/util/scripture"
+import { applyThemeColors, setError, translate } from "./helpers"
 import { send } from "./socket"
 import { _, _get, _set, _update, activeTimers, currentScriptureState, overlays, runningActions, scriptureCache, scriptures, timers } from "./stores"
 
@@ -33,6 +33,9 @@ function sanitizeChapterVerses(verses: any) {
 
 export type ReceiverKey = keyof typeof receiver
 export const receiver = {
+    THEME_COLORS: (data: any) => {
+        applyThemeColors(data)
+    },
     PASSWORD: (data: any) => {
         if (data.dictionary) _set("dictionary", data.dictionary)
         let password: boolean = data.password
@@ -242,6 +245,11 @@ export const receiver = {
         }
     },
     // SCRIPTURE_CHAPTERS and SCRIPTURE_VERSES are handled by GET_SCRIPTURE's bibleUpdate handling
+    SEARCH_SHOWS: (data: any) => {
+        if (data && data.results !== undefined) {
+            _set("showSearchResults", data)
+        }
+    },
     SEARCH_SCRIPTURE: (data: any) => {
         // Store search results for the search component to use
         if (data.searchResults !== undefined) {
@@ -302,6 +310,16 @@ export const receiver = {
         timers.set(data.timers)
         activeTimers.set(data.activeTimers)
         runningActions.set(data.runningActions)
+    },
+    AUDIO_ROUTING: (data: any) => {
+        _set("audioRouting", data)
+    },
+    AUDIO_CHANNELS_DATA: (data: any) => {
+        _set("audioChannelsData", data || {})
+    },
+    GET_AUDIO_MIXER: (data: any) => {
+        if (data.audioRouting !== undefined) _set("audioRouting", data.audioRouting)
+        if (data.audioChannelsData !== undefined) _set("audioChannelsData", data.audioChannelsData || {})
     },
     GET_AUDIO: (data: any) => {
         _set("audio", data)

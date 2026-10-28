@@ -3,16 +3,21 @@
     import type { Item } from "../../../types/Show"
     import { currentWindow, slidesOptions } from "../../stores"
     import MetronomeVisualizer from "../drawer/audio/MetronomeVisualizer.svelte"
+    import BMDStream from "../drawer/live/BMDStream.svelte"
     import Cam from "../drawer/live/Cam.svelte"
+    import NDIStream from "../drawer/live/NDIStream.svelte"
+    import OMTStream from "../drawer/live/OMTStream.svelte"
     import autosize from "../edit/scripts/autosize"
-    import { getStyles } from "../helpers/style"
     import { getCropState } from "../helpers/cropping"
+    import { getStyles } from "../helpers/style"
+    import Window from "../output/Window.svelte"
     import Clock from "../system/Clock.svelte"
     import Captions from "./views/Captions.svelte"
     import Chart from "./views/Chart.svelte"
     import DynamicEvents from "./views/DynamicEvents.svelte"
     import IconItem from "./views/IconItem.svelte"
     import MediaItem from "./views/MediaItem.svelte"
+    import QrCode from "./views/QrCode.svelte"
     import SlideProgress from "./views/SlideProgress.svelte"
     import Table from "./views/Table.svelte"
     import Timer from "./views/Timer.svelte"
@@ -28,6 +33,8 @@
 
     export let slideIndex = 0
     export let preview = false
+    export let miniPreview = false
+    export let isStage = false
     export let cropPreviewMode = false
     export let isTemplatePreview = false
     export let smallFontSize = false
@@ -57,7 +64,7 @@
 
     // AUTO SIZE
 
-    $: noAutoSize = item.auto === false && item.textFit === "none"
+    $: noAutoSize = item.textFit === "none"
 
     let previousItem = "{}"
     $: newItem = JSON.stringify(item)
@@ -77,25 +84,52 @@
         }, 50)
     }
 
+    $: itemFontSize = Number(getStyles(item.style, true)?.["font-size"] || "") || 100
+    $: resolvedFontSize = noAutoSize ? itemFontSize : edit ? autoSize : fontSize
+
     $: cameraCropState = getCropState(item.cropping, cropPreviewMode, item.style)
-    $: cameraStyleString = `${cameraCropState.mediaCropGeometry}object-fit: ${item.fit || "contain"};filter: ${item.filter};transform: scale(${item.flipped ? "-1" : "1"}, ${item.flippedY ? "-1" : "1"});`
-    $: variableStyleString = typeof item.style === "string" ? (item.style.includes("font-size") && item.style.split("font-size:")[1].trim()[0] !== "0" ? "" : `font-size: ${edit ? autoSize : fontSize}px;`) : ""
+    $: cameraStyleString = `${cameraCropState.mediaCropGeometry}object-fit: ${cameraCropState.cropHasValues ? (item.fit === "cover" ? "cover" : "fill") : item.fit || "contain"};filter: ${item.filter};transform: scale(${item.flipped ? "-1" : "1"}, ${item.flippedY ? "-1" : "1"});`
+    $: variableStyleString = typeof item.style === "string" ? (item.style.includes("font-size") && item.style.split("font-size:")[1].trim()[0] !== "0" ? "" : `font-size: ${resolvedFontSize}px;`) : ""
 </script>
 
 {#if item.type === "media"}
-    <MediaItem {item} {outputId} slideRef={{ ...ref, slideIndex }} {preview} {edit} {cropPreviewMode} />
+    <MediaItem {item} {outputId} slideRef={{ ...ref, slideIndex }} preview={preview || isStage} {miniPreview} {edit} {cropPreviewMode} />
 {:else if item.type === "web"}
-    <Website src={item.web?.src || ""} navigation={!edit && !item.web?.noNavigation} clickable={!edit && $currentWindow === "output"} {ratio} />
+    <Website src={item.web?.src || ""} navigation={!edit && !item.web?.noNavigation} zoom={item.web?.zoom} clickable={!edit && $currentWindow === "output"} {outputId} {ratio} disablePreview={isTemplatePreview || (ref?.type === "overlay" && !outputId && miniPreview)} />
 {:else if item.type === "timer"}
-    <Timer {item} id={item.timer?.id || item.timerId || ""} {today} style={noAutoSize ? "" : `font-size: ${edit ? autoSize : fontSize}px;`} {edit} />
+    <Timer {item} id={item.timer?.id || item.timerId || ""} {today} style="font-size: {resolvedFontSize}px;" {edit} />
 {:else if item.type === "clock"}
-    <Clock {item} fontStyle={noAutoSize ? "" : `font-size: ${edit ? autoSize : fontSize}px;`} style={false} {...item.clock} />
+    <Clock {item} fontStyle="font-size: {resolvedFontSize}px;" style={false} {...item.clock} />
 {:else if item.type === "camera"}
     {#if item.device}
-        <Cam cam={item.device} item style={cameraStyleString} disablePreview={isTemplatePreview} cropping={item.cropping} {cropPreviewMode} preview={!outputId && (preview || isTemplatePreview)} />
+        {#if item.device.type === "screen"}
+            <div class="mediaContainer" style={cameraCropState.mediaContainerStyle}>
+                <Window id={item.device.id} style={cameraStyleString} />
+            </div>
+        {:else if item.device.type === "ndi"}
+            <div class="mediaContainer" style={cameraCropState.mediaContainerStyle}>
+                {#key item.device.id}
+                    <NDIStream screen={{ id: item.device.id, name: item.device.name }} background {outputId} style={cameraStyleString} />
+                {/key}
+            </div>
+        {:else if item.device.type === "omt"}
+            <div class="mediaContainer" style={cameraCropState.mediaContainerStyle}>
+                {#key item.device.id}
+                    <OMTStream screen={{ id: item.device.id, name: item.device.name }} background {outputId} style={cameraStyleString} />
+                {/key}
+            </div>
+        {:else if item.device.type === "blackmagic"}
+            <div class="mediaContainer" style={cameraCropState.mediaContainerStyle}>
+                {#key item.device.id}
+                    <BMDStream screen={{ id: item.device.id, name: item.device.name }} background {outputId} style={cameraStyleString} />
+                {/key}
+            </div>
+        {:else}
+            <Cam cam={{ id: item.device.id, group: item.device.group || "", name: item.device.name }} item style={cameraStyleString} disablePreview={isTemplatePreview} cropping={item.cropping} {cropPreviewMode} preview={!outputId && (preview || isTemplatePreview)} itemStyle={item.style} />
+        {/if}
     {/if}
 {:else if item.type === "slide_tracker"}
-    <SlideProgress {item} tracker={item.tracker || {}} autoSize={item.auto === false ? 0 : edit ? autoSize : fontSize} {outputId} />
+    <SlideProgress {item} tracker={item.tracker || {}} autoSize={resolvedFontSize} {outputId} />
 {:else if item.type === "events"}
     <DynamicEvents {...item.events} textSize={smallFontSize ? (-1.1 * $slidesOptions.columns + 10) * 5 : Number(getStyles(item.style, true)?.["font-size"]) || 80} />
 {:else if item.type === "weather"}
@@ -115,4 +149,6 @@
     <Chart {item} ref={{ ...ref, slideIndex }} />
 {:else if item.type === "table"}
     <Table {item} {edit} {ref} {ratio} {index} />
+{:else if item.type === "qr_code"}
+    <QrCode {item} {edit} />
 {/if}

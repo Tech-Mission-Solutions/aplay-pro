@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onDestroy, onMount } from "svelte"
-    import type { Item, ItemType, Slide } from "../../../../types/Show"
-    import { activeEdit, activePopup, activeShow, alertMessage, categories, styles as outputStyles, overlays, selected, shownTips, showsCache, special, templates, theme, themes, timers } from "../../../stores"
+    import type { CustomFont, Item, ItemType, Slide } from "../../../../types/Show"
+    import { activeEdit, activePopup, activeShow, alertMessage, categories, media, styles as outputStyles, overlays, selected, shownTips, showsCache, special, templates, theme, themes, timers } from "../../../stores"
     import { getNormalizedKey, isFormattingKey } from "../../../utils/shortcuts"
     import { newToast } from "../../../utils/common"
     import { clone } from "../../helpers/array"
@@ -14,11 +14,13 @@
     import { MAX_FONT_SIZE } from "../scripts/autosize"
     import { addFilterString, addStyle, addStyleString, getItemStyleAtPos, getItemText, getLastLineAlign, getLineText, getSelectionRange } from "../scripts/textStyle"
     import { itemBoxes, setBoxInputValue } from "../values/boxes"
+    import { VideoPlayer } from "../../media/video/videoPlayer"
     import EditValues from "./EditValues.svelte"
 
     export let id: ItemType
     export let allSlideItems: Item[] = []
     export let item: Item | null = null
+    export let customLocalFonts: CustomFont[] = []
 
     // -----
 
@@ -259,24 +261,66 @@
     $: if (box?.sections?.font) {
         setBoxInputValue(box, "font", "font-size", "disabled", item?.textFit !== "none")
         setBoxInputValue(box, "font", "textFit", "value", item?.textFit || (id === "table" ? "none" : "growToFit")) // other items (like clock, timer)
-        // setBoxInputValue(box2, "font", "auto", "value", item.auto ?? true)
     }
 
     $: if (id === "text") {
         setBoxInputValue(box, "default", "font-family", "styleValue", getStyles(style)["font"] || "")
-        // setBoxInputValue(box2, "default", "textFit", "hidden", !item?.auto)
-        setBoxInputValue(box, "text", "nowrap", "value", !!styles["white-space"]?.includes("nowrap"))
         setBoxInputValue(box, "lines", "specialStyle.lineRadius", "hidden", !item?.specialStyle?.lineRadius && !item?.specialStyle?.lineBg)
-
-        setBoxInputValue(box, "default", "textFit", "value", item?.auto ? "shrinkToFit" : "none") // text items
     }
 
     $: if (id === "media" && item) {
         const extension = getExtension(item.src || "")
         const isVideo = getMediaType(extension) === "video"
-        setBoxInputValue(box, "default", "muted", "hidden", !isVideo)
+        // setBoxInputValue(box, "default", "muted", "hidden", !isVideo)
         setBoxInputValue(box, "default", "loop", "hidden", !isVideo)
+        setBoxInputValue(box, "default", "volume", "hidden", !isVideo)
         setBoxInputValue(box, "default", "speed", "hidden", !isVideo)
+        setBoxInputValue(box, "default", "fromTime", "hidden", !isVideo)
+        setBoxInputValue(box, "default", "toTime", "hidden", !isVideo)
+
+        // set default values to any global options
+        const globalMedia = (item.src && $media[item.src]) || {}
+        const defaultFields: Array<{ id: string; val: any; multiply?: number }> = [
+            { id: "volume", val: globalMedia.volume, multiply: 100 },
+            { id: "loop", val: globalMedia.loop },
+            { id: "speed", val: globalMedia.speed },
+            { id: "fromTime", val: globalMedia.fromTime },
+            { id: "toTime", val: globalMedia.toTime }
+        ]
+        defaultFields.forEach(({ id, val, multiply }) => {
+            if (val === undefined) return
+            setBoxInputValue(box, "default", id, "values", { defaultValue: multiply ? val * multiply : val })
+            setBoxInputValue(box, "default", id, "default", val)
+            if (item[id] === undefined) setBoxInputValue(box, "default", id, "value", val)
+        })
+
+        if (isVideo && item.src) {
+            const applyDuration = (duration: number) => {
+                setBoxInputValue(box, "default", "fromTime", "values", { max: duration, sliderValues: { min: 0, max: duration } })
+                setBoxInputValue(box, "default", "toTime", "values", { max: duration, sliderValues: { min: 0, max: duration }, defaultValue: globalMedia.toTime ?? duration })
+                setBoxInputValue(box, "default", "toTime", "default", globalMedia.toTime ?? duration)
+                box = box
+            }
+
+            if (mediaDurations[item.src]) {
+                applyDuration(mediaDurations[item.src])
+            } else {
+                VideoPlayer.getDuration(item.src).then((duration) => {
+                    if (!duration || !item.src) return
+                    mediaDurations[item.src] = duration
+                    applyDuration(duration)
+                })
+            }
+        }
+        box = box
+    }
+    let mediaDurations: { [path: string]: number } = {}
+
+    $: if (id === "camera" && item) {
+        if (item.device) {
+            setBoxInputValue(box, "default", "device", "value", item.device)
+            setBoxInputValue(box, "default", "device", "values", { name: item.device.name || item.device.id || "live.cameras" })
+        }
     }
 
     $: if (id === "timer" && item) {
@@ -303,6 +347,7 @@
     }
     $: if (id === "camera" && item) {
         if (item.device?.name) setBoxInputValue(box, "default", "device", "name", item.device.name)
+        if (item.device?.type) setBoxInputValue(box, "default", "device", "icon", item.device.type === "ndi" ? "ndi" : item.device.type === "omt" ? "omt" : item.device.type === "screen" ? "screen" : item.device.type === "blackmagic" ? "blackmagic" : "camera")
     }
     $: if (id === "slide_tracker" && item) {
         setBoxInputValue(box, "default", "tracker.accent", "value", item.tracker?.accent || $themes[$theme]?.colors?.secondary || "#54EB77")
@@ -326,9 +371,10 @@
         setBoxInputValue(box, "default", "chart.holeSize", "hidden", item.chart?.type !== "pie")
         setBoxInputValue(box, "default", "chart.holeSize", "value", item.chart?.holeSize ?? 0)
     }
-    $: if (id === "chart" && item) {
-        setBoxInputValue(box, "default", "chart.holeSize", "hidden", item.chart?.type !== "pie")
-        setBoxInputValue(box, "default", "chart.holeSize", "value", item.chart?.holeSize ?? 0)
+    $: if (id === "visualizer" && item) {
+        const visualizerType = item.visualizer?.type || "bars"
+        const showPalette = ["aurora", "horizon", "orbit", "soft-spectrum"].includes(visualizerType)
+        setBoxInputValue(box, "default", "visualizer.palette", "hidden", !showPalette)
     }
 
     ///
@@ -381,9 +427,6 @@
                 } else {
                     newFontSize = input.value !== "growToFit" ? 100 : MAX_FONT_SIZE
                 }
-            } else if (input.id === "auto" && item?.textFit === "growToFit") {
-                if (input.value && Number(styles["font-size"]) < MAX_FONT_SIZE) newFontSize = MAX_FONT_SIZE
-                else if (!input.value && Number(styles["font-size"]) === MAX_FONT_SIZE) newFontSize = 100
             }
             if (newFontSize) updateValue({ detail: { name: "font_size", id: "style", key: "font-size", value: newFontSize + "px" } })
         }
@@ -413,6 +456,8 @@
 
             allItems.forEach((i: number) => {
                 if (!a[$activeEdit.id!].items[i]) return
+
+                delete a[$activeEdit.id!].items[i].autoFontSize
 
                 if (!targetId.includes(".")) {
                     a[$activeEdit.id!].items[i][targetId] = value
@@ -448,14 +493,13 @@
         const location = { page: "edit" as const, show: $activeShow!, slide: getLayoutRef()[$activeEdit.slide!]?.id, items }
         // separate location ids so the different keys don't get coalesced into one history entry
         history({ id: "setItems", newData: { style: { key: "textFit", values: ["none"] } }, location: { ...location, id: "textFit" } })
-        history({ id: "setItems", newData: { style: { key: "auto", values: [false] } }, location: { ...location, id: "auto" } })
 
         function updateAutoSize(a: any) {
             if (!a[$activeEdit.id!]?.items) return a
             items.forEach((i) => {
                 if (!a[$activeEdit.id!].items[i]) return
                 a[$activeEdit.id!].items[i].textFit = "none"
-                a[$activeEdit.id!].items[i].auto = false
+                delete a[$activeEdit.id!].items[i].autoFontSize
             })
             a[$activeEdit.id!].modified = Date.now()
             return a
@@ -497,7 +541,7 @@
 
         // font size on a partial selection is invisible while auto size is enabled, so disable auto size first
         const hasScriptureNumber = item?.lines?.some((line) => line.text?.some((t) => /scripture(?:\d+)?_number/.test(t.value || "")))
-        if (id === "text" && input.id === "style" && input.key === "font-size" && input.name !== "font_size" && (item?.auto || (item?.textFit || "none") !== "none") && isPartialTextSelection() && !hasScriptureNumber) {
+        if (id === "text" && input.id === "style" && input.key === "font-size" && input.name !== "font_size" && (item?.textFit || "none") !== "none" && isPartialTextSelection() && !hasScriptureNumber) {
             disableAutoSize(allItems)
             newToast("toast.autosize_disabled")
         }
@@ -680,7 +724,6 @@
         input.value = input.values.value
         input.input = input.type
 
-        if (input.id === "textFit") updateValue({ detail: { id: "auto", value: input.value !== "none" } })
         // unset transparent color
         if (input.key === "text-shadow" && input.value.includes("rgb(0 0 0 / 0)") && input.value.includes("px")) {
             input.value = input.value.replace("rgb(0 0 0 / 0)", "rgb(0 0 0 / 0.4)")
@@ -758,5 +801,5 @@
 <svelte:window on:keyup={keyup} on:keydown={keydown} on:mouseup={getTextSelection} on:mousedown={mousedown} />
 
 {#if loaded}
-    <EditValues sections={boxSections} {item} {styles} {customValues} type="text" on:change={updateValue2} />
+    <EditValues sections={boxSections} {item} {styles} {customValues} {customLocalFonts} type="text" on:change={updateValue2} />
 {/if}

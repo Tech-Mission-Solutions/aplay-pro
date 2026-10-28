@@ -50,7 +50,6 @@ export interface StageItem {
 
     // textbox
     chords?: { enabled?: boolean; color?: string; size?: number }
-    auto?: boolean
     textFit?: AutosizeTypes // auto size text fix option (default: growToFit)
     button?: { press?: string; release?: string } // click actions
     flash?: { enabled?: boolean; color?: string; count?: number } // item background flash
@@ -68,7 +67,7 @@ export interface StageItem {
 
     // other items
     variable?: { id: string } // variable data
-    device?: { name: string } // camera data
+    device?: { id: string; group?: string; name: string; type?: string } // (camera) input data
     src?: string // media path
     tracker?: any // slide tracker data
     timer?: any // timer options

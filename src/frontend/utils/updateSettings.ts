@@ -5,10 +5,10 @@ import { Main } from "../../types/IPC/Main"
 import type { Output } from "../../types/Output"
 import type { SaveListSettings, SaveListSyncedSettings } from "../../types/Save"
 import type { Metadata, Themes } from "../../types/Settings"
-import { initAudioRouting } from "../audio/routing/audioRoutingInit"
 import { migrateAudioEffects } from "../audio/effects/audioEffectsHelpers"
+import { initAudioRouting } from "../audio/routing/audioRoutingInit"
 import { clone, keysToID } from "../components/helpers/array"
-import { checkFFmpeg, checkWindowCapture, setOutput, toggleOutputs } from "../components/helpers/output"
+import { checkFFmpeg, checkWindowCapture, setOutput, startScene, toggleOutputs } from "../components/helpers/output"
 import { migrateOutputsRtmp } from "../components/helpers/rtmpDestinations"
 import { defaultThemes } from "../components/settings/tabs/defaultThemes"
 import { sendMain } from "../IPC/main"
@@ -17,8 +17,10 @@ import {
     actions,
     activePopup,
     activeProject,
+    ai,
     alertUpdates,
     audioChannelsData,
+    audioEffectPresets,
     audioEffects,
     audioFolders,
     audioPlaylists,
@@ -29,11 +31,10 @@ import {
     calendars,
     categories,
     cloudSyncData,
-    companion,
     contentProviderData,
+    customFonts,
     customMetadata,
     customizedIcons,
-    dataPath,
     deletedDefaults,
     disabledServers,
     drawSettings,
@@ -43,7 +44,6 @@ import {
     effects,
     effectsLibrary,
     emitters,
-    eqPresets,
     formatNewShow,
     fullColors,
     globalRegexes,
@@ -56,6 +56,7 @@ import {
     loaded,
     loadedState,
     lockedOverlays,
+    activeScenes,
     maxConnections,
     mediaFolders,
     mediaOptions,
@@ -73,13 +74,12 @@ import {
     ports,
     profiles,
     projectView,
-    remotePassword,
     resized,
+    scenes,
     scriptureSettings,
     scriptures,
     serverData,
     showRecentlyUsedProjects,
-    showsPath,
     slidesOptions,
     sorted,
     special,
@@ -112,6 +112,14 @@ export function updateSyncedSettings(data: any) {
     // pre v1.6.1 (triggers are now actions)
     data = convertTriggersToActions(data)
 
+    // pre v1.6.6
+    if (data.companion) {
+        if (!get(serverData)?.companion) {
+            serverData.update((s) => ({ ...s, companion: data.companion }))
+        }
+        delete data.companion
+    }
+
     Object.entries(data).forEach(([key, value]: any) => {
         if (updateList[key as SaveListSyncedSettings]) updateList[key as SaveListSyncedSettings](value)
         else console.info("RECEIVED UNKNOWN SETTINGS KEY:", key)
@@ -131,6 +139,14 @@ export function updateSettings(data: any) {
     // pre v1.6.5 (audioEffects was not in stack format)
     if (data.audioEffects) {
         data.audioEffects = migrateAudioEffects(data.audioEffects)
+    }
+
+    // pre v1.6.6
+    if (data.remotePassword !== undefined) {
+        if (!data.serverData) data.serverData = {}
+        if (!data.serverData.remote) data.serverData.remote = {}
+        if (!data.serverData.remote.password) data.serverData.remote.password = data.remotePassword
+        delete data.remotePassword
     }
 
     Object.entries(data).forEach(([key, value]: any) => {
@@ -262,31 +278,40 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
         activeProject.set(v)
         if (v) projectView.set(false)
     },
-    showsPath: (v: any) => {
-        if (!v) return
 
-        // DEPRECATED (keep for backward compatibility)
-        showsPath.set(v)
-    },
-    dataPath: (v: any) => {
-        if (!v) return
-
-        // DEPRECATED (keep for backward compatibility)
-        dataPath.set(v)
-    },
     lockedOverlays: (v: any) => {
-        // only get locked overlays
-        v = v.filter((id) => get(overlays)[id]?.locked === true)
+        if (Array.isArray(v)) {
+            const map: { [id: string]: string[] } = {}
+            v.forEach((id) => (map[id] = []))
+            v = map
+        }
 
-        lockedOverlays.set(v)
+        lockedOverlays.set(v || {})
 
-        // start overlays
-        if (v.length) setOutput("overlays", v, false, "", true)
+        // timeout to ensure outputs are initialized
+        setTimeout(() => {
+            Object.entries(v || {}).forEach(([id, outputIds]: any) => {
+                // only get locked overlays
+                if (!get(overlays)[id]?.locked) return
+
+                if (outputIds?.length) outputIds.forEach((outputId: string) => setOutput("overlays", [id], false, outputId, true))
+                else setOutput("overlays", [id], false, "", true)
+            })
+        }, 10)
+    },
+    activeScenes: (v: any) => {
+        activeScenes.set(v || {})
+
+        // timeout to ensure outputs are initialized
+        setTimeout(() => {
+            Object.entries(v || {}).forEach(([id, outputIds]: any) => startScene(id, outputIds))
+        }, 10)
     },
     language: (v: any) => {
         language.set(v)
         setLanguage(v)
     },
+    customFonts: (v: any) => customFonts.set(v),
     alertUpdates: (v: any) => {
         alertUpdates.set(v !== false)
         // make sure "special" is set before checking
@@ -296,7 +321,15 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     maxConnections: (v: any) => maxConnections.set(v),
     ports: (v: any) => ports.set(v),
     disabledServers: (v: any) => disabledServers.set(v),
-    serverData: (v: any) => serverData.set(v),
+    serverData: (v: any) => {
+        serverData.set(v)
+
+        if (v?.companion?.enabled) {
+            setTimeout(() => {
+                sendMain(Main.WEBSOCKET_START, { port: get(ports).companion, password: v.companion.password })
+            }, 3000)
+        }
+    },
     autosave: (v: any) => {
         autosave.set(v)
         startAutosave()
@@ -331,7 +364,6 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
         styles.set(v)
     },
     profiles: (v: any) => profiles.set(v),
-    remotePassword: (v: any) => remotePassword.set(v),
     audioFolders: (v: any) => audioFolders.set(v),
     categories: (v: any) => categories.set(v),
     drawer: (v: any) => drawer.set(v),
@@ -356,6 +388,7 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     templateCategories: (v: any) => templateCategories.set(v),
     timers: (v: any) => timers.set(v),
     variables: (v: any) => variables.set(v),
+    scenes: (v: any) => scenes.set(v),
     interactions: (v: any) => interactions.set(v),
     audioStreams: (v: any) => audioStreams.set(v),
     audioPlaylists: (v: any) => audioPlaylists.set(v),
@@ -377,20 +410,11 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     calendarAddShow: (v: any) => calendarAddShow.set(v),
     metronome: (v: any) => metronome.set(v),
     audioEffects: (v: any) => audioEffects.set(v),
-    eqPresets: (v: any) => eqPresets.set(v),
+    audioEffectPresets: (v: any) => audioEffectPresets.set(v),
     effectsLibrary: (v: any) => effectsLibrary.set(v),
     globalTags: (v: any) => globalTags.set(v),
     globalRegexes: (v: any) => globalRegexes.set(v),
     customMetadata: (v: any) => customMetadata.set(v),
-    companion: (v: any) => {
-        companion.set(v)
-
-        if (v.enabled) {
-            setTimeout(() => {
-                sendMain(Main.WEBSOCKET_START, get(ports).companion)
-            }, 3000)
-        }
-    },
     special: (v: any) => {
         if (v.capitalize_words === undefined) v.capitalize_words = "Jesus, Lord" // God
         if (v.autoUpdates) sendMain(Main.AUTO_UPDATE)
@@ -449,5 +473,6 @@ const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = 
     obsData: (v: any) => obsData.set(v),
     effects: (a: any) => effects.set(a),
     deletedDefaults: (a: any) => deletedDefaults.set({ ...get(deletedDefaults), ...a }),
-    audioRouting: (v: any) => initAudioRouting(v)
+    audioRouting: (v: any) => initAudioRouting(v),
+    ai: (a: any) => ai.set(a)
 }

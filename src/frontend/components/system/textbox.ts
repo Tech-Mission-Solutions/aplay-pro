@@ -1,18 +1,29 @@
 import { getStyles } from "./../helpers/style"
 
-type TMouse = { x: number; y: number; left: number; top: number; width: number; height: number; offset: { x: number; y: number; width: number; height: number }; e: any }
+type TMouse = {
+    x: number
+    y: number
+    left: number
+    top: number
+    width: number
+    height: number
+    offset: { x: number; y: number; width: number; height: number }
+    e: any
+    initialPositions?: { [key: string | number]: { left: number; top: number } }
+}
 
 const snapDistance = 8
 export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | string)[], lines: [string, number][], styles: { [key: string]: any } = {}) {
-    const itemElem = mouse.e.target.closest(".item")
-    if (!itemElem?.closest(".slide")) return { styles: {}, lines: [] }
+    const itemElem = (mouse.e.target.closest(".stage_item") || mouse.e.target.closest(".item")) as HTMLElement
+    const slideElem = itemElem?.closest(".slide") as HTMLElement | null
+    if (!slideElem) return { styles: {}, lines: [] }
 
     const isResizing = Object.keys(styles).length > 0
     const squareElem = mouse.e.target.closest(".square")
     const directionId: string = squareElem?.classList[1] || ""
 
-    const mouseLeft = (e.clientX - itemElem.closest(".slide").offsetLeft) / ratio - mouse.offset.x
-    const mouseTop = (e.clientY - itemElem.closest(".slide").offsetTop) / ratio - mouse.offset.y
+    const mouseLeft = (e.clientX - slideElem.offsetLeft) / ratio - mouse.offset.x
+    const mouseTop = (e.clientY - slideElem.offsetTop) / ratio - mouse.offset.y
 
     if (!isResizing) {
         styles.left = mouseLeft
@@ -23,27 +34,48 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
     else snapBox()
 
     if (!isResizing && active.length > 1) {
-        const slideElem = itemElem.closest(".slide")
-        const itemElems = Array.from(slideElem.querySelectorAll(".item, .stage_item")) as HTMLElement[]
+        if (!mouse.initialPositions) {
+            const slideElem = itemElem.closest(".slide")
+            const itemElems = Array.from(slideElem?.querySelectorAll(".item, .stage_item") || []) as HTMLElement[]
+            mouse.initialPositions = {}
+            active.forEach((id) => {
+                const elem = itemElems.find((el) => el.getAttribute("data-index") === String(id) || el.id === String(id) || el.getAttribute("id") === String(id))
+                if (!elem) {
+                    mouse.initialPositions![id] = { left: 0, top: 0 }
+                    return
+                }
+                const parsed = getStyles(elem.getAttribute("style"))
+                const parsedLeft = parseFloat(String(parsed.left))
+                const parsedTop = parseFloat(String(parsed.top))
+                const initialLeft = elem === itemElem ? mouse.left : !isNaN(parsedLeft) ? parsedLeft : elem.offsetLeft || 0
+                const initialTop = elem === itemElem ? mouse.top : !isNaN(parsedTop) ? parsedTop : elem.offsetTop || 0
+                mouse.initialPositions![id] = { left: initialLeft, top: initialTop }
+            })
+        }
+
         const deltaX = Number(styles.left) - mouse.left
         const deltaY = Number(styles.top) - mouse.top
 
         styles.__multiPositions = Object.fromEntries(
             active.map((id) => {
-                const elem = itemElems.find((el) => el.getAttribute("data-index") === String(id) || el.id === String(id) || el.getAttribute("id") === String(id))
-                if (!elem) return [id, { left: 0, top: 0 }]
-                const parsed = getStyles(elem.getAttribute("style"))
-                const initialLeft = elem === itemElem ? mouse.left : (parseFloat(String(parsed.left)) || elem.offsetLeft || 0)
-                const initialTop = elem === itemElem ? mouse.top : (parseFloat(String(parsed.top)) || elem.offsetTop || 0)
-                return [id, { left: initialLeft + deltaX, top: initialTop + deltaY }]
+                const init = mouse.initialPositions?.[id] || { left: 0, top: 0 }
+                return [id, { left: init.left + deltaX, top: init.top + deltaY }]
             })
         )
     }
 
     function getItemDims(elem: HTMLElement) {
         const style = getStyles(elem.getAttribute("style"), true)
-        const w = parseFloat(String(style.width)), h = parseFloat(String(style.height))
-        const l = parseFloat(String(style.left)), t = parseFloat(String(style.top))
+        const wStr = String(style.width || "")
+        const hStr = String(style.height || "")
+        const lStr = String(style.left || "")
+        const tStr = String(style.top || "")
+
+        const w = !wStr.includes("%") ? parseFloat(wStr) : NaN
+        const h = !hStr.includes("%") ? parseFloat(hStr) : NaN
+        const l = !lStr.includes("%") ? parseFloat(lStr) : NaN
+        const t = !tStr.includes("%") ? parseFloat(tStr) : NaN
+
         return {
             left: !isNaN(l) ? l : elem.offsetLeft,
             top: !isNaN(t) ? t : elem.offsetTop,
@@ -53,15 +85,16 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
     }
 
     function snapBox() {
-        if (!itemElem.closest(".slide")) return
+        const slideElem = itemElem.closest(".slide") as HTMLElement | null
+        if (!slideElem) return
         lines = []
 
         const currentDims = getItemDims(itemElem)
-        const itemWidth = isResizing ? (Number(styles.width) || currentDims.width) : currentDims.width
-        const itemHeight = isResizing ? (Number(styles.height) || currentDims.height) : currentDims.height
+        const itemWidth = isResizing ? Number(styles.width) || currentDims.width : currentDims.width
+        const itemHeight = isResizing ? Number(styles.height) || currentDims.height : currentDims.height
 
-        const slideWidth = Math.round(itemElem.closest(".slide").offsetWidth / ratio)
-        const slideHeight = Math.round(itemElem.closest(".slide").offsetHeight / ratio)
+        const slideWidth = Math.round(slideElem.offsetWidth / ratio)
+        const slideHeight = Math.round(slideElem.offsetHeight / ratio)
 
         const xLines = [0, slideWidth / 2, slideWidth]
         const yLines = [0, slideHeight / 2, slideHeight]
@@ -69,12 +102,14 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
         const yItems = isResizing ? [directionId.includes("s") ? itemHeight : 0] : [0, itemHeight / 2, itemHeight]
 
         // Collect positions from other items
-        ;[...(itemElem.closest(".slide").querySelectorAll(".item") || [])]
+        const isStageSlide = !!slideElem?.querySelector(".stage_item")
+        const selector = isStageSlide ? ".stage_item" : ".item"
+        ;[...(slideElem.querySelectorAll(selector) || [])]
             .filter((a) => !a.closest(".preview"))
             .forEach((item, i) => {
-                const id = item.getAttribute("data-index") ? Number(item.getAttribute("data-index")) : (item.id || i)
+                const id = item.getAttribute("data-index") ? Number(item.getAttribute("data-index")) : item.id || i
                 if (active.includes(id) || item === itemElem) return
-                const { left, top, width, height } = getItemDims(item)
+                const { left, top, width, height } = getItemDims(item as HTMLElement)
                 if (width && height) {
                     xLines.push(left, left + width / 2, left + width)
                     yLines.push(top, top + height / 2, top + height)
@@ -105,7 +140,9 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
             if (!resizesStart && !resizesEnd) return
 
             const candidate = resizesEnd ? Number(styles[posProp]) + Number(styles[sizeProp]) : Number(styles[posProp])
-            let bestDist = Infinity, bestLine: number | null = null, isBestCenter = false
+            let bestDist = Infinity
+            let bestLine: number | null = null
+            let isBestCenter = false
 
             allLines.forEach((pos) => {
                 const isCenter = centerPos !== undefined && Math.abs(pos - centerPos) < 0.5
@@ -137,14 +174,13 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
         }
 
         const centerMargin = (snapDistance * 2) / ratio
-        let bestDist = Infinity, bestSnapPos: number | null = null, isBestCenter = false
+        let bestDist = Infinity
+        let bestSnapPos: number | null = null
+        let isBestCenter = false
 
         allLines.forEach((linePos) => {
             items.forEach((itemOffset) => {
-                const isCenter = centerPos !== undefined && (
-                    (centerItemOffset !== undefined && Math.abs(linePos - centerPos) < 0.5 && Math.abs(itemOffset - centerItemOffset) < 0.5) ||
-                    Math.abs(linePos - centerPos) < 0.5
-                )
+                const isCenter = centerPos !== undefined && ((centerItemOffset !== undefined && Math.abs(linePos - centerPos) < 0.5 && Math.abs(itemOffset - centerItemOffset) < 0.5) || Math.abs(linePos - centerPos) < 0.5)
                 const dist = Math.abs(boxPos + itemOffset - linePos)
                 const allowedMargin = isCenter ? centerMargin : margin
 
@@ -176,8 +212,9 @@ export function moveBox(e: any, mouse: TMouse, ratio: number, active: (number | 
 
 // const maxSize = 16
 export function resizeBox(e: any, mouse: TMouse, keepAspectRatio: boolean, ratio: number, mirror: boolean, forceSquare = false) {
-    const itemElem = mouse.e.target.closest(".item")
-    if (!itemElem?.closest(".slide")) return {}
+    const itemElem = (mouse.e.target.closest(".stage_item") || mouse.e.target.closest(".item")) as HTMLElement
+    const slideElem = itemElem?.closest(".slide") as HTMLElement | null
+    if (!slideElem) return {}
 
     const styles: any = {}
     const squareElem = mouse.e.target.closest(".square")
@@ -202,7 +239,6 @@ export function resizeBox(e: any, mouse: TMouse, keepAspectRatio: boolean, ratio
     const u = { x: cos, y: sin }
     const v = { x: -sin, y: cos }
 
-    const slideElem = itemElem.closest(".slide")
     const slideRect = slideElem.getBoundingClientRect()
 
     const center = { x: mouse.left + width / 2, y: mouse.top + height / 2 }
@@ -271,10 +307,10 @@ function getResizeRotation(itemElem: HTMLElement, mouse: any) {
 }
 
 export function rotateBox(e: any, mouse: any, ratio: number) {
-    const itemElem = mouse.e.target.closest(".item")
-    if (!itemElem?.closest(".slide")) return 0
+    const itemElem = (mouse.e.target.closest(".stage_item") || mouse.e.target.closest(".item")) as HTMLElement
+    const slideElem = itemElem.closest(".slide") as HTMLElement | null
+    if (!slideElem) return 0
 
-    const slideElem = itemElem.closest(".slide")
     const slideRect = slideElem.getBoundingClientRect()
 
     // Use the mousedown snapshot in slide coordinates to avoid DOM offset drift.
@@ -343,7 +379,7 @@ export const radiusSliderOffset = 20
 export const radiusSliderRatio = 0.8
 export const radiusHandleSize = 6
 export function getRadius(e: any, mouse: any, ratio: number) {
-    const itemElem = mouse.e.target.closest(".item")
+    const itemElem = (mouse.e.target.closest(".stage_item") || mouse.e.target.closest(".item")) as HTMLElement
     const slideRect = itemElem?.closest(".slide")?.getBoundingClientRect()
     if (!slideRect) return 0
 

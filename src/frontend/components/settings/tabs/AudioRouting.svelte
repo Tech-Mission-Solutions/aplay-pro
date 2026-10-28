@@ -3,10 +3,12 @@
     import { get } from "svelte/store"
     import { uid } from "uid"
     import type { AudioRoutingConfig } from "../../../../types/AudioRouting"
+    import { AudioMicrophone } from "../../../audio/audioMicrophone"
     import { AudioPlayer } from "../../../audio/audioPlayer"
     import { deduplicateConnections, syncOutputAudioChannels } from "../../../audio/routing/audioRoutingInit"
     import { AudioRoutingManager } from "../../../audio/routing/audioRoutingManager"
-    import { activePopup, audioChannelsData, audioPlaylists, audioRouting, outputs, selected, special } from "../../../stores"
+    import { activePopup, audioChannelsData, audioEffects, audioPlaylists, audioRouting, outputs, selected, special } from "../../../stores"
+    import { newToast } from "../../../utils/common"
     import { translateText } from "../../../utils/language"
     import { keysToID } from "../../helpers/array"
     import { getAllOutputs } from "../../helpers/output"
@@ -30,7 +32,7 @@
 
     interface RoutingColumn {
         title: string
-        type: "input" | "channel" | "merger" | "output"
+        type: "input" | "channel" | "output"
         nodes: RoutingColumnNode[]
     }
 
@@ -38,6 +40,9 @@
         fromId: string
         toId: string
         channelIndex: number
+        fromChannelIndex?: number
+        toChannelIndex?: number
+        type?: "audio" | "sidechain"
         x1: number
         y1: number
         x2: number
@@ -59,7 +64,7 @@
         { id: "mic_default", name: translateText("live.microphones"), type: "mic" },
         { id: "metronome", name: translateText("audio.metronome"), type: "metronome" },
         { id: "desktop_default", name: translateText("audio.desktop_audio"), type: "desktop_audio" },
-        { id: "output_window", name: translateText("settings.display_settings"), type: "output_window" }
+        { id: "output_window", name: `${translateText("settings.display_settings")} <span style="font-size: 0.75em;opacity: 0.6;">(${translateText("category.videos")})</span>`, type: "output_window" }
     ]
 
     const fixedOutputs = [
@@ -68,7 +73,7 @@
         { id: "icecast", name: "Icecast", type: "icecast" }
     ]
 
-    let availableAudioInputs: { value: string; label: string }[] = []
+    let availableAudioInputs: { value: string; label: string; channels: number }[] = []
     let availableAudioOutputs: { value: string; label: string; channels: number }[] = []
     let expandedNodes: Set<string> = new Set(["output_window", "network_default"])
 
@@ -81,13 +86,15 @@
 
     let isConnecting = false
     let dragStartId: string | null = null
-    let dragStartType: "input" | "channel" | "merger" | "output" | null = null
-    let dragStartPortType: "in" | "out" | null = null
+    let dragStartType: "input" | "channel" | "output" | null = null
+    let dragStartPortType: "in" | "out" | "sidechain" | null = null
+    let dragStartChannelIndex: number | undefined = undefined
     let dragFromPos = { x: 0, y: 0 }
     let dragCurrentPos = { x: 0, y: 0 }
     let hoverTargetId: string | null = null
     let hoverTargetPortEl: HTMLElement | null = null
-    let hoveredPort: { nodeId: string; portType: "in" | "out"; channelIndex?: number } | null = null
+    let hoverTargetPortType: "in" | "out" | "sidechain" | null = null
+    let hoveredPort: { nodeId: string; portType: "in" | "out" | "sidechain"; channelIndex?: number } | null = null
 
     let lines: RenderedLine[] = []
     let connectionFrame: number | null = null
@@ -133,7 +140,23 @@
             title: "audio.inputs",
             type: "input",
             nodes: fixedInputs.map((node) => {
-                const subNodes = node.id === "playlists_default" ? availablePlaylists : node.id === "mic_default" ? availableAudioInputs.map((mic) => ({ id: mic.value, name: mic.label, type: "mic" })) : node.id === "output_window" ? nonStageOutputs : []
+                const subNodes =
+                    node.id === "playlists_default"
+                        ? availablePlaylists
+                        : node.id === "mic_default"
+                          ? availableAudioInputs.map((mic) => {
+                                const micDeviceId = mic.value.startsWith("mic_sub_") ? mic.value.slice(8) : mic.value
+                                const configured = config?.inputs?.find((i) => i.id === mic.value || i.id === micDeviceId || i.deviceId === micDeviceId)
+                                return {
+                                    id: mic.value,
+                                    name: mic.label,
+                                    type: "mic",
+                                    channels: configured?.channels ?? mic.channels
+                                }
+                            })
+                          : node.id === "output_window"
+                            ? nonStageOutputs
+                            : []
                 const isEnabled = node.type === "desktop_audio" ? !!config.desktopAudioEnabled : true
                 return {
                     ...node,
@@ -150,15 +173,20 @@
             type: "channel",
             nodes: channelsList.map((m) => {
                 const inactive = inactiveOutputIds.some((a) => `channel_${a.id}` === m.id)
+                const linkedToOutput = m.outputLink || $outputs[m.id.replace("channel_", "")]
                 const chData = get(audioChannelsData)[m.id]
-                const muted = chData ? chData.isMuted || chData.volume === 0 : false
+                const isMuted = chData ? chData.isMuted || chData.volume === 0 : false
+                const hasEffects = $audioEffects[m.id]?.stack?.length > 0
+
                 return {
                     id: m.id,
                     name: m.name,
                     type: "channel",
                     color: m.color,
+                    icon: m.id === "main" ? "protected" : linkedToOutput ? "display" : null,
                     isEnabled: !inactive,
-                    isMuted: muted,
+                    isMuted,
+                    hasEffects,
                     hasInputConnection: config.connections.some((c) => c.to === m.id)
                 }
             })
@@ -248,13 +276,7 @@
     async function refreshDevices() {
         availableAudioOutputs = await AudioPlayer.getOutputs()
         try {
-            const devices = await navigator.mediaDevices.enumerateDevices()
-            availableAudioInputs = devices
-                .filter((d) => d.kind === "audioinput" && d.deviceId !== "default")
-                .map((d, index) => ({
-                    value: `mic_sub_${d.deviceId}`,
-                    label: d.label || `Microphone ${index + 1}`
-                }))
+            availableAudioInputs = await AudioMicrophone.getInputs()
         } catch (e) {
             console.warn("Could not enumerate audio inputs:", e)
         }
@@ -292,7 +314,7 @@
         activePopup.set("rename")
     }
 
-    function getNodePortPos(nodeId: string, portType: "in" | "out", portElement?: HTMLElement | null): { x: number; y: number } | null {
+    function getNodePortPos(nodeId: string, portType: "in" | "out" | "sidechain", portElement?: HTMLElement | null): { x: number; y: number } | null {
         if (!spaceEl) return null
         const portEl = portElement || spaceEl.querySelector<HTMLElement>(`[data-node-id="${nodeId}"] .port-${portType}`)
         if (!portEl) return null
@@ -310,11 +332,23 @@
         const newLines: RenderedLine[] = []
 
         for (const conn of config.connections) {
-            const fromPos = getNodePortPos(conn.from, "out")
+            const isMicSub = conn.from.startsWith("mic_sub_")
+            const fromChIdx = (conn as any).fromChannelIndex ?? (isMicSub ? (conn as any).channelIndex : undefined)
+            let fromPos: { x: number; y: number } | null = null
+
+            if (isMicSub && fromChIdx !== undefined) {
+                const chEl = spaceEl.querySelector<HTMLElement>(`[data-node-id="${conn.from}"] .port-out[data-ch-index="${fromChIdx}"]`)
+                if (chEl) fromPos = getNodePortPos(conn.from, "out", chEl)
+            }
+            fromPos ??= getNodePortPos(conn.from, "out")
+
             const isSpeakerSub = conn.to.startsWith("speaker_sub_")
+            const isSidechain = conn.type === "sidechain"
             let toPos: { x: number; y: number } | null = null
 
-            if (isSpeakerSub && (conn as any).channelIndex !== undefined) {
+            if (isSidechain) {
+                toPos = getNodePortPos(conn.to, "sidechain")
+            } else if (isSpeakerSub && (conn as any).channelIndex !== undefined) {
                 const chEl = spaceEl.querySelector<HTMLElement>(`[data-node-id="${conn.to}"] [data-ch-index="${(conn as any).channelIndex}"]`)
                 if (chEl) toPos = getNodePortPos(conn.to, "in", chEl)
             }
@@ -324,7 +358,10 @@
                 newLines.push({
                     fromId: conn.from,
                     toId: conn.to,
-                    channelIndex: (conn as any).channelIndex ?? 0,
+                    channelIndex: (conn as any).channelIndex ?? fromChIdx ?? 0,
+                    fromChannelIndex: fromChIdx,
+                    toChannelIndex: (conn as any).toChannelIndex ?? (isSpeakerSub ? (conn as any).channelIndex : undefined),
+                    type: conn.type || "audio",
                     x1: fromPos.x,
                     y1: fromPos.y,
                     x2: toPos.x,
@@ -335,13 +372,14 @@
         lines = newLines
     }
 
-    function handlePortMouseDown(e: MouseEvent, nodeId: string, nodeType: "input" | "channel" | "merger" | "output", portType: "in" | "out", _channelIndex = 0) {
+    function handlePortMouseDown(e: MouseEvent, nodeId: string, nodeType: "input" | "channel" | "output", portType: "in" | "out" | "sidechain", _channelIndex = 0) {
         e.preventDefault()
         e.stopPropagation()
         isConnecting = true
         dragStartId = nodeId
         dragStartType = nodeType
         dragStartPortType = portType
+        dragStartChannelIndex = _channelIndex
 
         const pos = getNodePortPos(nodeId, portType, e.currentTarget as HTMLElement)
         if (pos) {
@@ -423,6 +461,17 @@
         const isChannel = (id: string) => channelsList.some((m) => m.id === id)
         const isOutput = (id: string) => fixedOutputs.some((o) => o.id === id) || id.startsWith("speaker_sub_") || id.startsWith("network_sub_")
 
+        // Channel-to-channel sidechain (cannot connect to self)
+        if (isChannel(fromId) && isChannel(toId) && fromId !== toId) {
+            const isSidechain = dragStartPortType === "sidechain" || hoverTargetPortType === "sidechain"
+            if (isSidechain) {
+                // If dragging from sidechain port, target channel is the source (from), dragging channel is target (to)
+                if (dragStartPortType === "sidechain") return { valid: true, from: toId, to: fromId }
+                // Otherwise dragging from channel out to channel sidechain port
+                return { valid: true, from: fromId, to: toId }
+            }
+        }
+
         if ((isInput(fromId) && isChannel(toId)) || (isChannel(fromId) && isOutput(toId))) {
             return { valid: true, from: fromId, to: toId }
         }
@@ -440,49 +489,136 @@
             const { valid, from: fromId, to: toId } = isValidConnection(dragStartId, hoverTargetId)
 
             if (valid) {
+                const isSidechain = dragStartPortType === "sidechain" || hoverTargetPortType === "sidechain"
+                const connType = isSidechain ? "sidechain" : "audio"
+                const oppositeType = isSidechain ? "audio" : "sidechain"
+
                 updateConfig((c) => {
+                    const isRelatedInput = (connFrom: string, id: string) => {
+                        if (connFrom === id) return true
+                        for (const [, { parentId, prefix }] of Object.entries(PARENT_PREFIX_MAP)) {
+                            if (connFrom.startsWith(prefix) && id === parentId) return true
+                            if (id.startsWith(prefix) && connFrom === parentId) return true
+                        }
+                        return false
+                    }
+
+                    const getConnFromCh = (conn: any) => conn.fromChannelIndex ?? (conn.from?.startsWith("mic_sub_") ? conn.channelIndex : undefined)
+                    const getConnToCh = (conn: any) => conn.toChannelIndex ?? (conn.to?.startsWith("speaker_sub_") ? conn.channelIndex : undefined)
+
+                    const isMicSub = fromId.startsWith("mic_sub_")
+                    const micChCount = isMicSub ? availableAudioInputs.find((m) => m.value === fromId)?.channels || 2 : 0
+                    let sourceChIndex = dragStartId === fromId ? dragStartChannelIndex : hoverTargetId === fromId && hoverTargetPortEl?.dataset?.chIndex !== undefined ? parseInt(hoverTargetPortEl.dataset.chIndex) : undefined
+
                     const isSpeakerSub = toId.startsWith("speaker_sub_")
                     const deviceId = isSpeakerSub ? toId.replace("speaker_sub_", "") : ""
-                    const chCount = availableAudioOutputs.find((s) => s.value === deviceId)?.channels || 2
+                    const speakerChCount = availableAudioOutputs.find((s) => s.value === deviceId)?.channels || 2
+                    let targetChIndex = dragStartId === toId ? dragStartChannelIndex : hoverTargetId === toId && hoverTargetPortEl?.dataset?.chIndex !== undefined ? parseInt(hoverTargetPortEl.dataset.chIndex) : undefined
 
-                    const chIndexStr = hoverTargetPortEl?.dataset?.chIndex
-                    const isSpecificCircle = chIndexStr !== undefined
-
-                    if (isSpeakerSub && chCount > 1 && !isSpecificCircle) {
-                        const activeConns = c.connections.filter((conn) => conn.from === fromId && conn.to === toId)
-                        if (activeConns.length >= chCount) {
-                            c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === toId))
-                        } else {
-                            c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === "speaker_default"))
-                            for (let ch = 0; ch < chCount; ch++) {
-                                if (!c.connections.some((conn) => conn.from === fromId && conn.to === toId && ((conn as any).channelIndex ?? 0) === ch)) {
-                                    c.connections.push({ from: fromId, to: toId, channelIndex: ch } as any)
-                                }
-                            }
-                        }
-                    } else {
-                        const targetChIndex = isSpecificCircle ? parseInt(chIndexStr) : 0
-                        const existingIndex = c.connections.findIndex((conn) => conn.from === fromId && conn.to === toId && (!isSpeakerSub || ((conn as any).channelIndex ?? 0) === targetChIndex))
-
-                        if (existingIndex !== -1) {
-                            c.connections.splice(existingIndex, 1)
-                        } else {
-                            for (const [, { parentId, prefix }] of Object.entries(PARENT_PREFIX_MAP)) {
-                                if (fromId.startsWith(prefix)) {
-                                    c.connections = c.connections.filter((conn) => !(conn.from === parentId && conn.to === toId))
-                                } else if (fromId === parentId) {
-                                    c.connections = c.connections.filter((conn) => !(conn.from.startsWith(prefix) && conn.to === toId))
-                                }
-                                if (toId.startsWith(prefix)) {
-                                    c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === parentId))
-                                } else if (toId === parentId) {
-                                    c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to.startsWith(prefix)))
-                                }
-                            }
-                            c.connections.push({ from: fromId, to: toId, channelIndex: targetChIndex } as any)
+                    if (isSidechain) {
+                        if (fromId === toId) return
+                        if (c.connections.some((conn) => conn.from === toId && conn.to === fromId && conn.type === "sidechain")) {
+                            newToast("Cannot create circular sidechain.")
+                            return
                         }
                     }
+
+                    // Multi-channel mic dropped on card (connect/toggle all channels)
+                    if (isMicSub && micChCount > 1 && sourceChIndex === undefined) {
+                        const activeConns = c.connections.filter((conn) => conn.from === fromId && conn.to === toId && (conn.type || "audio") === connType)
+                        if (activeConns.length >= micChCount) {
+                            c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === toId && (conn.type || "audio") === connType))
+                        } else {
+                            let addedAny = false
+                            for (let ch = 0; ch < micChCount; ch++) {
+                                const hasConflict = c.connections.some((conn) => conn.to === toId && (conn.type || "audio") === oppositeType && isRelatedInput(conn.from, fromId) && (conn.from === fromId ? (getConnFromCh(conn) ?? 0) === ch : true))
+                                if (hasConflict) continue
+
+                                if (!c.connections.some((conn) => conn.from === fromId && conn.to === toId && (conn.type || "audio") === connType && (getConnFromCh(conn) ?? 0) === ch)) {
+                                    c.connections.push({ from: fromId, to: toId, type: connType, channelIndex: ch, fromChannelIndex: ch })
+                                    addedAny = true
+                                }
+                            }
+                            if (!addedAny && activeConns.length === 0) {
+                                newToast(`This source already has a ${oppositeType === "sidechain" ? "sidechain" : "regular audio"} connection to this channel.`)
+                            }
+                        }
+                        return
+                    }
+
+                    // Multi-channel speaker dropped on card (audio only)
+                    if (!isSidechain && isSpeakerSub && speakerChCount > 1 && targetChIndex === undefined) {
+                        const activeConns = c.connections.filter((conn) => conn.from === fromId && conn.to === toId && conn.type !== "sidechain")
+                        if (activeConns.length >= speakerChCount) {
+                            c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === toId && conn.type !== "sidechain"))
+                        } else {
+                            c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === "speaker_default"))
+                            for (let ch = 0; ch < speakerChCount; ch++) {
+                                if (!c.connections.some((conn) => conn.from === fromId && conn.to === toId && conn.type !== "sidechain" && (getConnToCh(conn) ?? 0) === ch)) {
+                                    c.connections.push({ from: fromId, to: toId, channelIndex: ch, toChannelIndex: ch })
+                                }
+                            }
+                        }
+                        return
+                    }
+
+                    // Specific channel pin or single-channel node
+                    const sCh = sourceChIndex ?? 0
+                    const tCh = targetChIndex ?? 0
+                    const existingIndex = c.connections.findIndex((conn) => {
+                        if (conn.from !== fromId || conn.to !== toId || (conn.type || "audio") !== connType) return false
+                        if (isMicSub && sourceChIndex !== undefined && (getConnFromCh(conn) ?? 0) !== sCh) return false
+                        if (isSpeakerSub && (getConnToCh(conn) ?? 0) !== tCh) return false
+                        return true
+                    })
+
+                    if (existingIndex !== -1) {
+                        c.connections.splice(existingIndex, 1)
+                    } else {
+                        const hasConflict = c.connections.some((conn) => {
+                            if (conn.to !== toId || (conn.type || "audio") !== oppositeType) return false
+                            if (!isRelatedInput(conn.from, fromId)) return false
+                            if (isMicSub && sourceChIndex !== undefined && conn.from === fromId) {
+                                return (getConnFromCh(conn) ?? 0) === sCh
+                            }
+                            return true
+                        })
+
+                        if (hasConflict) {
+                            newToast(`This source channel already has a ${oppositeType === "sidechain" ? "sidechain" : "regular audio"} connection to this channel.`)
+                            return
+                        }
+
+                        if (!isSidechain) {
+                            for (const [, { parentId, prefix }] of Object.entries(PARENT_PREFIX_MAP)) {
+                                if (fromId.startsWith(prefix)) {
+                                    c.connections = c.connections.filter((conn) => !(conn.from === parentId && conn.to === toId && conn.type !== "sidechain"))
+                                } else if (fromId === parentId) {
+                                    c.connections = c.connections.filter((conn) => !(conn.from.startsWith(prefix) && conn.to === toId && conn.type !== "sidechain"))
+                                }
+                                if (toId.startsWith(prefix)) {
+                                    c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === parentId && conn.type !== "sidechain"))
+                                } else if (toId === parentId) {
+                                    c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to.startsWith(prefix) && conn.type !== "sidechain"))
+                                }
+                            }
+
+                            if (isSpeakerSub) {
+                                c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === "speaker_default"))
+                            }
+                        }
+
+                        c.connections.push({
+                            from: fromId,
+                            to: toId,
+                            type: connType,
+                            ...(isSpeakerSub ? { channelIndex: tCh, toChannelIndex: tCh } : {}),
+                            ...(isMicSub ? { channelIndex: sCh, fromChannelIndex: sCh } : {})
+                        })
+                    }
                 })
+
+                tick().then(updateConnectionLines)
             }
         }
 
@@ -490,45 +626,70 @@
         dragStartId = null
         dragStartType = null
         dragStartPortType = null
+        dragStartChannelIndex = undefined
+        dragFromPos = { x: 0, y: 0 }
+        dragCurrentPos = { x: 0, y: 0 }
         hoverTargetId = null
+        hoverTargetPortEl = null
+        hoverTargetPortType = null
+
         isPanning = false
+        startPanMouse = { x: 0, y: 0 }
+        startScroll = { left: 0, top: 0 }
     }
 
-    function removeConnection(fromId: string, toId: string) {
+    function removeConnection(fromId: string, toId: string, type?: "audio" | "sidechain") {
         updateConfig((c) => {
-            c.connections = c.connections.filter((conn) => !(conn.from === fromId && conn.to === toId))
+            c.connections = c.connections.filter((conn) => {
+                if (conn.from === fromId && conn.to === toId) {
+                    if (type && (conn.type || "audio") !== type) return true
+                    return false
+                }
+                return true
+            })
         })
     }
 
-    function handlePortContextMenu(e: MouseEvent, nodeId: string, portType: "in" | "out", channelIndex = 0) {
+    function handlePortContextMenu(e: MouseEvent, nodeId: string, portType: "in" | "out" | "sidechain", channelIndex = 0) {
         e.preventDefault()
         e.stopPropagation()
 
         updateConfig((c) => {
             c.connections = c.connections.filter((conn) => {
+                if (portType === "sidechain") return !(conn.to === nodeId && conn.type === "sidechain")
                 if (portType === "in") {
                     if (conn.to !== nodeId) return true
+                    if (conn.type === "sidechain") return true
                     return nodeId.startsWith("speaker_sub_") ? ((conn as any).channelIndex ?? 0) !== channelIndex : false
+                }
+                if (portType === "out") {
+                    if (conn.from !== nodeId) return true
+                    return nodeId.startsWith("mic_sub_") ? ((conn as any).fromChannelIndex ?? (conn as any).channelIndex ?? 0) !== channelIndex : false
                 }
                 return conn.from !== nodeId
             })
         })
     }
 
-    function handleNodeMouseEnter(nodeId: string, columnType: "input" | "channel" | "merger" | "output") {
-        if (!isConnecting) return
+    function handleNodeMouseEnter(nodeId: string, columnType: "input" | "channel" | "output") {
+        if (!isConnecting || nodeId === dragStartId) return
 
         let valid = false
-        if (dragStartType === "input" && (columnType === "channel" || columnType === "merger")) valid = true
-        else if (dragStartType === "output" && (columnType === "channel" || columnType === "merger")) valid = true
-        else if (dragStartType === "channel" || dragStartType === "merger") {
+        if (dragStartType === "input" && columnType === "channel") valid = true
+        else if (dragStartType === "output" && columnType === "channel") valid = true
+        else if (dragStartType === "channel") {
             if (dragStartPortType === "in" && columnType === "input" && nodeId !== "output_window") valid = true
-            else if (dragStartPortType === "out" && columnType === "output" && nodeId !== "network_default") valid = true
+            else if (dragStartPortType === "sidechain" && (columnType === "channel" || (columnType === "input" && nodeId !== "output_window"))) valid = true
+            else if (dragStartPortType === "out") {
+                if (columnType === "output" && nodeId !== "network_default") valid = true
+                else if (columnType === "channel") valid = true
+            }
         }
 
         if (valid) {
             hoverTargetId = nodeId
             hoverTargetPortEl = null
+            hoverTargetPortType = null
         }
     }
 
@@ -536,18 +697,23 @@
         if (hoverTargetId === nodeId) {
             hoverTargetId = null
             hoverTargetPortEl = null
+            hoverTargetPortType = null
         }
     }
 
-    function handlePortMouseEnter(e: MouseEvent) {
-        if (isConnecting) hoverTargetPortEl = e.currentTarget as HTMLElement
+    function handlePortMouseEnter(e: MouseEvent, portType: "in" | "out" | "sidechain" = "in") {
+        if (isConnecting) {
+            hoverTargetPortEl = e.currentTarget as HTMLElement
+            hoverTargetPortType = portType
+        }
     }
 
     function handlePortMouseLeave() {
         hoverTargetPortEl = null
+        hoverTargetPortType = null
     }
 
-    function handleHoverPort(nodeId: string, portType: "in" | "out", channelIndex?: number) {
+    function handleHoverPort(nodeId: string, portType: "in" | "out" | "sidechain", channelIndex?: number) {
         hoveredPort = { nodeId, portType, channelIndex }
     }
 
@@ -557,9 +723,13 @@
 
     function isLineConnectedToPort(line: RenderedLine, port: typeof hoveredPort): boolean {
         if (!port) return false
-        if (port.portType === "out") return line.fromId === port.nodeId
+        if (port.portType === "out") {
+            if (line.fromId !== port.nodeId) return false
+            return port.channelIndex !== undefined ? (line.fromChannelIndex ?? line.channelIndex ?? 0) === port.channelIndex : true
+        }
+        if (port.portType === "sidechain") return line.toId === port.nodeId && line.type === "sidechain"
         if (port.portType === "in") {
-            if (line.toId !== port.nodeId) return false
+            if (line.toId !== port.nodeId || line.type === "sidechain") return false
             return port.channelIndex !== undefined ? (line.channelIndex ?? 0) === port.channelIndex : true
         }
         return false
@@ -573,18 +743,25 @@
         <div class="routing-space" bind:this={spaceEl} style="transform: scale({zoom}); transform-origin: 0 0; width: {100 / zoom}%; min-height: {100 / zoom}%;">
             <!-- SVG Connections Layer -->
             <svg class="connections-layer">
-                {#each sortedLines as line (line.fromId + "-" + line.toId + "-" + line.channelIndex)}
+                {#each sortedLines as line (line.fromId + "-" + line.toId + "-" + (line.fromChannelIndex ?? line.channelIndex ?? 0) + "-" + (line.toChannelIndex ?? line.channelIndex ?? 0) + "-" + (line.type || "audio"))}
                     {@const sourceCol = columns.find((col) => col.nodes.some((n) => n.id === line.fromId || (n.subNodes || []).some((s) => s.id === line.fromId)))}
                     {@const colNodes = (sourceCol?.nodes || []).flatMap((n) => [n, ...(n.subNodes || [])])}
                     {@const sourceNode = colNodes.find((n) => n.id === line.fromId)}
                     {@const nodeIndex = colNodes.findIndex((n) => n.id === line.fromId)}
                     {@const hue = (275 + (nodeIndex >= 0 ? nodeIndex : 0) * 6) % 360}
-                    {@const strokeColor = sourceNode?.color || `hsl(${hue}, 80%, 65%)`}
+                    {@const strokeColor = line.type === "sidechain" ? "#f59e0b" : sourceNode?.color || `hsl(${hue}, 80%, 65%)`}
                     {@const isDisabled = sourceNode?.isEnabled === false}
                     {@const isHighlighted = isLineConnectedToPort(line, activeHoverPort)}
                     {@const isDimmed = activeHoverPort !== null && !isHighlighted}
-                    {@const dx = Math.max(20, Math.abs(line.x2 - line.x1) / 2)}
-                    <path d="M {line.x1} {line.y1} C {line.x1 + dx} {line.y1}, {line.x2 - dx} {line.y2}, {line.x2} {line.y2}" stroke={strokeColor} class="connection-path" class:disabled={isDisabled} class:highlighted={isHighlighted} class:dimmed={isDimmed} style={isHighlighted ? "z-index: 10;" : isDimmed ? "z-index: 1;" : ""} on:dblclick={() => removeConnection(line.fromId, line.toId)} />
+
+                    {@const isSidechain = line.type === "sidechain"}
+                    {@const isBackward = isSidechain && line.x1 >= line.x2}
+                    {@const dy = Math.abs(line.y2 - line.y1)}
+                    {@const dx = isBackward ? Math.max(120, dy * 0.7) : Math.max(20, Math.abs(line.x2 - line.x1) / 2)}
+                    {@const c1x = isBackward ? line.x1 + dx : line.x1 + dx}
+                    {@const c2x = isBackward ? line.x2 - dx : line.x2 - dx}
+
+                    <path d="M {line.x1} {line.y1} C {c1x} {line.y1}, {c2x} {line.y2}, {line.x2} {line.y2}" stroke={strokeColor} class="connection-path" class:sidechain-path={isSidechain} class:disabled={isDisabled} class:highlighted={isHighlighted} class:dimmed={isDimmed} style={isHighlighted ? "z-index: 10;" : isDimmed ? "z-index: 1;" : isSidechain ? "z-index: 4;" : ""} on:dblclick={() => removeConnection(line.fromId, line.toId, line.type)} />
                 {/each}
 
                 {#if isConnecting && dragStartId}
@@ -593,10 +770,11 @@
                     {@const dragSourceNode = dragColNodes.find((n) => n.id === dragStartId)}
                     {@const dragNodeIndex = dragColNodes.findIndex((n) => n.id === dragStartId)}
                     {@const dragHue = (275 + (dragNodeIndex >= 0 ? dragNodeIndex : 0) * 6) % 360}
-                    {@const dragColor = dragSourceNode?.color || `hsl(${dragHue}, 80%, 65%)`}
+                    {@const isDragSidechain = dragStartPortType === "sidechain" || hoverTargetPortType === "sidechain"}
+                    {@const dragColor = isDragSidechain ? "#f59e0b" : dragSourceNode?.color || `hsl(${dragHue}, 80%, 65%)`}
                     {@const dx = Math.max(20, Math.abs(dragCurrentPos.x - dragFromPos.x) / 2)}
                     {@const sign = dragStartPortType === "out" ? 1 : -1}
-                    <path d="M {dragFromPos.x} {dragFromPos.y} C {dragFromPos.x + dx * sign} {dragFromPos.y}, {dragCurrentPos.x - dx * sign} {dragCurrentPos.y}, {dragCurrentPos.x} {dragCurrentPos.y}" stroke={dragColor} class="drag-path" />
+                    <path d="M {dragFromPos.x} {dragFromPos.y} C {dragFromPos.x + dx * sign} {dragFromPos.y}, {dragCurrentPos.x - dx * sign} {dragCurrentPos.y}, {dragCurrentPos.x} {dragCurrentPos.y}" stroke={dragColor} class="drag-path" style={isDragSidechain ? "z-index: 5;" : ""} />
                 {/if}
             </svg>
 
@@ -631,7 +809,7 @@
                                             onMouseDown={(e, portType, chIdx) => handlePortMouseDown(e, node.id, column.type, portType, chIdx)}
                                             onMouseEnter={() => handleNodeMouseEnter(node.id, column.type)}
                                             onMouseLeave={() => handleNodeMouseLeave(node.id)}
-                                            onMouseEnterPort={handlePortMouseEnter}
+                                            onMouseEnterPort={(e, portType = "in") => handlePortMouseEnter(e, portType)}
                                             onMouseLeavePort={handlePortMouseLeave}
                                             onHoverPort={(_e, portType, chIdx) => handleHoverPort(node.id, portType, chIdx)}
                                             onHoverPortEnd={handleHoverPortEnd}
@@ -657,10 +835,10 @@
                                                         onMouseDown={(e, portType, chIdx) => handlePortMouseDown(e, sub.id, column.type, portType, chIdx)}
                                                         onMouseEnter={() => handleNodeMouseEnter(sub.id, column.type)}
                                                         onMouseLeave={() => handleNodeMouseLeave(sub.id)}
-                                                        onMouseEnterPort={(e) => {
+                                                        onMouseEnterPort={(e, portType = "in") => {
                                                             if (isConnecting) {
                                                                 hoverTargetId = sub.id
-                                                                handlePortMouseEnter(e)
+                                                                handlePortMouseEnter(e, portType)
                                                             }
                                                         }}
                                                         onMouseLeavePort={handlePortMouseLeave}
@@ -675,7 +853,7 @@
                                 {/if}
                             {/each}
 
-                            {#if column.type === "channel" || column.type === "merger"}
+                            {#if column.type === "channel"}
                                 <MaterialButton variant="outlined" icon="add" on:click={addChannel} white />
                             {/if}
                         </div>
@@ -749,6 +927,10 @@
         transition:
             stroke-width 0.15s ease,
             opacity 0.2s ease;
+    }
+
+    .connection-path.sidechain-path {
+        stroke-dasharray: 6 4;
     }
 
     .connection-path.disabled {
