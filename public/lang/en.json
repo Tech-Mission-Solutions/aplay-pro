@@ -508,6 +508,7 @@
         "change_name": "Change name on",
         "choose_screen": "Choose screen",
         "choose_output": "Choose output type",
+        "choose_output_input": "Choose Input Type",
         "choose_style": "Choose style preset",
         "change_output_values": "Change output values",
         "output_selector": "Output selector",

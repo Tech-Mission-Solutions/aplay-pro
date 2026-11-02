@@ -22,10 +22,9 @@
     import Styles from "./tabs/Styles.svelte"
     import StylesButtons from "./tabs/StylesButtons.svelte"
     import StylesTabs from "./tabs/StylesTabs.svelte"
-    import Theme from "./tabs/Theme.svelte"
-    import ThemeButtons from "./tabs/ThemeButtons.svelte"
-    import ThemeTabs from "./tabs/ThemeTabs.svelte"
 
+    // Theme customization is disabled for APlay Pro, including restored selections.
+    $: if ($settingsTab === "theme") settingsTab.set("general")
     $: tabId = $settingsTab
 
     let scrolled = false
@@ -60,8 +59,6 @@
                 <MaterialButton title="actions.reset" icon="reset" on:click={resetAudioRouting} />
             {:else if tabId === "profiles"}
                 <ProfilesButtons />
-            {:else if tabId === "theme"}
-                <ThemeButtons />
             {:else if tabId === "display_settings"}
                 <MaterialButton title="create_show.more_options" on:click={() => (showGlobalOutputOptions = !showGlobalOutputOptions)}>
                     <Icon id="options" white={!showGlobalOutputOptions} />
@@ -89,8 +86,6 @@
             <Files />
         {:else if tabId === "profiles"}
             <Profiles />
-        {:else if tabId === "theme"}
-            <Theme />
         {:else if tabId === "ai"}
             <SmartSettings />
         {:else if tabId === "other"}
@@ -109,8 +104,6 @@
             <FilesButtons />
         {:else if tabId === "profiles"}
             <ProfilesTabs />
-        {:else if tabId === "theme"}
-            <ThemeTabs />
         {:else if tabId === "other"}
             <OtherButtons />
         {/if}

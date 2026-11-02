@@ -54,8 +54,7 @@
     function downloadLatest() {
         if (!hasUpdate || !latestVersion) return
 
-        const isBeta = latestVersion.includes("-beta")
-        sendMain(Main.URL, isBeta ? "https://github.com/ChurchApps/FreeShow/releases" : "https://freeshow.app/?download")
+        sendMain(Main.URL, "https://joinamazing.com/downloads")
     }
 
     onMount(checkUpdates)

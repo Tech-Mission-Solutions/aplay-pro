@@ -11,19 +11,20 @@
     $: profile = $profiles[$activeProfile || ""]
     $: if (profile) activeTabs = clone(settingsTabs).filter((tabId) => profile.access.settings?.[tabId] !== "none")
     else activeTabs = clone(settingsTabs)
+    $: selectableTabs = activeTabs.filter((tab) => tab !== "theme")
 
     function keydown(e: KeyboardEvent) {
         if (e.target?.closest?.(".edit") || e.ctrlKey || e.metaKey) return
 
         let nextTab = -1
-        let currentTabIndex = activeTabs.findIndex((tab) => tab === $settingsTab)
+        let currentTabIndex = selectableTabs.findIndex((tab) => tab === $settingsTab)
 
         if (e.key === "ArrowDown") {
             e.preventDefault()
 
-            nextTab = Math.min(activeTabs.length - 1, currentTabIndex + 1)
+            nextTab = Math.min(selectableTabs.length - 1, currentTabIndex + 1)
 
-            if ((currentTabIndex + 1 >= activeTabs.length || $settingsTab === "profiles") && !activeTabs.includes("profiles")) {
+            if ((currentTabIndex + 1 >= selectableTabs.length || $settingsTab === "profiles") && !selectableTabs.includes("profiles")) {
                 settingsTab.set("profiles")
                 return
             }
@@ -34,7 +35,7 @@
         }
 
         if (nextTab < 0) return
-        settingsTab.set(activeTabs[nextTab] || "profiles")
+        settingsTab.set(selectableTabs[nextTab] || "profiles")
     }
 </script>
 
@@ -49,7 +50,7 @@
 
 <div class="main">
     {#each activeTabs as tab}
-        <Button id="button" on:click={() => settingsTab.set(tab)} active={$settingsTab === tab} bold={false}>
+        <Button id="button" on:click={() => settingsTab.set(tab)} active={$settingsTab === tab} disabled={tab === "theme"} bold={false}>
             <Icon id={tab} right white={$settingsTab === tab} />
             <p style="margin: 5px;"><T id="settings.{tab}" /></p>
         </Button>

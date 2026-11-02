@@ -685,8 +685,7 @@ const settings = [
         icon: "files",
         aliases: ["settings.autosave", "settings.auto_backup", "settings.data_location", "settings.cloud", "-Cloud sync", "-Sync", "settings.backup_all", "settings.restore"]
     },
-    { id: "profiles", name: "settings.profiles", icon: "profiles" },
-    { id: "theme", name: "settings.theme", icon: "theme" }
+    { id: "profiles", name: "settings.profiles", icon: "profiles" }
     // { id: "other", name: "settings.other", icon: "other" }
 ]
 
